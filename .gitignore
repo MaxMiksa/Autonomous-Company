@@ -194,6 +194,7 @@ docs/*/*
 !docs/devops/app-230-mcp-wiring.md
 !docs/devops/app-250-crash-alarm.md
 !docs/devops/env-ownership.md
+!docs/devops/runbook-container-jcode-claude-agent.md
 !docs/handoff.html
 # Ignore all memories (keep folder marker only)
 memories/*
