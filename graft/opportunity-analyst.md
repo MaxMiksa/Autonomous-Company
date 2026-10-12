@@ -9,13 +9,21 @@ sources:
   - path: scripts/analyst/merge_registry.py
     hash: 55719338148054fff06780400062453a037e4bf10fe5817f04536b5c85ade7d1
   - path: scripts/analyst/opportunity-analyst-jcode.sh
-    hash: 398419cd343d1d3966a5291a0e7898568814cdf2073e6611e6989bea055ec438
+    hash: b3453b9880adcc95bc886501514c4a02c269721ac9ab6da94950a767553cc324
   - path: scripts/analyst/opportunity-analyst.sh
     hash: a0a766435a1f9e501b97cca96bb30314440de72fd569313488d3b80d5f9c55a5
   - path: scripts/analyst/promote_directive.py
     hash: 9c45147f1730fc30545b94a30428d54e0bd40f04506aa3db00614880ec93d677
-sources_digest: 37ca8e954bbd18e5d58fa94bcc25125fc27b798594f49f4d4de3b535aef301a3
-links: []
+sources_digest: 886ba5ef5aff8f1d7a216e21355b234744d030b0e741fdd48c667e7341ee054b
+links:
+  - to: directive-write-gate
+    relation: uses
+    description: >-
+      promote_directive.py and directive_writer.py gate any human-directive.md
+      overwrite
+  - to: registry-merge-invariants
+    relation: implements
+    description: merge_registry.py enforces the live-span-only merge with invariant checks
 generator:
   version: 1
 covers:
@@ -80,7 +88,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Independent 'second-brain' auditor (APP-221) that analyzes the Tender Track portfolio and produces a decision report plus candidate-registry update. Two implementations exist: the legacy Codex-based opportunity-analyst.sh (three passes: draft report, registry live-span merge via merge_registry.py, deterministic promotion gate via promote_directive.py) and the newer jcode-based opportunity-analyst-jcode.sh (single-pass, retiring passes 2 and 3 per the 2026-08-24 re-charter). Both never auto-apply directives (snapshot/restore with hash check), avoid passing large file contents as prompt args to prevent E2BIG, record session IDs to analyst-*-sessions.log for budget exclusion, and treat cost-audit failures as non-fatal while model/output failures trigger a single retry then hard failure.
+An independent 'second-brain' that invokes an LLM (Codex gpt-5.6-sol or jcode/Claude Opus 5.5) with the autocompany-opportunity-director skill to analyze the Tender Track portfolio and produce a decision report plus a candidate-registry update. Runs three passes: writes a draft report (never auto-applied), extracts and splices only the live span of candidate-registry.md via merge_registry.py with invariant checks, and runs a deterministic promotion gate. Never auto-applies directives (snapshot/restore with hash check), avoids passing large file contents as prompt arguments (E2BIG), and records session IDs to logs for budget exclusion. The jcode variant enforces a 131072-byte argv limit (guarded at 126000) and persists raw ndjson streams for cost calibration.
+
+## Related
+
+- uses [[directive-write-gate]] — promote_directive.py and directive_writer.py gate any human-directive.md overwrite
+- implements [[registry-merge-invariants]] — merge_registry.py enforces the live-span-only merge with invariant checks
 <!-- context:generated:end -->
 
 ## Notes

@@ -12,7 +12,12 @@ sources:
   - path: projects/headinspect/src/render.ts
     hash: 3792b2bd4004ee751d9ae6647d0fc58d9708ef758ad6bfda6beb0a4314bd8883
 sources_digest: cb61b3ccfe05c907fe9c1d45e555e1e03b1607816df1e7ac11b12c3268891960
-links: []
+links:
+  - to: snapog-og-image-service
+    relation: uses
+    description: >-
+      Both are Cloudflare Workers; HeadInspect's badge rendering mirrors the
+      shields.io-flavoured SVG approach
 generator:
   version: 1
 covers:
@@ -125,7 +130,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Cloudflare Worker that fetches a user-supplied URL and reports on its response headers with a security letter grade. Strict SSRF protections via validateUrl and isBlockedHost (rejects non-HTTPS, localhost, private IP ranges, cloud metadata endpoints), follows up to 5 redirects manually, drains bodies to free sockets, 10s AbortController timeout. Pure logic in inspect.ts: deterministic category ordering, regex-based best-effort split for multi-cookie set-cookie (due to Cloudflare's joining behavior), grading that penalizes fingerprint-leaking headers and caps at C when no enforced CSP. Single-template HTML renderer with inline CSS, no client framework; badge endpoint always returns 200 with edge caching so broken embeds never render as broken images. Privacy constraint: only hostname stored, never full URL, to prevent query-string PII leaks.
+A Cloudflare Worker that fetches a user-supplied URL and reports on its response headers with a security letter grade. Enforces strict SSRF protections (rejects non-HTTPS, localhost, private IP ranges, cloud metadata endpoints), follows up to five redirects manually, drains bodies to free sockets, and applies a 10-second timeout. Pure logic in inspect.ts has no I/O: deterministic category ordering, a regex-based best-effort split for multi-cookie set-cookie values (due to Cloudflare's joining behavior), and a grading scheme that penalizes fingerprint-leaking headers and caps the grade at C when no enforced CSP is present. The badge endpoint always returns HTTP 200 with edge caching so broken embeds never render as broken images. Privacy constraint: only the hostname is stored, never the full URL, to prevent query strings leaking PII.
+
+## Related
+
+- uses [[snapog-og-image-service]] — Both are Cloudflare Workers; HeadInspect's badge rendering mirrors the shields.io-flavoured SVG approach
 <!-- context:generated:end -->
 
 ## Notes

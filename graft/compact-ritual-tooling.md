@@ -14,7 +14,12 @@ sources:
   - path: scripts/compact-resume-lint.py
     hash: 721ece8bebbdbef80a1b67bb8573a3083b213175e0bda2277a9c46b976c300e1
 sources_digest: 6e11740780dc883b8f9529d0b785c680a65f78067736607b6fb743ec07d0f06f
-links: []
+links:
+  - to: autonomous-loop
+    relation: uses
+    description: >-
+      compact-report.py does a single SSH round-trip to read the cockpit state
+      file and check loop liveness
 generator:
   version: 1
 covers:
@@ -91,7 +96,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A family of hook scripts and helpers that mechanize the Claude Code compact ritual. compact_yol.py computes repo-specific temp paths (replacing shared /tmp paths that caused cross-project collisions), never raises (hooks fail open), and derives repo root from file location not CWD. compact-preflight.py scans git repos for uncommitted/unpushed/stash risk and validates resume freshness (mtime under 3h plus lint), with a one-shot auto-block (second attempt always passes) to surface errors at hard context limits. compact-resume-lint.py enforces the 'foreign-reader test' — no stale numeric measurements (costs, queue counts, budget figures) and all mandatory template sections present, with forbidden patterns derived from real past incidents. compact-postcheck.py audits whether the generated compact_summary carried the five critical anchor sections (İLK İŞ, KARAR, DOĞRULANMAMIŞ, BEKLEYEN, İZLEYİCİ), framed as a canary not proof. compact-report.py answers 'where is the company operationally?' via repo↔prod sync, OPREQ, directives, holds, and loop health, using SSH only with BatchMode and timeouts, fail-open on every measurement.
+A set of hooks and helpers that mechanize the Claude Code compact ritual: repo-specific temp paths (compact_yol.py, replacing shared /tmp paths that caused cross-project collisions), a preflight that scans git repos for uncommitted/unpushed/stash risk and validates resume freshness (with a one-shot auto-block via a 30-minute TTL marker), a resume linter enforcing the 'foreign-reader test' (no stale numeric measurements, mandatory sections present, regexes derived from real past incidents), a postcheck canary verifying the compact_summary carries critical anchor sections, and an operational digest reporting repo↔prod sync, OPREQ, directives, holds, and loop health. All fail open and never block compact except the deliberate one-shot preflight auto-block.
+
+## Related
+
+- uses [[autonomous-loop]] — compact-report.py does a single SSH round-trip to read the cockpit state file and check loop liveness
 <!-- context:generated:end -->
 
 ## Notes

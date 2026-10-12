@@ -11,20 +11,19 @@ sources:
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
 sources_digest: c3eeec88fbadc17427d51f65b1a682adbd4d4eb429313cc3a6c06273f937d76d
 links:
-  - to: auto-loop-orchestration
+  - to: autonomous-loop
     relation: uses
     description: >-
-      Polls /api/status and controls the loop via /api/hold and /api/directive;
-      reads state files the loop writes.
-  - to: directive-writer-gate
+      dashboard polls /api/status and controls the loop via /api/hold, replacing
+      the container no-op Start/Stop
+  - to: directive-write-gate
     relation: uses
     description: >-
-      Routes all human-directive.md writes through
-      scripts/core/directive_writer.py which locks and gates on in-flight
-      PENDING directives.
-  - to: sentry-reporter
+      server.py routes all human-directive.md writes through directive_writer.py
+      which locks and gates on in-flight PENDING directives
+  - to: sentry-error-reporting
     relation: uses
-    description: Server error reporting goes through the external sentry_client library.
+    description: server.py reports errors via the external sentry_client library
 generator:
   version: 1
 covers:
@@ -374,13 +373,13 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Browser-side SPA controller plus its stdlib-only HTTP server and Sentry reporter. The server (ThreadingHTTPServer) abstracts Windows/macOS/Linux host control, reads/writes state files (human-directive.md, operator-requests/decisions, runtime.env via a SETTINGS_SPEC whitelist that prevents persisting secrets), and exposes REST endpoints (/api/status, /api/hold, /api/directive, /api/ideas, /api/tool-usage). The browser app polls /api/status on a timer, renders live state cards, and provides the only real loop control (setHold) plus a directive editor with an allowPending retry flow to override a live PENDING directive. Notable invariants: log files are read with a 256KB tail window because auto-loop.log grows across redeploys; file decoding tries utf-8/utf-8-sig/gb18030/cp936 for Windows; the consensus panel refuses to overwrite while the operator is reading the full file; the ccusage block fails open (hidden when unavailable); tool-usage is a real table because the proportional Rajdhani font makes character-padding impossible.
+Browser-side SPA controller plus a stdlib-only ThreadingHTTPServer backend that monitors and controls the autonomous loop. The frontend polls /api/status and renders live state cards, cost/usage panels, a directive editor, settings form, and log/consensus views; the backend abstracts host platforms (Windows/WSL/macOS/Linux), reads/writes state files, and routes directive writes through the deterministic directive_writer.py gate. All state flows through REST endpoints with no external libraries; UI strings are mixed Turkish/English.
 
 ## Related
 
-- uses [[auto-loop-orchestration]] — Polls /api/status and controls the loop via /api/hold and /api/directive; reads state files the loop writes.
-- uses [[directive-writer-gate]] — Routes all human-directive.md writes through scripts/core/directive_writer.py which locks and gates on in-flight PENDING directives.
-- uses [[sentry-reporter]] — Server error reporting goes through the external sentry_client library.
+- uses [[autonomous-loop]] — dashboard polls /api/status and controls the loop via /api/hold, replacing the container no-op Start/Stop
+- uses [[directive-write-gate]] — server.py routes all human-directive.md writes through directive_writer.py which locks and gates on in-flight PENDING directives
+- uses [[sentry-error-reporting]] — server.py reports errors via the external sentry_client library
 <!-- context:generated:end -->
 
 ## Notes

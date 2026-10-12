@@ -6,7 +6,12 @@ sources:
   - path: scripts/analyst/merge_registry.py
     hash: 55719338148054fff06780400062453a037e4bf10fe5817f04536b5c85ade7d1
 sources_digest: 5ff39050e2ffebfcb89290b663b10deb8e198c076c45e5893acf920e54d83301
-links: []
+links:
+  - to: opportunity-analyst
+    relation: part_of
+    description: >-
+      Used in pass 2 of the analyst to splice the model-proposed registry
+      replacement
 generator:
   version: 1
 covers:
@@ -56,7 +61,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Deterministic PASS-2 merge tool that surgically replaces only the 'live decision state' span of candidate-registry.md (between ## Selected and ## Exhausted patterns / lessons) while leaving the ~180KB append-only historical journal byte-identical. Enforces invariants: no candidate ID may disappear, no duplicate axes, and the identity (axis) of active candidates cannot be rewritten — only verdict changes are allowed. Heading matching uses regex on heading text (not whitespace) to survive cosmetic markdown edits; ID extraction anchors to table-cell starts or bullet heads to avoid prose false positives; supports @/path dereference; fail-closed with read-back verification and original restoration on failure. Never trusts model instruction-following — proves prefix/suffix byte-identity via exact string slicing and hashes.
+merge_registry.py surgically replaces only the 'live decision state' span of candidate-registry.md (between ## Selected and ## Exhausted patterns / lessons headings) while leaving the ~180KB append-only historical journal byte-identical. Enforces invariants: no candidate ID may disappear, no duplicate axes, and the identity (axis) of active candidates cannot be rewritten — only verdict changes are allowed. Heading matching uses regex on heading text (not whitespace) to survive cosmetic markdown edits; ID extraction anchors to table-cell starts to avoid false positives; and the script proves prefix/suffix byte-identity via exact string slicing and hashes, restoring the original on failure.
+
+## Related
+
+- part of [[opportunity-analyst]] — Used in pass 2 of the analyst to splice the model-proposed registry replacement
 <!-- context:generated:end -->
 
 ## Notes

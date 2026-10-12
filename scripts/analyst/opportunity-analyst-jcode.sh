@@ -64,7 +64,11 @@ PROVIDER="${ANALYST_PROVIDER:-claude}"
 MODEL="${ANALYST_MODEL:-claude-opus-5-5}"
 # Operator caps effort at "high" — respect it; do not override the default.
 EFFORT="${ANALYST_EFFORT:-high}"
-TIMEOUT="${ANALYST_TIMEOUT:-1500}"
+# 1500 -> 2400 (2026-10-12): the first claude-opus-5-5 canary pass was killed by `timeout` at
+# exactly 1500 s mid tool-call (no done event -> priced as UNKNOWN MODEL x5), and only the
+# retry pass finished (19 min). Opus 5.5 at effort=high reads more before writing; 40 min
+# keeps a single pass inside the window. Weekly cadence makes the extra wall time cheap.
+TIMEOUT="${ANALYST_TIMEOUT:-2400}"
 STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 JQUIET=(--quiet --no-update --no-selfdev)
 export JCODE_NO_TELEMETRY=1

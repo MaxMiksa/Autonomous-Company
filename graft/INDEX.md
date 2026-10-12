@@ -19,7 +19,7 @@ graph, not in these files: `graft callers <symbol>` is the only way to read them
 - [auto-company-site-pages-functions](auto-company-site-pages-functions.md) — Auto-Company Site Pages Functions · projects/auto-company-site/functions/listeden-cik.js, projects/auto-company-site/functions/randevu.js
 - [auto-loop-core-engine](auto-loop-core-engine.md) — auto-loop core engine · scripts/core/auto-loop.sh
 - [auto-loop-harness](auto-loop-harness.md) — Auto-loop harness · tests/test_active_window.sh, tests/test_auto_loop_consensus_prune.sh, tests/test_auto_loop_ledger_guard.sh, tests/test_auto_loop_work_window.sh, tests/test_budget_gates.sh, tests/test_ccusage_failclosed.sh, tests/test_codex_spend_sources.sh
-- [auto-loop-orchestration](auto-loop-orchestration.md) — Auto Loop Orchestration · scripts/core/auto-loop.sh
+- [autonomous-loop](autonomous-loop.md) — Autonomous Loop · scripts/core/auto-loop.sh
 - [bridge-leak-scanner](bridge-leak-scanner.md) — Bridge Leak Scanner · scripts/core/bridge_leak_scan.py
 - [browse-extract-mcp-gateway-client](browse-extract-mcp-gateway-client.md) — browse-extract MCP gateway client · tests/test_browse_extract.sh
 - [browser-extraction-harness](browser-extraction-harness.md) — Browser Extraction Harness · scripts/ops/browse-extract.py
@@ -28,7 +28,7 @@ graph, not in these files: `graft callers <symbol>` is the only way to read them
 - [compact-ritual-tooling](compact-ritual-tooling.md) — Compact Ritual Tooling · scripts/compact_yol.py, scripts/compact-postcheck.py, scripts/compact-preflight.py, scripts/compact-report.py, scripts/compact-resume-lint.py
 - [consensus-document-pruning](consensus-document-pruning.md) — Consensus document pruning · tests/test_auto_loop_consensus_prune.sh, tests/test_consensus_prune.py
 - [consensus-memory-management](consensus-memory-management.md) — Consensus Memory Management · scripts/ops/consensus-prune.py, scripts/ops/idle-skip-note.py, scripts/ops/ledger-guard.py, scripts/ops/registry-archive.py
-- [container-entrypoint-boot](container-entrypoint-boot.md) — Container Entrypoint & Boot · docker-entrypoint.sh
+- [container-entrypoint-state-persistence](container-entrypoint-state-persistence.md) — Container Entrypoint & State Persistence · docker-entrypoint.sh
 - [content-hash-provenance](content-hash-provenance.md) — Content-Hash Provenance · scripts/core/decision_text_hash.py, scripts/ops/kik-decision-read.py
 - [context-watch-hook](context-watch-hook.md) — Context Watch Hook · scripts/context-watch.py
 - [context7-compliance-check](context7-compliance-check.md) — Context7 Compliance Check · scripts/ops/context7-check.py
@@ -38,8 +38,7 @@ graph, not in these files: `graft callers <symbol>` is the only way to read them
 - [cycle-cost-risk-audit](cycle-cost-risk-audit.md) — Cycle cost & risk audit · scripts/ops/tool-usage-audit.py, scripts/ops/turn-audit.py, scripts/ops/web-research-cost.py
 - [cycle-metadata-extraction](cycle-metadata-extraction.md) — cycle metadata extraction · scripts/core/auto-loop.sh, scripts/core/codex-final-text.py, tests/test_cycle_metadata.sh
 - [dashboard-server](dashboard-server.md) — dashboard server · dashboard/server.py, tests/test_dashboard_server.py
-- [directive-promotion-gate](directive-promotion-gate.md) — Directive Promotion Gate · scripts/analyst/promote_directive.py
-- [directive-writer-gate](directive-writer-gate.md) — Directive Writer Gate · dashboard/server.py, scripts/analyst/opportunity-analyst-jcode.sh, scripts/analyst/opportunity-analyst.sh
+- [directive-write-gate](directive-write-gate.md) — Directive Write Gate · dashboard/server.py, scripts/analyst/opportunity-analyst-jcode.sh, scripts/analyst/opportunity-analyst.sh, scripts/analyst/promote_directive.py
 - [docker-disk-guard](docker-disk-guard.md) — Docker Disk Guard · scripts/ops/docker-prune-safe.sh
 - [docker-entrypoint](docker-entrypoint.md) — docker-entrypoint · docker-entrypoint.sh
 - [engine-usage-cost-adapter](engine-usage-cost-adapter.md) — Engine usage cost adapter · tests/test_cost_model_hint.sh
@@ -77,21 +76,22 @@ graph, not in these files: `graft callers <symbol>` is the only way to read them
 - [rfq-send-pipeline](rfq-send-pipeline.md) — RFQ send pipeline · scripts/ops/rfq_template.py, scripts/ops/rfq-send.py
 - [rfq-sender](rfq-sender.md) — RFQ sender · scripts/ops/rfq-send.py, tests/test_rfq_send.sh
 - [send-gate-py-eligibility-brake](send-gate-py-eligibility-brake.md) — send-gate.py eligibility brake · scripts/ops/send-gate.py
-- [sentry-reporter](sentry-reporter.md) — Sentry Reporter · dashboard/sentry_client.py
+- [sentry-error-reporting](sentry-error-reporting.md) — Sentry Error Reporting · dashboard/sentry_client.py
 - [session-brief-hook](session-brief-hook.md) — Session brief hook · scripts/session-brief.py
 - [set-e-lint-invariant](set-e-lint-invariant.md) — set -e lint invariant · docker-entrypoint.sh, scripts/core/auto-loop.sh, tests/test_seteshape_lint.py
 - [site-contact-evidence](site-contact-evidence.md) — Site Contact Evidence · scripts/ops/g4-check.py
-- [snapog-cost-alerting](snapog-cost-alerting.md) — SnapOG Cost Alerting · projects/_archive/snapog/src/alerts/check.ts, projects/_archive/snapog/src/alerts/graphql.ts, projects/_archive/snapog/src/alerts/index.ts, projects/_archive/snapog/src/alerts/thresholds.ts, projects/_archive/snapog/src/alerts/webhook.ts
-- [snapog-d1-schema](snapog-d1-schema.md) — SnapOG D1 Schema · projects/_archive/snapog/migrations/0001_init.sql, projects/_archive/snapog/migrations/0002_waitlist.sql, projects/_archive/snapog/migrations/0003_cache_key_tracking.sql
-- [snapog-north-star-metric](snapog-north-star-metric.md) — SnapOG North-Star Metric · docs/operations/north-star-metric-query.sql
-- [snapog-og-image-service](snapog-og-image-service.md) — SnapOG OG Image Service · projects/_archive/snapog/src/dashboard/pages.ts, projects/_archive/snapog/src/index.ts, projects/_archive/snapog/src/og/render.ts, projects/_archive/snapog/src/og/templates.ts, projects/_archive/snapog/src/types.ts
-- [snapog-validation-scripts](snapog-validation-scripts.md) — SnapOG Validation Scripts · projects/_archive/snapog/sample/alerts-dry-run.sh, projects/_archive/snapog/sample/cache-cap-test.sh, projects/_archive/snapog/sample/smoke-test.sh
+- [snapog-cost-alerting](snapog-cost-alerting.md) — SnapOG Cost Alerting · projects/_archive/snapog/sample/alerts-dry-run.sh, projects/_archive/snapog/src/alerts/check.ts, projects/_archive/snapog/src/alerts/graphql.ts, projects/_archive/snapog/src/alerts/index.ts, projects/_archive/snapog/src/alerts/thresholds.ts, projects/_archive/snapog/src/alerts/webhook.ts
+- [snapog-landing-dashboard-pages](snapog-landing-dashboard-pages.md) — SnapOG Landing & Dashboard Pages · projects/_archive/snapog/src/dashboard/pages.ts
+- [snapog-north-star-metric-sql](snapog-north-star-metric-sql.md) — SnapOG North-Star Metric SQL · docs/operations/north-star-metric-query.sql
+- [snapog-og-image-service](snapog-og-image-service.md) — SnapOG OG Image Service · projects/_archive/snapog/migrations/0001_init.sql, projects/_archive/snapog/migrations/0002_waitlist.sql, projects/_archive/snapog/migrations/0003_cache_key_tracking.sql, projects/_archive/snapog/src/index.ts, projects/_archive/snapog/src/og/render.ts, projects/_archive/snapog/src/og/templates.ts, projects/_archive/snapog/src/types.ts
+- [snapog-smoke-tests](snapog-smoke-tests.md) — SnapOG Smoke Tests · projects/_archive/snapog/sample/alerts-dry-run.sh, projects/_archive/snapog/sample/cache-cap-test.sh, projects/_archive/snapog/sample/smoke-test.sh
 - [spending-control-budget-gates](spending-control-budget-gates.md) — spending control & budget gates · scripts/core/auto-loop.sh, scripts/ops/send-gate.py, tests/test_discretionary_budget.sh, tests/test_send_gate.sh, tests/test_tier_ladder_daily.sh
 - [state-snapshot-py-probe](state-snapshot-py-probe.md) — state-snapshot.py probe · scripts/ops/state-snapshot.py
 - [tool-surface-compliance](tool-surface-compliance.md) — Tool Surface Compliance · scripts/core/jcode-mcp-probe.py, scripts/ops/cost-audit.py
 - [turn-bloat-brake-py-escalation](turn-bloat-brake-py-escalation.md) — turn-bloat-brake.py escalation · scripts/ops/turn-bloat-brake.py
 - [turn-economy-audit](turn-economy-audit.md) — turn economy & audit · scripts/ops/tool-usage-audit.py, scripts/ops/turn-audit.py, scripts/ops/turn-bloat-brake.py, tests/test_tool_usage_audit.sh, tests/test_turn_audit.sh, tests/test_turn_bloat_brake.py
 - [turn-economy-trend-watch](turn-economy-trend-watch.md) — Turn Economy Trend Watch · scripts/ops/bloat-trend.py
+- [waitlist-capture](waitlist-capture.md) — Waitlist Capture · projects/_archive/snapog-landing/functions/api/waitlist.ts
 - [work-window-brake-watchdog](work-window-brake-watchdog.md) — Work-window brake & watchdog · scripts/ops/work-window-watchdog.py, scripts/ops/work-window.py
 - [work-window-watchdog](work-window-watchdog.md) — work window & watchdog · scripts/ops/work-window-watchdog.py, scripts/ops/work-window.py, tests/test_work_window_watchdog.py, tests/test_work_window.py
 - [wowcar-revenue-relabel-acceptance](wowcar-revenue-relabel-acceptance.md) — Wowcar revenue relabel acceptance · scripts/ops/wowcar-revenue-vocabulary-acceptance.py

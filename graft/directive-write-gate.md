@@ -1,16 +1,26 @@
 ---
-name: Directive Writer Gate
-slug: directive-writer-gate
+name: Directive Write Gate
+slug: directive-write-gate
 type: concept
 sources:
   - path: dashboard/server.py
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
   - path: scripts/analyst/opportunity-analyst-jcode.sh
-    hash: 398419cd343d1d3966a5291a0e7898568814cdf2073e6611e6989bea055ec438
+    hash: b3453b9880adcc95bc886501514c4a02c269721ac9ab6da94950a767553cc324
   - path: scripts/analyst/opportunity-analyst.sh
     hash: a0a766435a1f9e501b97cca96bb30314440de72fd569313488d3b80d5f9c55a5
-sources_digest: 05e2127ac3d3016e4c3d28c45387ff79c04e980c496a6c93a10590d39eec66aa
-links: []
+  - path: scripts/analyst/promote_directive.py
+    hash: 9c45147f1730fc30545b94a30428d54e0bd40f04506aa3db00614880ec93d677
+sources_digest: e2ae39f6edc4806ff66ffd9854a231d6ce28a2a3de6bf0bae02a143696166fad
+links:
+  - to: cockpit-dashboard
+    relation: uses
+    description: server.py routes directive writes through this gate
+  - to: opportunity-analyst
+    relation: uses
+    description: >-
+      promote_directive.py and the analyst scripts use directive_writer.py for
+      safe snapshot/restore of human-directive.md
 generator:
   version: 1
 covers:
@@ -218,11 +228,31 @@ covers:
   - symbol: main
     kind: function
     at: 'dashboard/server.py:L1983-L2005'
+  - symbol: sha256
+    kind: function
+    at: 'scripts/analyst/promote_directive.py:L91-L92'
+  - symbol: audit
+    kind: function
+    at: 'scripts/analyst/promote_directive.py:L95-L98'
+  - symbol: blocked
+    kind: function
+    at: 'scripts/analyst/promote_directive.py:L101-L104'
+  - symbol: notify
+    kind: function
+    at: 'scripts/analyst/promote_directive.py:L107-L113'
+  - symbol: main
+    kind: function
+    at: 'scripts/analyst/promote_directive.py:L116-L225'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-The single deterministic writer for memories/human-directive.md, used by both the dashboard and the analyst. Locks the file, gates on in-flight PENDING directives, and refuses clobbering unless allow_pending is set. This is the load-bearing invariant that prevents concurrent writers (dashboard operator vs. analyst) from overwriting each other's in-flight work.
+A deterministic, fail-closed gate (directive_writer.py) that is the single route for all writes to memories/human-directive.md. It locks, gates on in-flight PENDING directives, and refuses clobbering unless allow_pending is set. The dashboard's submitDirective deliberately uses an allowPending retry flow to override a live PENDING directive, and the Opportunity Analyst's promote_directive.py requires the live directive's Status to be DONE before promotion. This invariant — no write to human-directive.md outside this gate — is load-bearing across the dashboard, analyst, and loop.
+
+## Related
+
+- uses [[cockpit-dashboard]] — server.py routes directive writes through this gate
+- uses [[opportunity-analyst]] — promote_directive.py and the analyst scripts use directive_writer.py for safe snapshot/restore of human-directive.md
 <!-- context:generated:end -->
 
 ## Notes

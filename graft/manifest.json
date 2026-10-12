@@ -1,7 +1,7 @@
 {
   "version": 1,
   "model": "openai:deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
-  "repoDigest": "fa53a823ab42fd2632f3c659ce6f18743b51e8225e35a957d9aeaf5f0effee38",
+  "repoDigest": "f80e5f841462280c644ac3f9bbc06323176f25c31a42dfc134b190efc36c1547",
   "files": [
     {
       "path": "dashboard/app.js",
@@ -129,7 +129,7 @@
     },
     {
       "path": "scripts/analyst/opportunity-analyst-jcode.sh",
-      "hash": "398419cd343d1d3966a5291a0e7898568814cdf2073e6611e6989bea055ec438"
+      "hash": "b3453b9880adcc95bc886501514c4a02c269721ac9ab6da94950a767553cc324"
     },
     {
       "path": "scripts/analyst/opportunity-analyst.sh",
@@ -713,8 +713,8 @@
       "sourcesDigest": "2dd78516d34c5ab8431049466cf3e95e0cc7bbbae578d6701eee302cba740f09"
     },
     {
-      "slug": "auto-loop-orchestration",
-      "name": "Auto Loop Orchestration",
+      "slug": "autonomous-loop",
+      "name": "Autonomous Loop",
       "type": "system",
       "sources": [
         "scripts/core/auto-loop.sh"
@@ -807,8 +807,8 @@
       "sourcesDigest": "0b1ac063986b120de8cfcb8136034d58a86a0b99e93babc3634319990a258c64"
     },
     {
-      "slug": "container-entrypoint-boot",
-      "name": "Container Entrypoint & Boot",
+      "slug": "container-entrypoint-state-persistence",
+      "name": "Container Entrypoint & State Persistence",
       "type": "system",
       "sources": [
         "docker-entrypoint.sh"
@@ -905,24 +905,16 @@
       "sourcesDigest": "a00d09651be48cf7015196cad5672555ff241c03a2b27887a7ef361af457aa42"
     },
     {
-      "slug": "directive-promotion-gate",
-      "name": "Directive Promotion Gate",
-      "type": "concept",
-      "sources": [
-        "scripts/analyst/promote_directive.py"
-      ],
-      "sourcesDigest": "529774ce95135d20964e1d42a6242cf44c9928383f17eac44213ac8385a782b9"
-    },
-    {
-      "slug": "directive-writer-gate",
-      "name": "Directive Writer Gate",
+      "slug": "directive-write-gate",
+      "name": "Directive Write Gate",
       "type": "concept",
       "sources": [
         "dashboard/server.py",
         "scripts/analyst/opportunity-analyst-jcode.sh",
-        "scripts/analyst/opportunity-analyst.sh"
+        "scripts/analyst/opportunity-analyst.sh",
+        "scripts/analyst/promote_directive.py"
       ],
-      "sourcesDigest": "05e2127ac3d3016e4c3d28c45387ff79c04e980c496a6c93a10590d39eec66aa"
+      "sourcesDigest": "e2ae39f6edc4806ff66ffd9854a231d6ce28a2a3de6bf0bae02a143696166fad"
     },
     {
       "slug": "docker-disk-guard",
@@ -1199,7 +1191,7 @@
         "scripts/analyst/opportunity-analyst.sh",
         "scripts/analyst/promote_directive.py"
       ],
-      "sourcesDigest": "37ca8e954bbd18e5d58fa94bcc25125fc27b798594f49f4d4de3b535aef301a3"
+      "sourcesDigest": "886ba5ef5aff8f1d7a216e21355b234744d030b0e741fdd48c667e7341ee054b"
     },
     {
       "slug": "opportunity-analyst-cron",
@@ -1305,8 +1297,8 @@
       "sourcesDigest": "5ab131417a8c8279edfc66290905fedf1a1dd1427669fc3449e20dab94f45e26"
     },
     {
-      "slug": "sentry-reporter",
-      "name": "Sentry Reporter",
+      "slug": "sentry-error-reporting",
+      "name": "Sentry Error Reporting",
       "type": "file",
       "sources": [
         "dashboard/sentry_client.py"
@@ -1347,29 +1339,28 @@
       "name": "SnapOG Cost Alerting",
       "type": "system",
       "sources": [
+        "projects/_archive/snapog/sample/alerts-dry-run.sh",
         "projects/_archive/snapog/src/alerts/check.ts",
         "projects/_archive/snapog/src/alerts/graphql.ts",
         "projects/_archive/snapog/src/alerts/index.ts",
         "projects/_archive/snapog/src/alerts/thresholds.ts",
         "projects/_archive/snapog/src/alerts/webhook.ts"
       ],
-      "sourcesDigest": "fe1d8fd6fcb0f308eb0c4072f436e2986ea169f87521e188c20ca981540b20fa"
+      "sourcesDigest": "a023a03dd2af6e7e9df9fb798dd0f07e79cfd170b044341747face1efa394741"
     },
     {
-      "slug": "snapog-d1-schema",
-      "name": "SnapOG D1 Schema",
-      "type": "system",
+      "slug": "snapog-landing-dashboard-pages",
+      "name": "SnapOG Landing & Dashboard Pages",
+      "type": "file",
       "sources": [
-        "projects/_archive/snapog/migrations/0001_init.sql",
-        "projects/_archive/snapog/migrations/0002_waitlist.sql",
-        "projects/_archive/snapog/migrations/0003_cache_key_tracking.sql"
+        "projects/_archive/snapog/src/dashboard/pages.ts"
       ],
-      "sourcesDigest": "8820226ce02d1d9ebb352867760d54a674115efb44b492597558e611bb10dc93"
+      "sourcesDigest": "aa49b78a6522f0383edeedf2bbb936457599ccfbd81b5ce65f2e99c6e243ad03"
     },
     {
-      "slug": "snapog-north-star-metric",
-      "name": "SnapOG North-Star Metric",
-      "type": "concept",
+      "slug": "snapog-north-star-metric-sql",
+      "name": "SnapOG North-Star Metric SQL",
+      "type": "file",
       "sources": [
         "docs/operations/north-star-metric-query.sql"
       ],
@@ -1380,17 +1371,19 @@
       "name": "SnapOG OG Image Service",
       "type": "system",
       "sources": [
-        "projects/_archive/snapog/src/dashboard/pages.ts",
+        "projects/_archive/snapog/migrations/0001_init.sql",
+        "projects/_archive/snapog/migrations/0002_waitlist.sql",
+        "projects/_archive/snapog/migrations/0003_cache_key_tracking.sql",
         "projects/_archive/snapog/src/index.ts",
         "projects/_archive/snapog/src/og/render.ts",
         "projects/_archive/snapog/src/og/templates.ts",
         "projects/_archive/snapog/src/types.ts"
       ],
-      "sourcesDigest": "d4343ceffc68f713a6dcfc6ae45ec31bd030d35d94d34d04ef9190c816f7239c"
+      "sourcesDigest": "fdaeeb7e96b128caaf56f24722d43c264ce856d635c7315a709e6c4879ccc4f1"
     },
     {
-      "slug": "snapog-validation-scripts",
-      "name": "SnapOG Validation Scripts",
+      "slug": "snapog-smoke-tests",
+      "name": "SnapOG Smoke Tests",
       "type": "system",
       "sources": [
         "projects/_archive/snapog/sample/alerts-dry-run.sh",
@@ -1462,6 +1455,15 @@
         "scripts/ops/bloat-trend.py"
       ],
       "sourcesDigest": "3e232ea381ef4bec4947e6f0531d443f974034d08c1e18e714de47abbc332a73"
+    },
+    {
+      "slug": "waitlist-capture",
+      "name": "Waitlist Capture",
+      "type": "file",
+      "sources": [
+        "projects/_archive/snapog-landing/functions/api/waitlist.ts"
+      ],
+      "sourcesDigest": "2eab55af564b0f608bf8be780ff3a47c7384bb204d191cb437072802784c073f"
     },
     {
       "slug": "work-window-brake-watchdog",
