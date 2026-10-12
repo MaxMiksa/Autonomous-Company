@@ -5,20 +5,12 @@ type: concept
 sources:
   - path: dashboard/server.py
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
+  - path: scripts/analyst/opportunity-analyst-jcode.sh
+    hash: 398419cd343d1d3966a5291a0e7898568814cdf2073e6611e6989bea055ec438
   - path: scripts/analyst/opportunity-analyst.sh
     hash: a0a766435a1f9e501b97cca96bb30314440de72fd569313488d3b80d5f9c55a5
-  - path: scripts/analyst/promote_directive.py
-    hash: 9c45147f1730fc30545b94a30428d54e0bd40f04506aa3db00614880ec93d677
-sources_digest: ea2db531b8f02633a25807fa758b6689a82002f593a1362e2d3238d880e091a5
-links:
-  - to: cockpit-dashboard
-    relation: implements
-    description: server.py routes all directive writes through this gate
-  - to: opportunity-analyst-pipeline
-    relation: implements
-    description: >-
-      promote_directive.py is the deterministic gate the analyst pipeline runs
-      before any memory update
+sources_digest: 05e2127ac3d3016e4c3d28c45387ff79c04e980c496a6c93a10590d39eec66aa
+links: []
 generator:
   version: 1
 covers:
@@ -226,31 +218,11 @@ covers:
   - symbol: main
     kind: function
     at: 'dashboard/server.py:L1983-L2005'
-  - symbol: sha256
-    kind: function
-    at: 'scripts/analyst/promote_directive.py:L91-L92'
-  - symbol: audit
-    kind: function
-    at: 'scripts/analyst/promote_directive.py:L95-L98'
-  - symbol: blocked
-    kind: function
-    at: 'scripts/analyst/promote_directive.py:L101-L104'
-  - symbol: notify
-    kind: function
-    at: 'scripts/analyst/promote_directive.py:L107-L113'
-  - symbol: main
-    kind: function
-    at: 'scripts/analyst/promote_directive.py:L116-L225'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-The single deterministic writer for memories/human-directive.md, used by both the dashboard and the analyst pipeline. It locks, gates on in-flight PENDING directives, and refuses clobbering unless allow_pending is set. The promotion gate (promote_directive.py) is a separate fail-closed regex-based check that blocks promotion on risk keywords, missing verdict keywords, or escalation language near the current Active Validation ID, requires the live directive Status to be DONE, backs up the current file, writes a PENDING status with audit metadata, and verifies via read-back and diff. Always exits 0 printing PROMOTED or BLOCKED, deliberately over-including risk terms to favor manual review.
-
-## Related
-
-- implements [[cockpit-dashboard]] — server.py routes all directive writes through this gate
-- implements [[opportunity-analyst-pipeline]] — promote_directive.py is the deterministic gate the analyst pipeline runs before any memory update
+The single deterministic writer for memories/human-directive.md, used by both the dashboard and the analyst. Locks the file, gates on in-flight PENDING directives, and refuses clobbering unless allow_pending is set. This is the load-bearing invariant that prevents concurrent writers (dashboard operator vs. analyst) from overwriting each other's in-flight work.
 <!-- context:generated:end -->
 
 ## Notes

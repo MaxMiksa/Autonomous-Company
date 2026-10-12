@@ -3,15 +3,15 @@ name: prompt transport contract
 slug: prompt-transport-contract
 type: concept
 sources:
-  - path: tests/test_prompt_assembly.sh
-    hash: 0cd8e397ee0db20d70eac066f7542b6dbabfec6bdd6d031cdc0e378da04876d6
+  - path: scripts/core/auto-loop.sh
+    hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
   - path: tests/test_prompt_transport.sh
     hash: c5df34a0acc0d09b63a231df392960370ab146ceea135b5bcace427223300501
-sources_digest: f9fdd724bb168be925b2b29efa01334460fdf2724e6d4d8edae39a2e53679aba
+sources_digest: 870b6c17e5ffbd5be63c54b60c9ac12ff9bd3cdbf84fb5299b5ffbc032d0e090
 links:
   - to: auto-loop-core-engine
     relation: part_of
-    description: The transport functions and FULL_PROMPT assembly live in auto-loop.sh
+    description: transport functions live in auto-loop.sh
 generator:
   version: 1
 covers: []
@@ -19,11 +19,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-Cycle prompts are transported to engine CLIs via STDIN (codex uses the '-' sentinel) rather than argv, preventing E2BIG failures from Linux's 131072-byte per-argument cap. run_jcode_cycle refuses prompts >=126000 bytes with a named PROMPT-TOO-LARGE reason before spawning. Prompt assembly must preserve XML section order (rules → consensus → snapshot → cycle_orders) and survive embedded guardrail text.
+Cycle prompts are transported to engine CLIs via STDIN (codex uses the '-' sentinel) rather than argv, preventing E2BIG from Linux's 131072-byte per-argument cap. run_jcode_cycle refuses prompts ≥126000 bytes with a named PROMPT-TOO-LARGE reason before spawning, while normal-size prompts pass as the run subcommand's argv. This is a hard contract pinned by test_prompt_transport.sh.
 
 ## Related
 
-- part of [[auto-loop-core-engine]] — The transport functions and FULL_PROMPT assembly live in auto-loop.sh
+- part of [[auto-loop-core-engine]] — transport functions live in auto-loop.sh
 <!-- context:generated:end -->
 
 ## Notes

@@ -145,7 +145,16 @@ def archive_pieces(d):
         if "— section —" in header:
             pieces.append(body)
         else:
-            pieces += [p for p in re.split(r"(?m)^(?=\*\*Cycle |- \*\*Cycle )", body) if p.strip()]
+            # v2.1 shapes: `(Prior...)` lead-in paragraphs and EC `- ` bullets also start pieces;
+            # a lone `(Prior...)` line glued to the following `**Cycle` line is one piece.
+            raw = [p for p in re.split(r"(?m)^(?=\*\*Cycle |- |\(Prior\b)", body) if p.strip()]
+            merged = []
+            for p in raw:
+                if merged and re.fullmatch(r"\(Prior\b[^)]*\)\s*\n", merged[-1]) and p.startswith("**Cycle"):
+                    merged[-1] += p
+                else:
+                    merged.append(p)
+            pieces += merged
     return pieces
 
 
@@ -390,12 +399,121 @@ b0 = consensus(d).read_bytes(); rc, out = run(d, 1, v1=False)
 check("(w2) cap: a lone 9 KB entry is never removed (nothing to move -> insufficient, untouched)",
       "insufficient" in out and consensus(d).read_bytes() == b0)
 
-# (x) duplicate cycle number in NA -> NA skipped with reason; the rest still runs
+# (x) [v2.1 superseded] duplicate cycle number in NA no longer skips the section; see (ad)
 d = newapp(); consensus(d).write_text(doc2(wwd=BIG[:12], na=[790, 789, 789, 787, 786, 785]), encoding="utf-8")
-b_na = section(consensus(d).read_text(encoding="utf-8"), "## Next Action")
 rc, out = run(d, 1, v1=False)
-check("(x) duplicate number: NA skipped + reason, WWD pruned",
-      "na: duplicate cycle numbers" in out and section(consensus(d).read_text(encoding="utf-8"), "## Next Action") == b_na and "wwd=8" in out)
+check("(x) duplicate number: NA no longer skipped, WWD pruned",
+      "duplicate cycle numbers" not in out and "na=" in out and "skipped" not in out and "wwd=8" in out)
+
+# ----------------------------------------------------------------------------- v2.1 cases
+# (aa) `(Prior, Cycle N)` lead-in + `**Cycle N` on the next line = ONE entry, archived whole
+def prior_para(n, size=1500):
+    return f"(Prior, Cycle {n})\n" + para(n, size)
+na_body = "".join(prior_para(n) for n in (785, 784, 783, 782, 781, 780))
+d = newapp(); consensus(d).write_text(doc2(na=[790], na_extra="queue text\n\n" + na_body), encoding="utf-8")
+rc, out = run(d, 1, v1=False)
+t_after = consensus(d).read_text(encoding="utf-8")
+na = section(t_after, "## Next Action")
+check("(aa) Prior lead-in + **Cycle paragraph archived as one entry, NA under cap",
+      "(Prior, Cycle 780)" not in na and "**Cycle 780" not in na and "(Prior, Cycle 781)" not in na
+      and "(Prior, Cycle 782)\n**Cycle 782" in na and len(na.encode()) <= 8192 + 16
+      and "queue text" in na and "**Cycle 790" in na
+      and any(prior_para(780).rstrip("\n") in p for p in archive_pieces(d)))
+
+# (ab) single-line `(Prior, Cycle N ...)` paragraph is an entry (N from inside the parens)
+single = "".join(f"(Prior, Cycle {n} empty cycle, W41 still {'z' * 1400})\n\n" for n in (770, 771, 772, 773, 774, 775, 776))
+d = newapp(); consensus(d).write_text(doc2(na=[790], na_extra=single), encoding="utf-8")
+rc, out = run(d, 1, v1=False)
+na = section(consensus(d).read_text(encoding="utf-8"), "## Next Action")
+check("(ab) single-line (Prior, Cycle N) entries archived smallest-first",
+      "(Prior, Cycle 770" not in na and "**Cycle 790" in na and len(na.encode()) <= 8192 + 16 and "na=" in out)
+
+# (ab2) the four real-file inline/lead-in forms are all entries
+fill = "f" * 1400
+forms = (f"(Prior, Cycle 760) **Cycle 760 (done): {fill}\n\n"
+         f"(Prior) **Cycle 761 — tüm gövde {fill}\n\n"
+         f"**(Prior) Cycle 762 — COUNSEL DONE {fill}\n\n"
+         f"(Prior, Cycle 763 queue) \n**Cycle 763 (done): {fill}\n\n"
+         f"(Prior, Cycle 764 queue, now DONE)\n**Cycle 764 x {fill}\n\n"
+         f"(Prior, Cycle 765) **Cycle 765 {fill}\n\n")
+d = newapp(); consensus(d).write_text(doc2(na=[790], na_extra=forms), encoding="utf-8")
+rc, out = run(d, 1, v1=False, env={"CONSENSUS_PRUNE_CAP_NA": "2500"})
+na = section(consensus(d).read_text(encoding="utf-8"), "## Next Action")
+check("(ab2) four Prior forms archived, newest kept",
+      all(f"Cycle {n}" not in na for n in (760, 761, 762, 763, 764, 765)) and "**Cycle 790" in na and "na=6 paras" in out)
+
+# (ac) bare `(Prior)` paragraph is NOT an entry
+bare = "(Prior)\n\n"
+d = newapp(); consensus(d).write_text(doc2(na=[790, 789, 788, 787, 786, 785, 784, 783], na_extra=bare), encoding="utf-8")
+rc, out = run(d, 1, v1=False)
+na = section(consensus(d).read_text(encoding="utf-8"), "## Next Action")
+check("(ac) bare (Prior) stays, entries pruned", na.startswith("(Prior)\n\n") and "**Cycle 783" not in na)
+
+# (ad) duplicate N: both copies are entries, archived in (n, line) order, section not skipped
+d = newapp(); consensus(d).write_text(doc2(na=[790, 789, 786, 786, 785, 785, 784]), encoding="utf-8")
+rc, out = run(d, 1, v1=False, env={"CONSENSUS_PRUNE_CAP_NA": "3500"})
+na = section(consensus(d).read_text(encoding="utf-8"), "## Next Action")
+check("(ad) duplicate N archived (both copies), NA under cap, no skip",
+      "skipped" not in out and "**Cycle 784" not in na and "**Cycle 785" not in na and "**Cycle 786" not in na
+      and "**Cycle 789" in na and "**Cycle 790" in na and "na=5 paras" in out)
+
+# (ae) `**CORRECTED Cycle N` still a non-entry under v2.1
+corr = para(772, 600, prefix="**CORRECTED Cycle")
+d = newapp(); consensus(d).write_text(doc2(na=[790, 789, 788, 787, 786, 785, 784, 783], na_extra=corr), encoding="utf-8")
+rc, out = run(d, 1, v1=False)
+check("(ae) CORRECTED paragraph kept", corr in section(consensus(d).read_text(encoding="utf-8"), "## Next Action"))
+
+# (af) EC pass: pinned bullets kept, `Cycle N` bullets archived to cap; EC=0 untouched
+def ec_doc():
+    pinned = ("- Program State: Gate 0 HOLD.\n  continuation of program state\n\n  more after a blank\n"
+              "- External Actions: NONE.\n- Standing rules: keep.\n- Context7: N/A.\n- Linear: N/A.\n")
+    numbered = "".join(f"- Workflow (Cycle {n}): did things {'w' * 1200}\n  cont {n}\n" for n in range(690, 700))
+    return doc2(na=[790]).replace("## Execution Controls\n- Program State: x\n\n",
+                                  "## Execution Controls\n\n" + pinned + numbered + "\n")
+d = newapp(); consensus(d).write_text(ec_doc(), encoding="utf-8")
+rc, out = run(d, 1, v1=False)
+ec = section(consensus(d).read_text(encoding="utf-8"), "## Execution Controls")
+check("(af) EC: pinned bullets kept, numbered archived smallest-first, under cap",
+      all(k in ec for k in ("- Program State:", "  more after a blank", "- External Actions:", "- Standing rules:",
+                            "- Context7:", "- Linear:"))
+      and "(Cycle 690)" not in ec and "(Cycle 699)" in ec and len(ec.encode()) <= 6144 and "ec=" in out)
+d = newapp(); consensus(d).write_text(ec_doc(), encoding="utf-8")
+b_ec = section(consensus(d).read_text(encoding="utf-8"), "## Execution Controls")
+rc, out = run(d, 1, v1=False, env={"CONSENSUS_PRUNE_EC": "0"})
+check("(af2) CONSENSUS_PRUNE_EC=0 leaves EC untouched",
+      section(consensus(d).read_text(encoding="utf-8"), "## Execution Controls") == b_ec)
+d = newapp(); consensus(d).write_text(ec_doc(), encoding="utf-8")
+rc, out = run(d, 1, v1=False, env={"CONSENSUS_PRUNE_CAP_EC": "1"})
+ec = section(consensus(d).read_text(encoding="utf-8"), "## Execution Controls")
+check("(af3) EC: no keep-one floor — every numbered bullet may go, pinned remain",
+      "Cycle 6" not in ec and "- Program State:" in ec and "- Linear:" in ec)
+
+# (ag) in-repo prod fixture (2026-10-11): always runs. Caps measured on this exact file.
+FIX = REPO / "tests" / "fixtures" / "consensus-prod-2026-10-11.md"
+d = newapp(); shutil.copy(FIX, consensus(d))
+orig = consensus(d).read_text(encoding="utf-8")
+g1 = guard(d, 900)
+rc, out = run(d, 900, v1=False)
+after = consensus(d).read_text(encoding="utf-8")
+ab = lambda h: len((section(after, h) or "").encode())
+check("(ag) fixture: moved, no skip, total < 80000", "moved" in out and "skipped" not in out and len(after.encode()) < 80000)
+check("(ag) fixture: guard silent across the prune cycle", "LEDGER-GUARD" not in g1 and "LEDGER-GUARD" not in guard(d, 901))
+pieces = archive_pieces(d)
+check("(ag) fixture: archived pieces byte-exact from original, one copy fewer in result",
+      pieces and all(p.rstrip("\n") in orig for p in pieces)
+      and all(orig.count(p.rstrip("\n")) > after.count(p.rstrip("\n")) for p in pieces))
+st = json.loads((d / "logs/consensus-prune.json").read_text())
+check("(ag) fixture: state rebased", st.get("post_sha16") and st["post_metrics"]["bytes"] == len(after.encode()))
+check("(ag) fixture: EC pinned bullets kept", all(k in section(after, "## Execution Controls")
+      for k in ("- Program State:", "- External Actions:", "- Context7:", "- Linear:", "- Airtable:")))
+# Accepted gaps (coordinator decision 2026-10-12): CP's only entry is protected by the
+# keep-one floor; EC's pinned `- Program State:` bullet alone is ~7 KB. INFO only.
+check("(ag) fixture: Next Action <= 8192", ab("## Next Action") <= 8192)
+for h, cap in (("## Current Phase", 6144), ("## Execution Controls", 6144)):
+    print(f"INFO (ag) {h}: {ab(h)} bytes (cap {cap}){'' if ab(h) <= cap else ' — OVER CAP (known gap)'}")
+a1 = after
+rc, out = run(d, 901, v1=False)
+check("(ag) fixture: second run byte-equal", consensus(d).read_text(encoding="utf-8") == a1)
 
 # (y) skip path never touches the guard-facing state keys
 d = newapp(); consensus(d).write_text(doc(BIG), encoding="utf-8"); run(d, 743)

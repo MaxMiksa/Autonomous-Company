@@ -8,7 +8,10 @@ sources:
   - path: scripts/ops/kik-decision-read.py
     hash: 4f2060cbaaa784433de9720f1e9a3bfb3ba6c06cab00fae0efa0a426e5c926de
 sources_digest: 29bce193d5c60bd9e7bf52e9c353d21de59f11e0b8c1f585378295f1c8433681
-links: []
+links:
+  - to: ki-k-decision-evidence-pipeline
+    relation: validates
+    description: The digest's hash is validated against the bridge's recorded value
 generator:
   version: 1
 covers:
@@ -49,7 +52,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The canonical content-hash implementation for KİK decision pages (decision_text_hash.py), existing because raw HTML varies by client (User-Agent, __VIEWSTATE), making raw-byte hashes unreliable. The normalization pipeline is load-bearing at every step (decode with replacement, drop script/style, replace tags with single space, unescape entities after tag removal, collapse whitespace) and the digest is SHA-256 of normalized text plus char count. This file is deliberately the single source of truth — a hash produced any other way is not comparable and must not be written to the bridge, a lesson from a 2026-07-29 incident. kik-decision-read.py dynamically imports it to guarantee comparability.
+The invariant that a content hash is only comparable if produced by the single canonical normalizer (decision_text_hash.py), because raw HTML from the ASP.NET endpoint varies by client. The normalization order is load-bearing at every step (decode, drop script/style, tag-to-space, entity-unescape after tag removal, NBSP mapping, whitespace collapse) and the hash includes the character count. A hash produced any other way must not be written to the bridge — a lesson from a 2026-07-29 incident where an underdetermined spec caused a legitimate evidence quarantine.
+
+## Related
+
+- validates [[ki-k-decision-evidence-pipeline]] — The digest's hash is validated against the bridge's recorded value
 <!-- context:generated:end -->
 
 ## Notes

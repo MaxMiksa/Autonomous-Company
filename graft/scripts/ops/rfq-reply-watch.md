@@ -1,4 +1,4 @@
-# scripts/ops/rfq-reply-watch.py
+# scripts/ops/rfq-reply-watch.py · [[operator-alerting-watchers]] [[registry-outreach-watchers]]
 
 Advisory RFQ reply watcher that notices new vendor replies and long silences on the OPEX RFQ table and notifies the operator without ever writing to Airtable.
 

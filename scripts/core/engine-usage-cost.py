@@ -49,11 +49,11 @@ PRICES = {
     "claude-sonnet-5-5":          (2.00, 10.00, 0.05),
     "claude-haiku-4-5":           (1.00, 5.00),
     "claude-haiku-4-5-20251001":  (1.00, 5.00),
-    # Opus tier at the long-standing Opus list price (opus-4.x era). ASSUMED, not
-    # calibrated: the analyst's first opus run (2026-08-03) priced as UNKNOWN MODEL
-    # and logged $71+$18 via the max-row x5 fallback — an artifact, not a spend.
-    # Fold into the APP-268 calibration pass alongside gpt-5.6-sol.
-    "claude-opus-5":              (15.00, 75.00),
+    # Opus rows: official list price platform.claude.com/docs/en/about-claude/pricing,
+    # 2026-10-12; Opus 5.5 cache-read 0.20/M = 0.05x; previous 15/75 was an assumption
+    # (opus-4.x era list price, never calibrated). Not yet checked against a kept ndjson.
+    "claude-opus-5":              (5.00, 25.00),
+    "claude-opus-5-5":            (4.00, 20.00, 0.05),
     # Calibrated 2026-07-31 from litellm model_prices (canonical OpenAI-direct
     # row, azure/bedrock variants ignored). cache_read is $0.50/M = exactly
     # 0.10x input, so the uniform CACHE_R below is correct for this row too;

@@ -1,4 +1,4 @@
-# scripts/ops/budget-calibration-report.py · [[compliance-audit-watchers]]
+# scripts/ops/budget-calibration-report.py · [[cost-budget-accounting]]
 
 Generates a budget calibration report over a UTC observation window, explicitly separating pre/post-cutover data so the retired 5h gate and the live daily/weekly gates are never blended into one misleading percentile.
 

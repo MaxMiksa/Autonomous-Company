@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""consensus-prune.py v2 — mechanical archive of per-cycle narrative in consensus.md.
+"""consensus-prune.py v2.1 — mechanical archive of per-cycle narrative in consensus.md.
+
+v2.1 (2026-10-12, prod 2026-10-11 fixture showed three leaks):
+  * Prior shapes: a paragraph whose first line starts `(Prior` or `**(Prior)` is an
+    entry when, after the `**`/`(Prior...)` prefix, the line carries `Cycle N`
+    (`(Prior, Cycle N) **Cycle N ...`, `(Prior) **Cycle N ...`, `**(Prior) Cycle N ...`);
+    or when the line is only the prefix and the next line starts `**Cycle N`
+    (`(Prior, Cycle N queue)` + `**Cycle N`; N from the second line); or when it is a
+    single-line paragraph with `Cycle N` inside the parens. A bare `(Prior)` stays a
+    non-entry. PARA_RE itself is unchanged (`**CORRECTED Cycle N` remains a non-entry).
+  * Duplicate cycle numbers no longer skip a section: entries are deduped on (n, line)
+    and archived in (n, line) order — both copies go.
+  * EC pass for `## Execution Controls`: each top-level `- ` bullet (with its indented /
+    lazy continuation lines) is one entry, keyed by the first `Cycle N` on its FIRST line.
+    Bullets with no cycle number there (Program State, External Actions, Standing rules,
+    Context7, Linear, ...) are pinned and never archived; numbered bullets go smallest-N
+    first until the section is under CAP_EC (default 6144). No keep-one floor (pinned
+    bullets remain). If pinned bullets alone exceed the cap the section stays over it.
+    Kill switch CONSENSUS_PRUNE_EC=0.
 
 Why (2026-10-08, v1). The [PROMPT-SIZE] brake in auto-loop.sh fired on EVERY cycle from
 2026-09-04 on: consensus.md had grown to 127 KB, the brake dropped it from the inline
@@ -44,8 +62,8 @@ v1's safety core and adds section-level and paragraph-level pruning:
 Runs only when the file is >= CONSENSUS_PRUNE_MIN_BYTES (default 70000). Env (process env,
 overridden by logs/runtime.env for every CONSENSUS_PRUNE_* key — live, no redeploy):
   CONSENSUS_PRUNE_ENABLED=0                 global kill switch
-  CONSENSUS_PRUNE_TAIL|NA|CP|CS|WWD=0       per-pass kill switches
-  CONSENSUS_PRUNE_CAP_NA=8192 CAP_CP=6144 CAP_CS=6144 CAP_WWD=8192   section byte caps
+  CONSENSUS_PRUNE_TAIL|NA|CP|CS|WWD|EC=0    per-pass kill switches
+  CONSENSUS_PRUNE_CAP_NA=8192 CAP_CP=6144 CAP_CS=6144 CAP_WWD=8192 CAP_EC=6144   section byte caps
   CONSENSUS_PRUNE_KEEP=8 (What We Did secondary bound)  CONSENSUS_PRUNE_KEEP_TAIL=2
   CONSENSUS_PRUNE_MIN_BYTES=70000  CONSENSUS_PRUNE_SKIP_ALARM=3
 Exit code is always 0 (informational helper; the loop never fails over it).
@@ -74,6 +92,10 @@ H_NA = "## Next Action"
 H_CP = "## Current Phase"
 H_CS = "## Company State"
 H_KD = "## Key Decisions Made"
+H_EC = "## Execution Controls"
+CYCLE_NUM_RE = re.compile(r"Cycle\s+(\d+)")
+# v2.1 prefix: optional `**`, then `(Prior...)`, then optional whitespace/`**`.
+PRIOR_LEAD_RE = re.compile(r"^(?:\*\*)?\(Prior\b[^)]*\)\s*(?:\*\*)?")
 
 ENTRY_RE = re.compile(r"^- \*\*Cycle\s+(\d+)")        # What We Did bullet entry
 PARA_RE = re.compile(r"^\*\*Cycle\s+(\d+)")           # paragraph entry (NA/CP/CS)
@@ -279,24 +301,68 @@ def _entries_para(lines: list[str], sec: Section) -> list[tuple[int, int, int]]:
         m = PARA_RE.match(lines[a])
         if m:
             entries.append((int(m.group(1)), a, i))
+            continue
+        first = lines[a]
+        if not (first.startswith("(Prior") or first.startswith("**(Prior)")):
+            continue
+        pm = PRIOR_LEAD_RE.match(first)
+        if pm is None:  # `(Prior` without a closing paren on the line: not a known shape
+            continue
+        rest = first[pm.end():]
+        m1 = CYCLE_NUM_RE.search(rest)          # `(Prior) **Cycle N`, `**(Prior) Cycle N`
+        nonblank = [k for k in range(a, i) if lines[k].strip() != ""]
+        if m1:
+            entries.append((int(m1.group(1)), a, i))
+        elif rest.strip() == "" and len(nonblank) >= 2 and PARA_RE.match(lines[a + 1]):
+            entries.append((int(PARA_RE.match(lines[a + 1]).group(1)), a, i))   # lead-in line
+        elif len(nonblank) == 1:
+            m3 = CYCLE_NUM_RE.search(pm.group(0))  # single line, N inside the parens
+            if m3:
+                entries.append((int(m3.group(1)), a, i))
+    return entries
+
+
+def _entries_bullets(lines: list[str], sec: Section) -> list[tuple[int, int, int]]:
+    """Execution Controls: each top-level `- ` bullet plus its continuation lines (indented
+    lines, lazy non-bullet lines, blank lines followed by more indented text) is one block.
+    Only bullets whose FIRST line carries `Cycle N` are entries; the rest are pinned.
+    Trailing blank lines are not part of the block."""
+    entries: list[tuple[int, int, int]] = []
+    i = sec.start + 1
+    while i < sec.end:
+        if not TOP_BULLET_RE.match(lines[i]):
+            i += 1; continue
+        a = i
+        last = i
+        i += 1
+        while i < sec.end and not TOP_BULLET_RE.match(lines[i]):
+            ln = lines[i]
+            if ln.strip() == "":
+                i += 1; continue
+            if ln[:1] in (" ", "\t") or i == last + 1:
+                last = i; i += 1; continue
+            break  # column-0 text after a blank line: a separate, pinned paragraph
+        i = last + 1
+        m = CYCLE_NUM_RE.search(lines[a])
+        if m:
+            entries.append((int(m.group(1)), a, last + 1))
     return entries
 
 
 def _select(lines: list[str], sec: Section, entries: list[tuple[int, int, int]],
-            cap: int, keep: int | None, pass_name: str) -> list[Removal]:
+            cap: int, keep: int | None, pass_name: str, floor: int = 1) -> list[Removal]:
     """Archive from the smallest cycle number until the section is under `cap` bytes
-    (then under `keep` entries if given). At least one entry always remains."""
-    nums = [n for n, _, _ in entries]
-    if len(nums) != len(set(nums)):
-        raise Skip(f"{pass_name}: duplicate cycle numbers in section")
+    (then under `keep` entries if given). At least `floor` entries always remain.
+    v2.1: duplicate cycle numbers no longer skip; dedupe on (n, a), order by (n, a)."""
+    entries = sorted(set(entries), key=lambda e: (e[0], e[1]))
     for _, a, b in entries:
         if any(FENCE in l for l in lines[a:b]):
             raise Skip(f"{pass_name}: code fence inside an entry")
     size = sec.bytes
     remaining = len(entries)
     gone: list[Removal] = []
-    for n, a, b in sorted(entries, key=lambda e: e[0]):
-        if remaining <= 1:
+    for n, a, b in entries:
+        if remaining <= floor:
             break
         over_cap = size > cap
         over_keep = keep is not None and remaining > keep
@@ -367,8 +433,10 @@ def main() -> int:
         "cp": _env_int("CONSENSUS_PRUNE_CAP_CP", 6144),
         "cs": _env_int("CONSENSUS_PRUNE_CAP_CS", 6144),
         "wwd": _env_int("CONSENSUS_PRUNE_CAP_WWD", 8192),
+        "ec": _env_int("CONSENSUS_PRUNE_CAP_EC", 6144),
     }
-    on = {k: _env_flag(f"CONSENSUS_PRUNE_{k.upper()}", "1") != "0" for k in ("tail", "na", "cp", "cs", "wwd")}
+    on = {k: _env_flag(f"CONSENSUS_PRUNE_{k.upper()}", "1") != "0"
+          for k in ("tail", "na", "cp", "cs", "wwd", "ec")}
     min_bytes = _env_int("CONSENSUS_PRUNE_MIN_BYTES", 70000)
     skip_alarm = _env_int("CONSENSUS_PRUNE_SKIP_ALARM", 3)
     cpath = app / CONSENSUS_REL
@@ -419,7 +487,7 @@ def main() -> int:
 
     removals: list[Removal] = []
     skips: list[str] = []
-    moved = {"tail": 0, "na": 0, "cp": 0, "cs": 0, "wwd": 0}
+    moved = {"tail": 0, "na": 0, "cp": 0, "cs": 0, "wwd": 0, "ec": 0}
     wwd_gone: list[Removal] = []
 
     if on["tail"]:
@@ -427,7 +495,8 @@ def main() -> int:
         removals += r; moved["tail"] = len(r)
 
     for key, header, parser in (("na", H_NA, _entries_para), ("cp", H_CP, _entries_para),
-                                ("cs", H_CS, _entries_para), ("wwd", H_WWD, None)):
+                                ("cs", H_CS, _entries_para), ("wwd", H_WWD, None),
+                                ("ec", H_EC, _entries_bullets)):
         if not on[key]:
             continue
         sec = by_header.get(header)
@@ -446,7 +515,8 @@ def main() -> int:
                     wwd_gone = gone
             else:
                 entries = parser(lines, sec)
-                gone = _select(lines, sec, entries, caps[key], None, key)
+                gone = _select(lines, sec, entries, caps[key], None, key,
+                               floor=0 if key == "ec" else 1)
                 removals += gone
             moved[key] = len(gone)
         except Skip as ex:
@@ -471,6 +541,7 @@ def main() -> int:
         "cp": after_bytes(by_header[H_CP]) if H_CP in by_header else 0,
         "cs": after_bytes(by_header[H_CS]) if H_CS in by_header else 0,
         "kd": after_bytes(by_header[H_KD]) if H_KD in by_header else 0,
+        "ec": after_bytes(by_header[H_EC]) if H_EC in by_header else 0,
         "tail": tail_after, "head": head_after,
     }
     kinds_now = sorted({s.kind for s in secs if not s.primary})
@@ -483,6 +554,8 @@ def main() -> int:
         if len(hist) >= 3:
             base = hist[-3]
             for k, v in sizes.items():
+                if k not in base:  # key added in a later version (v2.1 "ec"): no baseline yet
+                    continue
                 if v - int(base.get(k, 0) or 0) > BLOAT_BYTES:
                     warns.append(f"{k} +{(v - int(base.get(k, 0) or 0)) // 1024}KB in 3 runs")
         prev_kinds = state.get("noncanonical_kinds")
@@ -514,7 +587,7 @@ def main() -> int:
             _save_state(spath, state)
         sys.stdout.write(f"[CONSENSUS-PRUNE] insufficient: nothing to archive, file still {len(data)//1024}KB "
                          f"(wwd={sizes['wwd']//1024}KB na={sizes['na']//1024}KB cp={sizes['cp']//1024}KB "
-                         f"cs={sizes['cs']//1024}KB kd={sizes['kd']//1024}KB tail={sizes['tail']//1024}KB "
+                         f"cs={sizes['cs']//1024}KB kd={sizes['kd']//1024}KB ec={sizes['ec']//1024}KB tail={sizes['tail']//1024}KB "
                          f"head={sizes['head']//1024}KB){' [dry-run]' if args.dry_run else ''}\n")
         emit_warns(warns)
         return 0
@@ -576,10 +649,10 @@ def main() -> int:
 
     tail_kb = sum(offs[r.b] - offs[r.a] for r in removals if r.pass_name == "tail") // 1024
     summary = (f"[CONSENSUS-PRUNE] cycle {args.cycle}: moved tail={moved['tail']} sections ({tail_kb}KB), "
-               f"na={moved['na']} paras, cp={moved['cp']}, cs={moved['cs']}, wwd={moved['wwd']}; "
+               f"na={moved['na']} paras, cp={moved['cp']}, cs={moved['cs']}, wwd={moved['wwd']}, ec={moved['ec']}; "
                f"before={len(data)//1024}KB after={len(new_data)//1024}KB; sections: "
                f"wwd={sizes['wwd']//1024}KB na={sizes['na']//1024}KB cp={sizes['cp']//1024}KB "
-               f"cs={sizes['cs']//1024}KB kd={sizes['kd']//1024}KB tail={sizes['tail']//1024}KB "
+               f"cs={sizes['cs']//1024}KB kd={sizes['kd']//1024}KB ec={sizes['ec']//1024}KB tail={sizes['tail']//1024}KB "
                f"head={sizes['head']//1024}KB; archive {arel}")
     if skips:
         summary += "; skipped: " + "; ".join(skips)

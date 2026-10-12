@@ -1,4 +1,4 @@
-# scripts/ops/kik-decision-read.py · [[content-hash-provenance]] [[ki-k-registry-evidence]]
+# scripts/ops/kik-decision-read.py · [[content-hash-provenance]] [[ki-k-decision-evidence-pipeline]]
 
 One-call reader that fetches a KİK decision and returns only the fields a G1/outcome call needs, bounding bytes entering the context.
 

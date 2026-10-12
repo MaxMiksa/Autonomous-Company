@@ -1,4 +1,4 @@
-# scripts/analyst/merge_registry.py · [[opportunity-analyst-pipeline]]
+# scripts/analyst/merge_registry.py · [[opportunity-analyst]] [[registry-merge-invariants]]
 
 Deterministic PASS-2 merge that isolates the live decision-state span of the registry and only accepts a model-proposed replacement for that span, enforcing invariants so a model can never silently drop or rewrite protected content.
 

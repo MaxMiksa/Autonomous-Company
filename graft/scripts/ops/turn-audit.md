@@ -1,4 +1,4 @@
-# scripts/ops/turn-audit.py
+# scripts/ops/turn-audit.py · [[cycle-cost-risk-audit]] [[turn-economy-audit]]
 
 Turn-level waste accounting classifier that reads a jcode daily log and reports per-session turn count, context growth, cache traffic, a priced cost floor, tool census, and a wait-share estimate, with advisory CHATTY/BLOATED verdicts calibrated to measured risk (tail duration and cost) rather than chattiness.
 

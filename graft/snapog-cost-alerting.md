@@ -3,8 +3,6 @@ name: SnapOG Cost Alerting
 slug: snapog-cost-alerting
 type: system
 sources:
-  - path: projects/_archive/snapog/sample/alerts-dry-run.sh
-    hash: fabd322c673a2e7f93273116221eac10392cdbf3d6cd8eb5457e6c960b67797c
   - path: projects/_archive/snapog/src/alerts/check.ts
     hash: fa0fdacdc3a2b495e86f2e70be76d1cadba5f829c78f39010a53d479eb5192c4
   - path: projects/_archive/snapog/src/alerts/graphql.ts
@@ -15,11 +13,8 @@ sources:
     hash: 4331a806e43a7f426bd69778ffaafb0324ab5237ef6f12f16e2f730c724087d2
   - path: projects/_archive/snapog/src/alerts/webhook.ts
     hash: 518ec45652bc5010bbd34856e527e2dc9c2dfa525aea151ff467f3a802c9da81
-sources_digest: a023a03dd2af6e7e9df9fb798dd0f07e79cfd170b044341747face1efa394741
-links:
-  - to: snapog-og-image-service
-    relation: validates
-    description: Cron checks the usage and storage state produced by the service
+sources_digest: fe1d8fd6fcb0f308eb0c4072f436e2986ea169f87521e188c20ca981540b20fa
+links: []
 generator:
   version: 1
 covers:
@@ -69,11 +64,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A six-hourly cron pipeline (wrangler scheduled) that runs five independent D1-based checks (D1 writes/day estimated at 2 per request, 14-day cache hit rate, new signups in 30d, active users, R2 storage via a thin Cloudflare Analytics GraphQL client) against thresholds isolated in one file (ALERT_THRESHOLDS, sourced from the CFO cost model §5) so the CFO can revise numbers without touching check logic. Checks are deliberately isolated — a thrown error is logged and treated as no alert to prevent false positives; severity escalates to critical at 1.5x threshold. Delivery is format-agnostic JSON to a webhook, falling back to log-only mode when ALERT_WEBHOOK_URL is unset; network failures are caught, never thrown.
-
-## Related
-
-- validates [[snapog-og-image-service]] — Cron checks the usage and storage state produced by the service
+Cron-triggered (every 6h) cost-alerting pipeline with five independent checks (D1 writes/day, 14-day cache hit rate, new signups in 30d, active users, R2 storage bytes via a thin Cloudflare Analytics GraphQL client). Thresholds isolated in one file (ALERT_THRESHOLDS) sourced from the CFO cost model so numbers can be revised without touching check logic; severity escalates to critical at 1.5x threshold. Checks are deliberately isolated — a thrown error is logged and treated as no alert to prevent false positives. Delivery short-circuits on empty alert list and falls back to log-only mode when ALERT_WEBHOOK_URL is unset; network failures are caught and logged, never thrown.
 <!-- context:generated:end -->
 
 ## Notes

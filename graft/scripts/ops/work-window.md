@@ -1,4 +1,4 @@
-# scripts/ops/work-window.py
+# scripts/ops/work-window.py · [[work-window-brake-watchdog]] [[work-window-watchdog]]
 
 A fail-closed brake that opens a K-cycle work window whenever a tracked surface changes, forcing the harness to advance one queued item instead of emitting a valid empty-cycle confirmation.
 

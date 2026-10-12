@@ -86,5 +86,21 @@ out=$(python3 "$ADAPTER" --ndjson-file "$WORK/haiku.ndjson")
 h_cost=$(cost_of "$out")
 if [ "$h_cost" = "0.4035" ]; then echo "  PASS haiku unchanged = 0.4035"; else echo "  FAIL haiku cost $h_cost != 0.4035"; fail=1; fi
 
+echo "--- 8: Opus 5.5 — 4/20 list, cache READ at 0.05x (2026-10-12) ---"
+# 1000*4 + 500*20 + 2M*4*0.05 (=400000) + 100k*4*2.0 (=800000) = 4000+10000+400000+800000 = 1.214
+printf '%s\n{"type":"done","model":"claude-opus-5-5"}\n' "$TOK" > "$WORK/o55.ndjson"
+out=$(python3 "$ADAPTER" --ndjson-file "$WORK/o55.ndjson")
+o55_cost=$(cost_of "$out")
+contains "model kept"     "$out" '"model": "claude-opus-5-5"'
+contains "calibrated row" "$out" '"estimated": false'
+if [ "$o55_cost" = "1.214" ]; then echo "  PASS opus-5-5 = 1.214"; else echo "  FAIL opus-5-5 cost $o55_cost != 1.214"; fail=1; fi
+
+echo "--- 9: Opus 5 — 5/25 list (was assumed 15/75), uniform 0.10x read ---"
+# 1000*5 + 500*25 + 2M*5*0.10 (=1000000) + 100k*5*2.0 (=1000000) = 5000+12500+1000000+1000000 = 2.0175
+printf '%s\n{"type":"done","model":"claude-opus-5"}\n' "$TOK" > "$WORK/o5.ndjson"
+out=$(python3 "$ADAPTER" --ndjson-file "$WORK/o5.ndjson")
+o5_cost=$(cost_of "$out")
+if [ "$o5_cost" = "2.0175" ]; then echo "  PASS opus-5 = 2.0175"; else echo "  FAIL opus-5 cost $o5_cost != 2.0175"; fail=1; fi
+
 echo
 if [ "$fail" = "0" ]; then echo "ALL PASS"; else echo "FAILURES"; exit 1; fi

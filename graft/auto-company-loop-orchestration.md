@@ -17,16 +17,16 @@ sources:
     hash: ba8bc08141ca80245bea6ccb35984221942d6a855ce856e5a492a38c4c151418
 sources_digest: fd274d10c1ef9d3ff84ad7606b981bb66736c539a7dddfcccf1aac918ac8d0ff
 links:
-  - to: operator-escalation-notification
+  - to: consensus-memory-management
     relation: uses
     description: >-
-      monitor.sh and status scripts read consensus.md and state files that
-      operator_request_notify.py also maintains
-  - to: runtime-env-secret-handling
+      Status reporters and monitor read memories/consensus.md and
+      logs/auto-loop.log for state reporting
+  - to: operator-notification-channel
     relation: uses
     description: >-
-      status scripts and daemon read runtime.env and state files for credentials
-      and configuration
+      stop-loop and monitor surface operator-facing status; daemon install
+      configures the loop that triggers notifications
 generator:
   version: 1
 covers: []
@@ -34,12 +34,12 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-The background automation loop that runs cycles of the Auto Company agent, with lifecycle management across macOS (launchd daemon, caffeinate guardian) and Linux/container (Coolify) runtimes. Includes graceful shutdown via signal file + SIGTERM, pause coordination, and a live monitoring interface for operators. The loop is the main process in container mode and a launchd LaunchAgent on macOS, with KeepAlive tied to a pause flag.
+The background automation loop that runs cycles of the Auto Company agent, with lifecycle management (start/stop/pause), daemon installation on macOS launchd, container-mode operation, live monitoring, and graceful shutdown. Includes the loop's state files (.auto-loop.pid, .auto-loop-paused, .auto-loop-state), the consensus memory it reads/writes, and the platform-specific status reporters that feed the dashboard.
 
 ## Related
 
-- uses [[operator-escalation-notification]] — monitor.sh and status scripts read consensus.md and state files that operator_request_notify.py also maintains
-- uses [[runtime-env-secret-handling]] — status scripts and daemon read runtime.env and state files for credentials and configuration
+- uses [[consensus-memory-management]] — Status reporters and monitor read memories/consensus.md and logs/auto-loop.log for state reporting
+- uses [[operator-notification-channel]] — stop-loop and monitor surface operator-facing status; daemon install configures the loop that triggers notifications
 <!-- context:generated:end -->
 
 ## Notes

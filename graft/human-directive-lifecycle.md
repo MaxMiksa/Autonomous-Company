@@ -10,7 +10,17 @@ sources:
   - path: scripts/ops/directive-staleness-watch.py
     hash: 6597a8a3666b54131d1b782a8d8ee308e705e33dbed83429da857f9b1f0360fd
 sources_digest: c33cb878c31200586210f16883cbed0fb7ab8b0c0df83d67bf6c473d9edb06db
-links: []
+links:
+  - to: operator-escalation-gate
+    relation: uses
+    description: >-
+      operator_request_notify resolves requests via explicit directives in
+      human-directive.md
+  - to: operator-notification-channel
+    relation: uses
+    description: >-
+      directive_writer and staleness-watch send Telegram alerts via
+      telegram-notify.sh
 generator:
   version: 1
 covers:
@@ -102,7 +112,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The human-directive.md memory file and its strict write discipline: directive_writer.py is the sole writer, enforcing fail-closed rules (in-flight PENDING directives never clobbered without --allow-pending; body immutable after acceptance, only ## Status changes via compare-and-swap on body hash). Includes section-reference validation, atomic writes with read-back verification, persistent backups, flock locking, and a Telegram notify on every write. The staleness watcher and rule sweep audit this file's status and rule coverage.
+The single-writer, fail-closed management of memories/human-directive.md: writes are gated against clobbering in-flight PENDING directives, the body is immutable after acceptance (only ## Status changes via compare-and-swap on body hash), and staleness watchers alert when a PENDING directive ages past a threshold. Includes the operator-only baseline/reconcile path that is hard-refused in the CLI and delegated to a host-side script.
+
+## Related
+
+- uses [[operator-escalation-gate]] — operator_request_notify resolves requests via explicit directives in human-directive.md
+- uses [[operator-notification-channel]] — directive_writer and staleness-watch send Telegram alerts via telegram-notify.sh
 <!-- context:generated:end -->
 
 ## Notes

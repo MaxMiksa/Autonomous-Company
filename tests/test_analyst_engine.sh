@@ -4,7 +4,7 @@
 #   bash tests/test_analyst_engine.sh
 #
 # The 2026-08-03 change moved the analyst's default engine from jcode/openai
-# (gpt-5.6-sol) to jcode/claude (claude-opus-5). Everything provider-shaped is
+# (gpt-5.6-sol) to jcode/claude (claude-opus-5; claude-opus-5-5 since 2026-10-12). Everything provider-shaped is
 # testable without a model: which auth precondition fires, which effort env var
 # rides the exec, whether the session ledger records the done-event session_id,
 # and whether the report header names the provider that actually ran.
@@ -43,7 +43,7 @@ mk_stub_jcode() { # $1=bindir — stub that records env+args and emits a done ev
   echo "ANTH_EFF=${JCODE_ANTHROPIC_REASONING_EFFORT:-}";
   echo "ARGS=$*"; } >> "${STUB_LOG:?}"
 if [ "$1" = "model" ] || [ "$2" = "model" ] || printf '%s' "$*" | grep -q "model list"; then
-  echo "claude-opus-5"; echo "gpt-5.6-sol"; exit 0
+  echo "claude-opus-5"; echo "claude-opus-5-5"; echo "gpt-5.6-sol"; exit 0
 fi
 printf '{"type":"thread.started"}\n'
 printf '{"type":"done","session_id":"stub-session-0001","text":"%s"}\n' \
@@ -99,7 +99,7 @@ check "exactly one ledger line" "$(grep -c "stub-session-0001" "$A/logs/analyst-
 
 echo "6. the report header names jcode/claude and the model"
 contains "provider in header" "$(head -3 "$A/memories/analysis-directive.md" 2>/dev/null)" "jcode/claude"
-contains "model in header" "$(head -3 "$A/memories/analysis-directive.md" 2>/dev/null)" "claude-opus-5"
+contains "model in header" "$(head -3 "$A/memories/analysis-directive.md" 2>/dev/null)" "claude-opus-5-5"
 rm -rf "$A" "$B"
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES"; fi

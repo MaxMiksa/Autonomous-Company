@@ -28,7 +28,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Two Cloudflare Pages Functions that keep cold B2B outreach links on the company's own domain: /randevu issues a 302 to the operator's Google Calendar (no booking logic — slot management, timezone, cancellation delegated to Google Calendar; 503 Turkish fallback page if RANDEVU_URL unset/invalid, never a guessed redirect), and /listeden-cik proxies the email opt-out flow to the Twilio-based comms service with no local suppression store (upstream remains single source of truth; preserves HMAC signature and email params so existing links keep working; 502 Turkish error page on upstream failure, never false success). Both set no-store and no-referrer headers.
+Cloudflare Pages Functions for the auto-company marketing site: /randevu issues a 302 redirect to the operator's Google Calendar (no booking logic — slot management, timezone, cancellation delegated to Google Calendar; validates RANDEVU_URL starts with https://, 503 with Turkish fallback if unset, never a guessed redirect), and /listeden-cik proxies the email opt-out flow to the Twilio-based comms service (deliberately no local suppression store so upstream remains single source of truth; preserves HMAC signature and email params so existing links keep working; 502 Turkish error page on upstream failure, never false success). Both set no-store and no-referrer headers for privacy and caching safety.
 <!-- context:generated:end -->
 
 ## Notes

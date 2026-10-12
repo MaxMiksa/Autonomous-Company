@@ -1,4 +1,4 @@
-# tests/test_seteshape_lint.py · [[auto-loop-core-engine]] [[set-e-fatal-shape-lint]]
+# tests/test_seteshape_lint.py · [[set-e-lint-invariant]]
 
 Lint test that flags `[ test ] && action` shapes which, under `set -e`, return 1 when the test is false and kill an unguarded caller.
 

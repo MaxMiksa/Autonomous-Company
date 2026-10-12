@@ -3,12 +3,6 @@ name: SnapOG OG Image Service
 slug: snapog-og-image-service
 type: system
 sources:
-  - path: projects/_archive/snapog/migrations/0001_init.sql
-    hash: 5a2ecc41dbff948e5d8f895feb80ae4145864f3703776f737cda73c84fec8623
-  - path: projects/_archive/snapog/migrations/0002_waitlist.sql
-    hash: 541f4f76f6f87aab342fe067acbcc746587f600d1e76028fe97a4c67c8b3202a
-  - path: projects/_archive/snapog/migrations/0003_cache_key_tracking.sql
-    hash: a672bc9c2f87bedb83312ef869d3ea29305f96bcca7241131ce1130edcb4ee75
   - path: projects/_archive/snapog/src/dashboard/pages.ts
     hash: 6a33d1b6152ee8ea3ee6f5617105ce757c915627156072dd9cb1f3b78e32b4af
   - path: projects/_archive/snapog/src/index.ts
@@ -19,16 +13,8 @@ sources:
     hash: bfc8c9e61038224564b61c55c627b2d86d9ba2514dd47f64a717e94f0be8b810
   - path: projects/_archive/snapog/src/types.ts
     hash: 1551e13c618a1b8ceaa8b5189318810934889c1d4e822425cb830e7efb45bc15
-sources_digest: 1a87b4cdfd1718b1eebb0e73565e7b10f1b9a8ec214fa5402635453e12a9d026
-links:
-  - to: snapog-cost-alerting
-    relation: produces
-    description: >-
-      usage_events and api_keys tables are the data source for all cost-alert
-      checks
-  - to: snapog-north-star-metric
-    relation: produces
-    description: usage_events and api_keys schema is what the WAP SQL queries against
+sources_digest: d4343ceffc68f713a6dcfc6ae45ec31bd030d35d94d34d04ef9190c816f7239c
+links: []
 generator:
   version: 1
 covers:
@@ -132,12 +118,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A Hono-based Cloudflare Worker that generates Open Graph images on demand, with D1 persistence (users, api_keys, usage_events, cache-key tracking) and R2 image caching. API keys are SHA-256 hashed before storage (raw keys never persisted); usage is counted even on cache hits; monthly rollover via maybeResetUsage; and a per-key monthly cap of 30 distinct cache keys (MONTHLY_CACHE_KEY_CAP) beyond which /og still renders but skips R2 put and returns X-Cache: BYPASSED to prevent unique-URL storage abuse. Cache keys are deterministic SHA-256 digests of alphabetically-sorted JSON params (crypto.subtle requires secure context). Landing/dashboard pages are server-rendered template literals with a 'Carbon Terminal' aesthetic, no client framework.
-
-## Related
-
-- produces [[snapog-cost-alerting]] — usage_events and api_keys tables are the data source for all cost-alert checks
-- produces [[snapog-north-star-metric]] — usage_events and api_keys schema is what the WAP SQL queries against
+Hono-based Cloudflare Worker that generates Open Graph images on demand. Routes: GET /og (validate API key, enforce monthly usage limits, cache to R2), / and /register (landing + key creation with waitlist since Stripe isn't wired), /dashboard (usage stats), plus a scheduled cron cost-alert check. Core design decisions: API keys hashed (SHA-256) before storage, usage counted even on cache hits, R2 writes bypassed when the per-key monthly cache-key cap (30) is exceeded (still renders and counts, returns X-Cache: BYPASSED) to prevent unique-URL storage abuse, waitUntil for fire-and-forget ops, free-tier watermark enforcement, and input parameter length limits. Cache keys are deterministic SHA-256 of alphabetically-sorted JSON params (crypto.subtle requires secure context).
 <!-- context:generated:end -->
 
 ## Notes

@@ -1,4 +1,4 @@
-# scripts/ops/airtable-write.py · [[airtable-bridge-access]] [[runtime-env-secret-handling]]
+# scripts/ops/airtable-write.py · [[airtable-scoped-access]]
 
 CLI tool that performs single-record Airtable writes with mandatory before/after read-back, dry-run-by-default, and data-loss guards so operator-side corrections never silently destroy or strand data.
 

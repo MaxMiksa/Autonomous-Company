@@ -1,4 +1,4 @@
-# scripts/ops/tool-usage-audit.py
+# scripts/ops/tool-usage-audit.py · [[cycle-cost-risk-audit]] [[turn-economy-audit]]
 
 Durable per-cycle ledger of tool-consultation counts (ctx7/Airtable/Linear/Browser/graft) appended from finished cycle ndjson, idempotent via a state file, with read-only report and per-MCP-name modes.
 

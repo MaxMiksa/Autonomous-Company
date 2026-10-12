@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Opportunity Analyst — jcode variant. THE live path since the 2026-07-31 cutover
 # (host cron ENGINE default is jcode); opportunity-analyst.sh (codex CLI) is legacy.
-# Default engine since 2026-08-03: jcode provider `claude`, model `claude-opus-5`
-# (operator: "Codex'i unut şimdilik, kendi analistimizi opus ile kuracağız").
+# Default engine since 2026-08-03: jcode provider `claude`; model `claude-opus-5-5` since
+# 2026-10-12 (was claude-opus-5; operator 08-03: "Codex'i unut şimdilik, kendi analistimizi opus ile kuracağız").
 # Manual run:
 #   docker exec -u app <container> bash /app/scripts/analyst/opportunity-analyst-jcode.sh
 #
@@ -61,7 +61,7 @@ JCODE_BIN="$(command -v jcode || echo /usr/local/bin/jcode)"
 # `anthropic-api` is the raw-API variant). The Codex path stays reachable via
 # ANALYST_PROVIDER=openai ANALYST_MODEL=gpt-5.6-sol.
 PROVIDER="${ANALYST_PROVIDER:-claude}"
-MODEL="${ANALYST_MODEL:-claude-opus-5}"
+MODEL="${ANALYST_MODEL:-claude-opus-5-5}"
 # Operator caps effort at "high" — respect it; do not override the default.
 EFFORT="${ANALYST_EFFORT:-high}"
 TIMEOUT="${ANALYST_TIMEOUT:-1500}"
