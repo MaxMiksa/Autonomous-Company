@@ -15,35 +15,54 @@ sources:
     hash: 51d700c7d869599d1a6d48913b0097143e7b0c93a520123dd7cf3bb5c8c874fc
   - path: tests/test_idle_skip.sh
     hash: 13ce9f0b8801b94a1bc896bd2db53f2fc68c2984b45db8372050ca760e1edb53
-  - path: tests/test_mcp_config_manifest_sync.sh
-    hash: 372a198973bc97e73dd00c1acafe2fe458887504be2f5ef9849242d6549c1112
   - path: tests/test_mixed_harness.sh
     hash: bd8a1f81df957e0bfdfacf44982a2274a58809d5f9bd8618c64c3efeecb868cc
   - path: tests/test_prompt_assembly.sh
     hash: 0cd8e397ee0db20d70eac066f7542b6dbabfec6bdd6d031cdc0e378da04876d6
+  - path: tests/test_prompt_guardrails.sh
+    hash: db057850964c46f60538024a1b3e521d4a4ca01d2671a5ee173522bf85bdf6dc
   - path: tests/test_prompt_transport.sh
     hash: c5df34a0acc0d09b63a231df392960370ab146ceea135b5bcace427223300501
   - path: tests/test_seteshape_lint.py
     hash: c75dd121edbe7aed5432f718bdfff952149464b77f9ab22baced3682261ebc98
   - path: tests/test_tier_ladder_daily.sh
     hash: d0bfb4ace48e1fa9665e17059be3f618b46fda0dcf432544a6bb16c07a3ed8db
-sources_digest: b70fd453b8a462028d0f7423bebc729570ef2ccaac738d640080c6a475fc4487
+sources_digest: 61156bc0b6613e1fb593cecf1376f5571e6b0115a1196f39656dc97d58ac6784
 links:
-  - to: cycle-metadata-prompt-transport-contract
+  - to: cycle-metadata-extraction
     relation: implements
     description: >-
-      extract_cycle_metadata() and prompt transport rules are pinned by
-      dedicated regression tests.
-  - to: engine-usage-cost-adapter
-    relation: uses
+      extract_cycle_metadata() must not kill the loop when Codex is routed
+      through alternation/fallback, and must attribute per-cycle
+      harness/provider overriding global LOOP_HARNESS
+  - to: escalation-one-shot-semantics
+    relation: implements
     description: >-
-      auto-loop calls the cost adapter to price cycles; the model-hint mechanism
-      handles watchdog-killed cycles with no done event.
-  - to: mcp-config-manifest-sync
-    relation: depends_on
+      apply_cycle_escalation() consumes an escalation exactly once; a refusal
+      leaves it ARMED rather than burning approval
+  - to: idle-skip-mechanism
+    relation: implements
     description: >-
-      auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync
-      with the manifest or boot crash-loops.
+      _idle_skip_due() never skips the first cycle of a UTC day, reads
+      IDLE_SKIP_ENABLED at call time, and writes last-full-cycle.date only on
+      success
+  - to: prompt-transport-contract
+    relation: implements
+    description: >-
+      run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex
+      uses `-` sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts
+      >=126000 bytes with PROMPT-TOO-LARGE before spawning
+  - to: set-e-shape-lint
+    relation: validates
+    description: >-
+      test_seteshape_lint.py scans auto-loop.sh for the fatal `[ test ] &&
+      action` last-command pattern that caused APP-240
+  - to: tier-ladder-selection
+    relation: implements
+    description: >-
+      apply_tier_ladder() selects daily-budget-based tiers per engine
+      independently, reading BG_CLAUDE_DAILY/BG_CODEX_DAILY and
+      TOTAL_DAILY_BUDGET_USD
 generator:
   version: 1
 covers:
@@ -66,13 +85,16 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, tier selection, escalation, idle-skip, and discretionary budget gating. It is the most safety-critical surface in the repo: a single stray quote or a `[ test ] && action` list as a function's last command can kill the whole loop (APP-240), so its internals are heavily regression-tested by extracting real function bodies via awk/sed rather than reimplementing them. Key invariants: cycle counter must be monotonic across redeploys (persisted + self-healed from cycle-NNNN logs), prompts are transported via STDIN (never argv, to avoid E2BIG), and per-cycle harness/provider variables override any global LOOP_HARNESS.
+The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, escalation, tier selection, idle-skip, and discretionary budget gating. It is the highest-risk surface in the repo: a single stray quote or a `[ test ] && action` list as a function's last command can kill the whole container (APP-240). Many tests extract its function bodies verbatim via awk/sed to drive the shipping code rather than copies, so any change to function boundaries or extraction patterns breaks tests loudly.
 
 ## Related
 
-- implements [[cycle-metadata-prompt-transport-contract]] — extract_cycle_metadata() and prompt transport rules are pinned by dedicated regression tests.
-- uses [[engine-usage-cost-adapter]] — auto-loop calls the cost adapter to price cycles; the model-hint mechanism handles watchdog-killed cycles with no done event.
-- depends on [[mcp-config-manifest-sync]] — auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync with the manifest or boot crash-loops.
+- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback, and must attribute per-cycle harness/provider overriding global LOOP_HARNESS
+- implements [[escalation-one-shot-semantics]] — apply_cycle_escalation() consumes an escalation exactly once; a refusal leaves it ARMED rather than burning approval
+- implements [[idle-skip-mechanism]] — _idle_skip_due() never skips the first cycle of a UTC day, reads IDLE_SKIP_ENABLED at call time, and writes last-full-cycle.date only on success
+- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses `-` sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE before spawning
+- validates [[set-e-shape-lint]] — test_seteshape_lint.py scans auto-loop.sh for the fatal `[ test ] && action` last-command pattern that caused APP-240
+- implements [[tier-ladder-selection]] — apply_tier_ladder() selects daily-budget-based tiers per engine independently, reading BG_CLAUDE_DAILY/BG_CODEX_DAILY and TOTAL_DAILY_BUDGET_USD
 <!-- context:generated:end -->
 
 ## Notes

@@ -109,7 +109,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/ops/wowcar-revenue-vocabulary-acceptance.py checks that the WowCar revenue vocabulary (projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, invoked via a thin bash harness that validates the mode string and requires an absolute report path.
+scripts/ops/wowcar-revenue-vocabulary-acceptance.py checks that the WowCar revenue vocabulary (fixed to projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, writing a timestamped report to /tmp. The shell harness tests/test_wowcar_revenue_vocabulary_acceptance.sh standardizes invocation with modes 'unchanged' or '14-anchor' and requires an absolute report path if provided.
 <!-- context:generated:end -->
 
 ## Notes

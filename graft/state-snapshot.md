@@ -1,6 +1,6 @@
 ---
-name: state snapshot & DELTA
-slug: state-snapshot-delta
+name: state snapshot
+slug: state-snapshot
 type: file
 sources:
   - path: scripts/ops/state-snapshot.py
@@ -11,10 +11,7 @@ sources_digest: b22d6b1127d5b052b726fc0dc5a244376cf2f7f1b8d621a83596632c9199dcd2
 links:
   - to: auto-loop-core-engine
     relation: uses
-    description: The loop consumes the snapshot for idle detection.
-  - to: idle-skip-work-window-brakes
-    relation: produces
-    description: DELTA output drives idle detection and the work-window brake.
+    description: auto-loop consumes the snapshot text including DELTA for idle detection
 generator:
   version: 1
 covers:
@@ -37,12 +34,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/ops/state-snapshot.py produces the DELTA change-detection snapshot used by idle detection and the work-window brake. Parses directive status/sha16, OPREQ open counts, and DELTA outputs (first-run, none, named changes, error exclusion). A missing ledger prints an error but still exits 0, and errored fields are excluded from the next DELTA. All fields are local since the 2026-08-24 re-charter (bridge/send/reply fields retired).
+scripts/ops/state-snapshot.py parses human-directive.md and operator-requests.md to produce directive status/sha16, OPREQ open counts, and DELTA change-detection output. A missing ledger prints an error but still exits 0, and errored fields are excluded from the next DELTA. All fields are local since a 2026-08-24 re-charter, with bridge/send/reply fields retired.
 
 ## Related
 
-- uses [[auto-loop-core-engine]] — The loop consumes the snapshot for idle detection.
-- produces [[idle-skip-work-window-brakes]] — DELTA output drives idle detection and the work-window brake.
+- uses [[auto-loop-core-engine]] — auto-loop consumes the snapshot text including DELTA for idle detection
 <!-- context:generated:end -->
 
 ## Notes

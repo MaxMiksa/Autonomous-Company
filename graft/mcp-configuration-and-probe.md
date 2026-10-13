@@ -1,6 +1,6 @@
 ---
-name: MCP config & manifest sync
-slug: mcp-config-manifest-sync
+name: MCP configuration and probe
+slug: mcp-configuration-and-probe
 type: system
 sources:
   - path: scripts/core/jcode-mcp-config.py
@@ -20,8 +20,13 @@ links:
   - to: auto-loop-core-engine
     relation: configures
     description: >-
-      The generated loop config's server set must match auto-loop's preflight
-      list.
+      JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must match the
+      manifest
+  - to: mcp-probe-invariants
+    relation: implements
+    description: >-
+      jcode-mcp-probe.py enforces readcheck and denylist invariants against the
+      manifest
 generator:
   version: 1
 covers:
@@ -86,11 +91,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The MCP server configuration subsystem: jcode-mcp-config.py generates the loop's MCP config from .mcp.json, jcode-mcp-manifest.json declares the expected server set, and jcode-mcp-probe.py deterministically probes each server's readchecks. Critical invariants: secrets live in the server spec's env block, never in argv (ps exposure); the generated config's server set must exactly match the manifest and auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list or boot crash-loops; airtable and linear are absent from the loop config (OPREQ-A invariant); the Keychain fallback fires on macOS but never inside the container where the security binary does not exist; and every non-exempt server needs at least one proven readcheck.
+The MCP server configuration stack: jcode-mcp-config.py generates the loop's MCP config from .mcp.json, jcode-mcp-probe.py deterministically probes servers against a manifest, and jcode-mcp-manifest.json pins the expected server set. Secrets never go into process argv (where ps could expose them) but stay in the server spec's env block with literal ${VAR} placeholders in argv. The generator fails closed if a required server's variable is unset. The Keychain fallback works on macOS but never fires inside the container where the security binary does not exist. A boot crash-loop occurs when the generated loop config's server set diverges from the manifest, so config vs manifest vs the hardcoded JCODE_MCP_CONFIG_REQUIRED preflight list must all agree, and OPREQ-A requires airtable and linear absent from the loop config.
 
 ## Related
 
-- configures [[auto-loop-core-engine]] — The generated loop config's server set must match auto-loop's preflight list.
+- configures [[auto-loop-core-engine]] — JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must match the manifest
+- implements [[mcp-probe-invariants]] — jcode-mcp-probe.py enforces readcheck and denylist invariants against the manifest
 <!-- context:generated:end -->
 
 ## Notes

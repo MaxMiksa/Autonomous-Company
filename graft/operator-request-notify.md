@@ -1,6 +1,6 @@
 ---
-name: operator request resolution
-slug: operator-request-resolution
+name: operator request notify
+slug: operator-request-notify
 type: system
 sources:
   - path: scripts/core/operator_request_notify.py
@@ -11,14 +11,14 @@ sources:
     hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
 sources_digest: c0dbffc502190641162626937e6e41f1c7762e2407d98ae82fcffaf4becc1239
 links:
-  - to: directive-writer-lifecycle
+  - to: auto-loop-core-engine
     relation: uses
-    description: Reads Decision lines from human-directive.md to resolve requests.
+    description: The idle-skip branch runs the OPREQ ledger step before sleeping
   - to: operator-action-router
     relation: uses
     description: >-
-      Both consume operator-requests.md and human-directive.md; router
-      prioritizes hold > opreq > directive.
+      Both consume operator-requests.md and human-directive.md; the router
+      prioritizes hold > opreq > directive
 generator:
   version: 1
 covers:
@@ -248,12 +248,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/core/operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic resolution rules per request type: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/, credential requires a PASS log with no secret-shaped tokens, legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line, and expenditure/external-action require a complete Authorization block. Dedup uses a content fingerprint (ignoring timestamp-only changes), and the refusal format is a short bounded head line followed by verbatim text (a line-anchored regex previously flattened multi-line reasoning).
+scripts/core/operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic resolution rules. New requests are notified once with a content fingerprint (ignoring timestamp-only changes), re-notified on material edits, and HOLD/informational/research-result types are suppressed. Resolution is per-type: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/ (rejecting mismatches and paths outside that directory), credential requires a PASS log with no secret-shaped tokens, legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line in human-directive.md, and expenditure-approval/external-action-authorization require a complete 'Authorization for OPREQ-<id>:' block with System/Action/Target/Limit. Resolved requests disappear from the consensus projection and audit logs record failures.
 
 ## Related
 
-- uses [[directive-writer-lifecycle]] — Reads Decision lines from human-directive.md to resolve requests.
-- uses [[operator-action-router]] — Both consume operator-requests.md and human-directive.md; router prioritizes hold > opreq > directive.
+- uses [[auto-loop-core-engine]] — The idle-skip branch runs the OPREQ ledger step before sleeping
+- uses [[operator-action-router]] — Both consume operator-requests.md and human-directive.md; the router prioritizes hold > opreq > directive
 <!-- context:generated:end -->
 
 ## Notes

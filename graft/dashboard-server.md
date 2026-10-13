@@ -1,22 +1,19 @@
 ---
 name: dashboard server
 slug: dashboard-server
-type: file
+type: system
 sources:
   - path: dashboard/server.py
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
   - path: tests/test_dashboard_server.py
     hash: 56e9073d5a9447df622cb3e0873d553053a3b16089534d427c177db772b933dd
-sources_digest: a00d09651be48cf7015196cad5672555ff241c03a2b27887a7ef361af457aa42
+  - path: tests/test_refusal_format.sh
+    hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
+sources_digest: b345d383ecc504e4dc9ae899649f4c78d13f54490aec22ca11dbdb4bb80e8732
 links:
-  - to: auto-loop-core-engine
-    relation: uses
-    description: Parses auto-loop.log and runtime state produced by the loop.
-  - to: operator-request-resolution
-    relation: uses
-    description: >-
-      Refusal format produced by the panel is consumed by
-      operator_request_notify.py.
+  - to: refusal-format-contract
+    relation: produces
+    description: The operator-decision panel writes the refusal format
 generator:
   version: 1
 covers:
@@ -393,12 +390,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-dashboard/server.py is the cockpit web server: status parsing (Windows/macOS), action dispatch, engine runtime state from the persistent auto-loop.log (latest boot, escalated cycles, legacy tier lines), spend window anchoring on ccusage blockStart with rolling fallback, weekly cost split (Monday-UTC), log tailing with multibyte safety and banner recovery, and live budget gate display. Imports a sibling sentry_client, which tests must handle via sys.path insertion.
+dashboard/server.py is the cockpit web server: status parsing (Windows/macOS host detection), action dispatch, engine runtime state (parsing persistent auto-loop.log to reflect the latest boot including escalated cycles and legacy tier lines), settings resolution, cost summary, and log tailing. Spend window anchoring uses ccusage blockStart with rolling fallback; weekly cost splits on Monday-UTC. Log tailing must be multibyte-safe with banner recovery. It imports a sibling sentry_client, which tests must handle via sys.path insertion.
 
 ## Related
 
-- uses [[auto-loop-core-engine]] — Parses auto-loop.log and runtime state produced by the loop.
-- uses [[operator-request-resolution]] — Refusal format produced by the panel is consumed by operator_request_notify.py.
+- produces [[refusal-format-contract]] — The operator-decision panel writes the refusal format
 <!-- context:generated:end -->
 
 ## Notes

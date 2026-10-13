@@ -1,6 +1,6 @@
 ---
-name: turn economy & bloat brakes
-slug: turn-economy-bloat-brakes
+name: turn economy audits
+slug: turn-economy-audits
 type: system
 sources:
   - path: scripts/ops/turn-audit.py
@@ -14,8 +14,8 @@ sources:
 sources_digest: 9e8497d1deda9227e77694cabbf89f9413eaae2cf3f10f900481f9a2dd878a1a
 links:
   - to: auto-loop-core-engine
-    relation: validates
-    description: Verdicts feed back into loop behavior via the bloat brake's hard feedback.
+    relation: uses
+    description: auto-loop feeds daily-log lines to turn-audit and consumes bloat feedback
 generator:
   version: 1
 covers:
@@ -68,11 +68,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Turn-economy policy (section 4) enforcement: turn-audit.py parses daily-log sessions, counts turns/messages, accounts for cache, applies verdict thresholds (CHATTY/BLOATED/ok) with pinned boundary values to prevent silent recalibration drift; turn-bloat-brake.py tracks consecutive BLOATED verdicts per app and triggers an alarm and hard feedback after a configurable streak (default K=3), resetting on ok/CHATTY, suppressing repeat alarms, with a kill switch.
+The turn-economy policy (section 4) implemented by turn-audit.py and turn-bloat-brake.py. turn-audit.py parses daily-log lines to count turns/messages, account for cache, and apply verdict thresholds (CHATTY, BLOATED, ok) with boundary values pinned (55 vs 56 turns, 66 turns, duration-based bloating) to prevent silent recalibration drift. turn-bloat-brake.py tracks consecutive BLOATED verdicts per app and triggers an alarm and hard feedback after a configurable streak threshold (default K=3, overridable via TURN_BLOAT_STREAK), resetting on ok/CHATTY, suppressing repeat alarms, and honoring TURN_BLOAT_ENABLED=0 kill switch.
 
 ## Related
 
-- validates [[auto-loop-core-engine]] — Verdicts feed back into loop behavior via the bloat brake's hard feedback.
+- uses [[auto-loop-core-engine]] — auto-loop feeds daily-log lines to turn-audit and consumes bloat feedback
 <!-- context:generated:end -->
 
 ## Notes

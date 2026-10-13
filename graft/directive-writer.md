@@ -1,7 +1,7 @@
 ---
 name: Directive Writer
 slug: directive-writer
-type: concept
+type: system
 sources:
   - path: dashboard/server.py
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
@@ -11,8 +11,19 @@ sources:
     hash: a0a766435a1f9e501b97cca96bb30314440de72fd569313488d3b80d5f9c55a5
   - path: scripts/analyst/promote_directive.py
     hash: 9c45147f1730fc30545b94a30428d54e0bd40f04506aa3db00614880ec93d677
-sources_digest: 9a9948e540115b20b448879ae378782e4efbf712d7e5d4de6059b86c62a21195
+  - path: scripts/core/directive_writer.py
+    hash: 276871ed21c1686f9b10a2179256e93b609c818f77a7b7e5f31a7e6681829da4
+  - path: tests/test_directive_section_refs.sh
+    hash: 413742241d956ae77feb01e20780757ee86fa63f3699e3926a2ddeea81a53a71
+  - path: tests/test_directive_writer.py
+    hash: 8246a641c797789b53117ec96cd0a3922bad2d9c5dc9ba873e13daf579f35a73
+sources_digest: 7f7792bb7ec8eab2ea546673df02cfda235c7c22464c40c871c4acad0375c880
 links:
+  - to: auto-loop-core-engine
+    relation: uses
+    description: >-
+      auto-loop reads directive status via _directive_is_pending() and
+      escalation logic
   - to: cockpit-dashboard-server
     relation: uses
     description: All directive writes route through this writer.
@@ -246,14 +257,135 @@ covers:
   - symbol: main
     kind: function
     at: 'scripts/analyst/promote_directive.py:L116-L225'
+  - symbol: undefined_section_refs
+    kind: function
+    at: 'scripts/core/directive_writer.py:L100-L109'
+  - symbol: now
+    kind: function
+    at: 'scripts/core/directive_writer.py:L112-L113'
+  - symbol: sha
+    kind: function
+    at: 'scripts/core/directive_writer.py:L116-L117'
+  - symbol: read_live
+    kind: function
+    at: 'scripts/core/directive_writer.py:L120-L126'
+  - symbol: body_of
+    kind: function
+    at: 'scripts/core/directive_writer.py:L129-L136'
+  - symbol: audit
+    kind: function
+    at: 'scripts/core/directive_writer.py:L139-L145'
+  - symbol: _telegram_env
+    kind: function
+    at: 'scripts/core/directive_writer.py:L148-L171'
+  - symbol: notify
+    kind: function
+    at: 'scripts/core/directive_writer.py:L174-L184'
+  - symbol: _why_pending
+    kind: function
+    at: 'scripts/core/directive_writer.py:L187-L215'
+  - symbol: backup
+    kind: function
+    at: 'scripts/core/directive_writer.py:L218-L232'
+  - symbol: normalize_ownership
+    kind: function
+    at: 'scripts/core/directive_writer.py:L235-L281'
+  - symbol: atomic_write
+    kind: function
+    at: 'scripts/core/directive_writer.py:L284-L296'
+  - symbol: verify_written
+    kind: function
+    at: 'scripts/core/directive_writer.py:L299-L303'
+  - symbol: Refused
+    kind: class
+    at: 'scripts/core/directive_writer.py:L306-L307'
+  - symbol: live_body
+    kind: function
+    at: 'scripts/core/directive_writer.py:L312-L315'
+  - symbol: split_body
+    kind: function
+    at: 'scripts/core/directive_writer.py:L318-L337'
+  - symbol: section_sizes
+    kind: function
+    at: 'scripts/core/directive_writer.py:L340-L344'
+  - symbol: size_brake
+    kind: function
+    at: 'scripts/core/directive_writer.py:L347-L363'
+  - symbol: _pending_gate
+    kind: function
+    at: 'scripts/core/directive_writer.py:L366-L382'
+  - symbol: _refuse_section_refs
+    kind: function
+    at: 'scripts/core/directive_writer.py:L385-L393'
+  - symbol: with_lock
+    kind: function
+    at: 'scripts/core/directive_writer.py:L396-L405'
+  - symbol: wrapper
+    kind: function
+    at: 'scripts/core/directive_writer.py:L397-L404'
+  - symbol: cmd_write
+    kind: function
+    at: 'scripts/core/directive_writer.py:L418-L472'
+  - symbol: cmd_append
+    kind: function
+    at: 'scripts/core/directive_writer.py:L476-L504'
+  - symbol: cmd_archive
+    kind: function
+    at: 'scripts/core/directive_writer.py:L508-L572'
+  - symbol: cmd_status
+    kind: function
+    at: 'scripts/core/directive_writer.py:L576-L610'
+  - symbol: cmd_restore
+    kind: function
+    at: 'scripts/core/directive_writer.py:L614-L650'
+  - symbol: cmd_show
+    kind: function
+    at: 'scripts/core/directive_writer.py:L653-L664'
+  - symbol: main
+    kind: function
+    at: 'scripts/core/directive_writer.py:L667-L725'
+  - symbol: _refuse_forbidden
+    kind: function
+    at: 'scripts/core/directive_writer.py:L706-L712'
+  - symbol: fn
+    kind: function
+    at: 'scripts/core/directive_writer.py:L707-L711'
+  - symbol: check
+    kind: function
+    at: 'tests/test_directive_writer.py:L22-L25'
+  - symbol: Env
+    kind: class
+    at: 'tests/test_directive_writer.py:L28-L52'
+  - symbol: __init__
+    kind: method
+    at: 'tests/test_directive_writer.py:L29-L32'
+  - symbol: run
+    kind: method
+    at: 'tests/test_directive_writer.py:L34-L36'
+  - symbol: live
+    kind: method
+    at: 'tests/test_directive_writer.py:L38-L39'
+  - symbol: audit
+    kind: method
+    at: 'tests/test_directive_writer.py:L41-L43'
+  - symbol: show
+    kind: method
+    at: 'tests/test_directive_writer.py:L45-L47'
+  - symbol: f
+    kind: method
+    at: 'tests/test_directive_writer.py:L49-L52'
+  - symbol: main
+    kind: function
+    at: 'tests/test_directive_writer.py:L63-L155'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-The single deterministic writer for memories/human-directive.md. Locks, gates on in-flight PENDING directives, and refuses clobbering unless allow_pending is set. Used by the dashboard server, the Opportunity Analyst scripts, and the jcode analyst to safely restore/modify the live directive. The live directive's Status must be DONE for promotion; new directives are written with PENDING status and audit metadata.
+scripts/core/directive_writer.py manages the human-directive.md lifecycle: write, append, status, show --sections, and archive subcommands. It enforces: append refuses non-heading sections (rc 3), the PENDING gate blocks append/archive without --allow-pending (rc 2), undefined § references are rejected, stale body_sha256 checks fail status transitions, archive has a resolver-section guard and prefix-matching rules, and a size brake (DIRECTIVE_BODY_WARN_BYTES/MAX_BYTES) with --force-size override. Backups are created, audit lines written, and the archive file contains verbatim text plus a stamp. undefined_section_refs() guards against the bug that froze directive revision 11 (references to absent §6/§7).
 
 ## Related
 
+- uses [[auto-loop-core-engine]] — auto-loop reads directive status via _directive_is_pending() and escalation logic
 - uses [[cockpit-dashboard-server]] — All directive writes route through this writer.
 - implements [[directive-promotion-gate]] — The promotion gate writes new directives with PENDING status through this writer.
 - uses [[opportunity-analyst-codex]] — Used for safe restore of human-directive.md after analysis.

@@ -1,38 +1,24 @@
 ---
-name: idle-skip & work-window brakes
-slug: idle-skip-work-window-brakes
-type: concept
+name: work window brake
+slug: work-window-brake
+type: system
 sources:
-  - path: scripts/core/auto-loop.sh
-    hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
-  - path: scripts/ops/idle-skip-note.py
-    hash: 1d4f853b19cdc9ee94c0fd1136ea67393d04deb36a7563e2720ef15a0631ec98
   - path: scripts/ops/work-window-watchdog.py
     hash: 228677456f5e5634b3c6a9964c8b92e13a4c2e4992154feed8a3334779fd0a5f
   - path: scripts/ops/work-window.py
     hash: 7b39b958c05be0d7242887ae4957cf7e6034f20990d587dbab31471a3365c92a
-  - path: tests/test_idle_skip.sh
-    hash: 13ce9f0b8801b94a1bc896bd2db53f2fc68c2984b45db8372050ca760e1edb53
   - path: tests/test_work_window_watchdog.py
     hash: 43cd4a904f4badbb8ce3a4ee88adff57b790ff6c8067435e361617f37a10de40
   - path: tests/test_work_window.py
     hash: d8c97cca8d25af801fd7214e5176acbe222a9d2ba05610141bf1fd1f40a1bff2
-sources_digest: bd03c13c1b46d190954a4705c06cdf5c076be774ba2bc6b49ff1947ea8e86a17
+sources_digest: 4719487039a4c01cf3949f901a26049919a415cd0340f75be8c2f6b566434d9a
 links:
   - to: auto-loop-core-engine
-    relation: implements
-    description: >-
-      Idle-skip logic lives in auto-loop.sh; work-window scripts are separate
-      ops tools.
+    relation: uses
+    description: auto-loop consults the work window before running cycles
 generator:
   version: 1
 covers:
-  - symbol: build_line
-    kind: function
-    at: 'scripts/ops/idle-skip-note.py:L26-L34'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/idle-skip-note.py:L37-L89'
   - symbol: _app_dir
     kind: function
     at: 'scripts/ops/work-window-watchdog.py:L45-L48'
@@ -85,11 +71,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Two complementary empty-work brakes. Idle-skip (_idle_skip_due) never skips the first cycle of a UTC day, reads the kill switch at call time, always runs the OPREQ ledger step before sleeping, and writes last-full-cycle.date only on success. The work-window brake (work-window.py) opens on a changed DELTA, stays open while age < TTL, fails closed on negative age (stored opened_at_cycle > current cycle), fails open on corrupt state, and the watchdog (work-window-watchdog.py) alarms once when consecutive empty cycles cross a threshold (failed cycles don't count).
+The empty-cycle work-window brake (work-window.py) and its alarm layer (work-window-watchdog.py). work-window.py opens a window on a changed DELTA and records opened_at_cycle and reason; no delta with no state stays closed; a fresh window (age < TTL) stays open, an expired one closes; a restart with negative age (stored opened_at_cycle > current cycle) fails closed; corrupt state or missing DELTA line fail open; the first snapshot is closed; WORK_WINDOW_ENABLED=0 forces closed; TTL overridable via WORK_WINDOW_TTL_CYCLES. The watchdog detects consecutive empty work cycles while the window is open, emitting an alarm only once when the consecutive count crosses the threshold (not on every subsequent violation), with a 'failed' cycle not counted as a violation and an escape clause for enumerated blockers.
 
 ## Related
 
-- implements [[auto-loop-core-engine]] — Idle-skip logic lives in auto-loop.sh; work-window scripts are separate ops tools.
+- uses [[auto-loop-core-engine]] — auto-loop consults the work window before running cycles
 <!-- context:generated:end -->
 
 ## Notes

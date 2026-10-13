@@ -1,6 +1,6 @@
 ---
-name: staleness reporting
-slug: staleness-reporting
+name: staleness report
+slug: staleness-report
 type: file
 sources:
   - path: scripts/ops/staleness-report.py
@@ -9,9 +9,9 @@ sources:
     hash: 801eb2b9aa75f6a46c2273932b2325140b7564492dfa8b5a33943e5e81bd6c2b
 sources_digest: 0e0c17cb7f53f675464af4a7f10656db2f7d14e09b3e580fa6f4a11ab8f51b4e
 links:
-  - to: registry-tooling
+  - to: auto-loop-core-engine
     relation: uses
-    description: Both scan memories/ and candidate registry files.
+    description: Reports on memories/ files that auto-loop and related scripts maintain
 generator:
   version: 1
 covers:
@@ -67,11 +67,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/ops/staleness-report.py scans the memories/ tree and produces memories/staleness-report.md with Turkish-language flags for stale sections, archive candidates, resolved-request text, pre-recharter decisions, consensus Prior counts, stale ledger headers, oversized PROMPT content with legacy words, weekly gaps, and backup cleanup recommendations. Supports --stdout and a fixed --today date for deterministic testing.
+scripts/ops/staleness-report.py generates memories/staleness-report.md with Turkish-language flags for stale sections, archive candidates, resolved-request text, pre-recharter decisions, consensus Prior counts, stale ledger headers, oversized PROMPT content with legacy words, weekly gaps, and backup cleanup recommendations. Supports --stdout mode. Output format is exact and brittle to wording changes.
 
 ## Related
 
-- uses [[registry-tooling]] — Both scan memories/ and candidate registry files.
+- uses [[auto-loop-core-engine]] — Reports on memories/ files that auto-loop and related scripts maintain
 <!-- context:generated:end -->
 
 ## Notes
