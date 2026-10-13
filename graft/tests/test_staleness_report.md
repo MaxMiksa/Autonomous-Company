@@ -1,6 +1,6 @@
-# tests/test_staleness_report.py · [[registry-staleness-maintenance]]
+# tests/test_staleness_report.py · [[staleness-reporting]]
 
-Integration test that runs the staleness-report script against a synthetic app tree and asserts each mechanical flag is produced.
+Integration test script that builds a synthetic app tree and runs staleness-report.py to verify its mechanical flags (archive candidates, gaps, stale headers, backups cleanup) and the --stdout mode.
 
-- check · function · L15-L18 — Helper that prints PASS/FAIL for a condition and records the test name in FAILS when it fails.
-- main · function · L21-L69 — Builds a synthetic app tree with crafted edge cases, runs the staleness-report script, and verifies every expected flag appears in the report.
+- check · function · L17-L20 — Helper that prints PASS/FAIL for a condition and records the test name in FAILS when it fails.
+- main · function · L23-L102 — Builds a synthetic app tree with crafted memory/docs files, runs the staleness-report script under several scenarios, and asserts each expected flag (and absence of false positives) via the check() helper.

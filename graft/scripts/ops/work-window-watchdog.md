@@ -1,4 +1,4 @@
-# scripts/ops/work-window-watchdog.py · [[state-file-throttling-atomicity]] [[work-window-brake]]
+# scripts/ops/work-window-watchdog.py · [[work-window-brake]]
 
 The alarm layer that makes a model ignoring the work-window brake visible by printing a Telegram alarm when an open window coincides with empty-cycle admissions for THRESHOLD consecutive cycles.
 

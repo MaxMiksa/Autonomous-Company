@@ -1,4 +1,4 @@
-# scripts/ops/verify-mcp-keys.py · [[fail-closed-design-invariant]] [[mcp-key-verification]]
+# scripts/ops/verify-mcp-keys.py · [[deploy-environment-verification]] [[telegram-notification-secrets]]
 
 Post-deploy check that each MCP server's key is present and well-shaped in the loop process's own environment, without ever printing a secret.
 

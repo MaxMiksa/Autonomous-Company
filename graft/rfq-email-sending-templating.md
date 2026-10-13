@@ -1,6 +1,6 @@
 ---
-name: RFQ Send Pipeline
-slug: rfq-send-pipeline
+name: RFQ Email Sending & Templating
+slug: rfq-email-sending-templating
 type: system
 sources:
   - path: scripts/ops/rfq_template.py
@@ -9,16 +9,17 @@ sources:
     hash: 09815061d704b6bd2034469e3bfe3dfac7417f25761ea9ae845be4c5367fd225
 sources_digest: cf3477a985d90fc7d5a49be33824fed5f260b7c47dd3c8afac8fc60c3c8b6244
 links:
+  - to: airtable-access-wrappers
+    relation: uses
+    description: >-
+      rfq-send.py reads/writes the Wowcar OPEX RFQ Airtable table and patches
+      status via _mark_sent
   - to: operator-alerting-watchers
-    relation: produces
+    relation: uses
     description: >-
-      rfq-send.py marks successful sends in Airtable, which is the input the
-      rfq-reply-watch watcher classifies.
-  - to: outreach-eligibility-gate
-    relation: implements
-    description: >-
-      rfq-send.py's decide() applies the same fail-closed eligibility philosophy
-      (opt-out, caps, anonymity scan) as send-gate.py for the RFQ flow.
+      rfq-reply-watch.py is the advisory half that detects replies/silence to
+      sent RFQs; it deliberately omits the delivery-failure branch because
+      rfq-send.py only marks successful sends
 generator:
   version: 1
 covers:
@@ -95,12 +96,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Fail-closed CLI tooling for sending anonymous OPEX RFQ emails to vendors on behalf of a hidden client, split into content templates (rfq_template.py) and send logic (rfq-send.py). Anonymity is enforced by a denylist scan, the §15 'Sponsor İzni' gate is deliberately last and cannot be set programmatically, caps are computed by scanning all rows, and form-only vendors are refused because the machine never fills web forms. Gmail does not render base64 data-URIs in signatures, so the logo is attached as a CID inline attachment.
+The two-part OPEX RFQ procurement flow: rfq-send.py is a fail-closed CLI that sends anonymous RFQ emails to vendors via ForwardEmail, gated by an eligibility chain (opt-out, already-sent, caps, anonymity denylist scan, and finally the §15 'Sponsor İzni' checkbox that must be manually TRUE and cannot be set programmatically). rfq_template.py separates presentation from send logic, keeping the client anonymous and swapping a base64 logo for a cid: reference because Gmail does not render data-URIs. Form-only vendors are refused because the machine never fills web forms.
 
 ## Related
 
-- produces [[operator-alerting-watchers]] — rfq-send.py marks successful sends in Airtable, which is the input the rfq-reply-watch watcher classifies.
-- implements [[outreach-eligibility-gate]] — rfq-send.py's decide() applies the same fail-closed eligibility philosophy (opt-out, caps, anonymity scan) as send-gate.py for the RFQ flow.
+- uses [[airtable-access-wrappers]] — rfq-send.py reads/writes the Wowcar OPEX RFQ Airtable table and patches status via _mark_sent
+- uses [[operator-alerting-watchers]] — rfq-reply-watch.py is the advisory half that detects replies/silence to sent RFQs; it deliberately omits the delivery-failure branch because rfq-send.py only marks successful sends
 <!-- context:generated:end -->
 
 ## Notes

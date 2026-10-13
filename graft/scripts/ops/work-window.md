@@ -1,4 +1,4 @@
-# scripts/ops/work-window.py · [[fail-closed-design-invariant]] [[work-window-brake]]
+# scripts/ops/work-window.py · [[work-window-brake]]
 
 A mechanical brake that opens a K-cycle work window whenever a tracked surface changes, forcing the harness to advance queued work instead of emitting a valid empty-cycle confirmation, and failing closed on any unreadable state.
 

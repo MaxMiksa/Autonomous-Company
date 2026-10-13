@@ -6,12 +6,7 @@ sources:
   - path: scripts/ops/site-contact-evidence.py
     hash: 008b4735e6133445eff667f840f9c7faaeef8013b1363f6555b602a9d6fd048c
 sources_digest: 5c3ab49bca83c326e54b9e154c81edea67c57863bcee0d19e964759966469ad2
-links:
-  - to: outreach-eligibility-gate
-    relation: produces
-    description: >-
-      Produces the FOUND_FIRST_PARTY / FOUND_OFF_DOMAIN / INCONCLUSIVE_* /
-      NONE_PUBLISHED verdicts that feed G4 attribution checks in send-gate.
+links: []
 generator:
   version: 1
 covers:
@@ -37,11 +32,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Tooling that finds a firm's published contact email for G4 attribution checks, encoding the rule that a fetch returning no rendered content is inconclusive, never negative. It escalates through browser-rendered DOM (via BrowserOS), raw served HTML, and JS bundles, plus probes policy pages (kvkk, aydinlatma, gizlilik, iletisim) that legally carry contact addresses. Third-party script URLs are skipped to avoid false positives, and a negative verdict is only allowed when a rendered DOM was successfully obtained.
-
-## Related
-
-- produces [[outreach-eligibility-gate]] — Produces the FOUND_FIRST_PARTY / FOUND_OFF_DOMAIN / INCONCLUSIVE_* / NONE_PUBLISHED verdicts that feed G4 attribution checks in send-gate.
+site-contact-evidence.py finds a firm's published contact email for G4 attribution checks, encoding the rule that a fetch returning no rendered content is inconclusive, never negative. It escalates through browser-rendered DOM (decisive), raw HTML, and JS bundles, plus policy pages that legally carry contact addresses. Only a successfully rendered DOM can justify a negative verdict; third-party script URLs are skipped to avoid false positives.
 <!-- context:generated:end -->
 
 ## Notes

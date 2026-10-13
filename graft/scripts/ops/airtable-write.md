@@ -1,4 +1,4 @@
-# scripts/ops/airtable-write.py · [[airtable-access-wrapper]] [[external-data-access-airtable-browser-ki-k]] [[secret-management-runtime-env-keychain]]
+# scripts/ops/airtable-write.py · [[airtable-access-wrappers]] [[external-data-access-airtable-browser-ki-k]] [[secret-management-runtime-env-keychain]]
 
 CLI tool that performs single-record Airtable writes with mandatory before/after read-back, dry-run-by-default, and data-loss guards so operator-side corrections never silently destroy or strand data.
 

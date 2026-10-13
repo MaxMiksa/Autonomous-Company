@@ -1,4 +1,4 @@
-# tests/test_consensus_prune.py · [[test-harness-suites]]
+# tests/test_consensus_prune.py · [[consensus-pruning]] [[memory-ledger-files]]
 
 Test suite for the consensus-prune.py v2 script, covering v1 fixtures (KEEP=12) and v2 spec cases (p)-(z) including prod-copy verification, tail/head pruning, archive byte-exactness, guard integration, and fail-closed skip/alarm behavior.
 

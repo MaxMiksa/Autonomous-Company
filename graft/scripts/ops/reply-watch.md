@@ -1,4 +1,4 @@
-# scripts/ops/reply-watch.py · [[operator-alerting-watchers]] [[state-file-throttling-atomicity]]
+# scripts/ops/reply-watch.py · [[operator-alerting-watchers]] [[outreach-and-reply-monitoring]] [[telegram-notification-secrets]]
 
 Advisory watcher that detects the outcome of outreach sends (reply, delivery failure, or silence) and notifies the operator once per row per outcome class, persisting state in a JSON file.
 

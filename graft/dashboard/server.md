@@ -1,4 +1,4 @@
-# dashboard/server.py · [[cockpit-dashboard]] [[directive-registry-management]]
+# dashboard/server.py · [[cockpit-dashboard]] [[dashboard-server]] [[directive-registry-management]] [[refusal-format-contract]]
 
 Local dashboard HTTP server for Auto Company that exposes status, settings, directive, and operator-request controls across Windows/WSL/macOS/Linux hosts.
 

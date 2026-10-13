@@ -3,34 +3,116 @@ name: operator request resolution
 slug: operator-request-resolution
 type: system
 sources:
-  - path: tests/test_operator_action_router.py
-    hash: 20f6bd56ba2238d0242627275af5749560272630a1212f9f9f22159d655d99ae
+  - path: scripts/core/operator_request_notify.py
+    hash: 153aaa73966afd59b8ac7d1a58c29a7279df6297d84743b2375cedd2135ceb18
   - path: tests/test_operator_request_notify.py
     hash: 07fef3026944da791037a735c7e5cea15cdb4f53eabaecf7affda422400f016f
   - path: tests/test_refusal_format.sh
     hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
-sources_digest: 84ce987e8f25f3f1d2f0813cb0d8ca7072bf2e7955bc3ee0da67c859d555140c
-links:
-  - to: dashboard-server
-    relation: uses
-    description: >-
-      The cockpit's operator-decision panel writes the refusal format that
-      operator_request_notify.py must parse
-  - to: directive-writer
-    relation: uses
-    description: Parses Decision/Authorization lines written into human-directive.md
+sources_digest: c0dbffc502190641162626937e6e41f1c7762e2407d98ae82fcffaf4becc1239
+links: []
 generator:
   version: 1
 covers:
-  - symbol: check
+  - symbol: _looks_secret
     kind: function
-    at: 'tests/test_operator_action_router.py:L27-L33'
-  - symbol: check_true
+    at: 'scripts/core/operator_request_notify.py:L114-L123'
+  - symbol: now_iso
     kind: function
-    at: 'tests/test_operator_action_router.py:L36-L37'
-  - symbol: make_app
+    at: 'scripts/core/operator_request_notify.py:L134-L135'
+  - symbol: norm_field
     kind: function
-    at: 'tests/test_operator_action_router.py:L40-L67'
+    at: 'scripts/core/operator_request_notify.py:L138-L139'
+  - symbol: material_hash
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L142-L151'
+  - symbol: parse_fields
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L154-L166'
+  - symbol: parse_blocks
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L169-L181'
+  - symbol: validate_required
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L184-L186'
+  - symbol: set_field_in_block_body
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L189-L198'
+  - symbol: set_field_in_text
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L201-L208'
+  - symbol: scrub_secrets
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L211-L216'
+  - symbol: compose_message
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L241-L271'
+  - symbol: send_telegram
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L274-L294'
+  - symbol: attempt_notify
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L297-L306'
+  - symbol: load_state
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L309-L327'
+  - symbol: write_state
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L330-L337'
+  - symbol: write_text_verified
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L340-L342'
+  - symbol: audit
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L345-L348'
+  - symbol: render_projection_body
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L351-L366'
+  - symbol: splice_projection
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L369-L397'
+  - symbol: process_notifications
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L400-L480'
+  - symbol: _resolve_evidence_path
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L489-L499'
+  - symbol: verify_document_procurement
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L502-L578'
+  - symbol: verify_credential
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L581-L622'
+  - symbol: _directive_window_after
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L646-L654'
+  - symbol: _resolves_block_window
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L657-L671'
+  - symbol: verify_legal_or_financial_decision
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L687-L709'
+  - symbol: verify_authorization
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L712-L738'
+  - symbol: refusal_for
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L754-L778'
+  - symbol: verify_resolution
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L781-L802'
+  - symbol: _answer_sources
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L805-L823'
+  - symbol: process_resolutions
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L826-L884'
+  - symbol: _main_impl
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L887-L979'
+  - symbol: main
+    kind: function
+    at: 'scripts/core/operator_request_notify.py:L982-L994'
   - symbol: make_send_fn
     kind: function
     at: 'tests/test_operator_request_notify.py:L40-L50'
@@ -158,12 +240,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The operator-request lifecycle: operator_request_notify.py orchestrates Telegram notifications with content-fingerprint dedup and per-type resolution rules (document-procurement needs SHA-256-matched evidence file, credential needs PASS log without secret-shaped tokens, legal/financial/adjudication need a structured Decision line, expenditure/authorization need a complete Authorization block). operator-action-router.py prioritizes hold > opreq > directive with staleness floors and dedup. Resolution rules are deterministic and enforced by tests.
-
-## Related
-
-- uses [[dashboard-server]] — The cockpit's operator-decision panel writes the refusal format that operator_request_notify.py must parse
-- uses [[directive-writer]] — Parses Decision/Authorization lines written into human-directive.md
+scripts/core/operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic resolution rules per request type: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/, credential requires a PASS log with no secret-shaped tokens, legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line, and expenditure/external-action require a complete 'Authorization for OPREQ-<id>:' block. Notifications are deduped by content fingerprint (ignoring timestamp-only changes), with retry/recovery on Telegram failures.
 <!-- context:generated:end -->
 
 ## Notes

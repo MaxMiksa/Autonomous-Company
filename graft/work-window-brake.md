@@ -7,18 +7,20 @@ sources:
     hash: 228677456f5e5634b3c6a9964c8b92e13a4c2e4992154feed8a3334779fd0a5f
   - path: scripts/ops/work-window.py
     hash: fd9dd4d65c12d2d5aefc8358f830da5764f16799b2d34aa97ea3c7c5a289a096
-sources_digest: a1a7830b5cb58e843d9817ff7866727002fa09c63e73475dcf0d7dc274d985cc
+  - path: tests/test_work_window_watchdog.py
+    hash: 43cd4a904f4badbb8ce3a4ee88adff57b790ff6c8067435e361617f37a10de40
+  - path: tests/test_work_window.py
+    hash: 234b10df540fe8774d445855295b088c68cdb23003bdd95c1c22debbd93a6c5e
+sources_digest: a78c0a00706386eac93cd8b6347268522417f5ce0fba562eb2e68feee1e59bde
 links:
-  - to: harness-loop-core
+  - to: auto-loop-harness
     relation: implements
     description: >-
-      Exits 10 with an injection line telling the model to advance exactly one
-      Next Action item or enumerate blockers; wired into auto-loop.sh.
-  - to: state-staleness-probes
-    relation: uses
-    description: >-
-      Parses the DELTA line emitted by state-snapshot.py to detect surface
-      changes.
+      Honors the harness contract in scripts/core/auto-loop.sh; the loop gates
+      idle-skip on _workwin_open and captures the exit code set-e-safe
+  - to: memory-staleness-snapshot-probes
+    relation: depends_on
+    description: Parses the DELTA line format produced by state-snapshot.py
 generator:
   version: 1
 covers:
@@ -58,16 +60,28 @@ covers:
   - symbol: main
     kind: function
     at: 'scripts/ops/work-window.py:L118-L191'
+  - symbol: run
+    kind: function
+    at: 'tests/test_work_window.py:L21-L42'
+  - symbol: check
+    kind: function
+    at: 'tests/test_work_window.py:L45-L48'
+  - symbol: run
+    kind: function
+    at: 'tests/test_work_window_watchdog.py:L18-L29'
+  - symbol: check
+    kind: function
+    at: 'tests/test_work_window_watchdog.py:L32-L35'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-A fail-closed brake and its alarm companion that prevent the auto-loop harness from emitting empty-cycle confirmations when a tracked surface change has orphaned follow-on work. work-window.py parses the state-snapshot DELTA line, implements two operator-decision rules (directive DONE-only changes close the window; auditor-only changes neither open nor close it), fails open on unreadable state, and caps spend via a TTL. work-window-watchdog.py detects empty-cycle confirmations while a window is open using deliberately narrow regex phrasings (not generic 'blocked' words) because the brake's escape clause requires enumerating blocked items.
+scripts/ops/work-window.py gates whether a cycle should proceed based on DELTA change detection: a changed DELTA opens the window and records opened_at_cycle; an unchanged DELTA stays open only within the TTL window; expired, negative-age (restart), and corrupt states fail closed. Special rules: a DONE directive pull or auditor-only change does not open the window, while PENDING appends and OPREQ changes still do. The companion work-window-watchdog.py detects consecutive empty work cycles while the window is open, emitting an alarm only once when the consecutive count crosses the threshold.
 
 ## Related
 
-- implements [[harness-loop-core]] — Exits 10 with an injection line telling the model to advance exactly one Next Action item or enumerate blockers; wired into auto-loop.sh.
-- uses [[state-staleness-probes]] — Parses the DELTA line emitted by state-snapshot.py to detect surface changes.
+- implements [[auto-loop-harness]] — Honors the harness contract in scripts/core/auto-loop.sh; the loop gates idle-skip on _workwin_open and captures the exit code set-e-safe
+- depends on [[memory-staleness-snapshot-probes]] — Parses the DELTA line format produced by state-snapshot.py
 <!-- context:generated:end -->
 
 ## Notes

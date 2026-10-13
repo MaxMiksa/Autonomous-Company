@@ -1,4 +1,4 @@
-# tests/test_work_window.py · [[ops-watchers-guards]]
+# tests/test_work_window.py · [[work-window-brake]]
 
 Standalone test suite (no pytest) for the work-window brake script, covering open/closed window logic, TTL expiry, restart guard, fail-closed behavior, kill switch, and the directive/auditor rules.
 

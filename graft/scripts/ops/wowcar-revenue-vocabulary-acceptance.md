@@ -1,4 +1,4 @@
-# scripts/ops/wowcar-revenue-vocabulary-acceptance.py · [[fail-closed-design-invariant]] [[wowcar-revenue-relabel-acceptance]] [[wowcar-source-modules]]
+# scripts/ops/wowcar-revenue-vocabulary-acceptance.py · [[wowcar-revenue-relabel-acceptance]] [[wowcar-revenue-vocabulary]]
 
 Fail-closed acceptance harness that pins the live Wowcar repo as baseline, applies the eight approved revenue-vocabulary and column-width edits to a candidate copy, and verifies the candidate's outputs match the baseline except for the intended relabeling.
 

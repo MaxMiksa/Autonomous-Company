@@ -1,4 +1,4 @@
-# scripts/ops/tool-usage-audit.py · [[cycle-cost-bloat-governance]] [[state-file-throttling-atomicity]]
+# scripts/ops/tool-usage-audit.py · [[cycle-cost-risk-audits]] [[cycle-ndjson-logs]] [[tool-usage-audit]]
 
 Durable per-cycle ledger of tool-consultation counts (ctx7/Airtable/Linear/Browser/graft) appended from finished cycle ndjson, idempotent via a state file, with read-only report and per-MCP-name modes.
 

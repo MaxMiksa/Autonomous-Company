@@ -1,4 +1,4 @@
-# tests/test_operator_action_router.py · [[operator-request-resolution]]
+# tests/test_operator_action_router.py · [[operator-action-router]]
 
 Test suite that exercises the real operator-action-router functions (collect_items/render/should_notify) and a real main() run with notify monkeypatched, verifying digest content, priority ordering, staleness floor, dedup, state clearing, and fail-soft behavior.
 

@@ -1,22 +1,23 @@
 ---
-name: Airtable Access Wrapper
-slug: airtable-access-wrapper
+name: Airtable Access Wrappers
+slug: airtable-access-wrappers
 type: system
 sources:
   - path: scripts/ops/airtable-read.py
     hash: 148f66145510c90e03256b7b37853122bcd892d51cba67f095ce700a0895e3e2
   - path: scripts/ops/airtable-write.py
     hash: 888d408c392193511145e11dfbe73841a6d7e3e743e396ab8c8fee8b9507ab7c
-sources_digest: 43a42c7621b93d8e35ed7813326f7b761e954384d076a4d1b176afa770c1b952
+  - path: tests/test_airtable_read.sh
+    hash: f1c8fbb1b495e922c52d041bac7edbae8f100ab57606ebd987179783265325df
+  - path: tests/test_airtable_write.sh
+    hash: a51c25001935da566cca4a450cfc0906827eb332779f2b454b12d547b7a0e6e0
+sources_digest: 2021356891ac463bde76a17510d6206598905cc15d804b9b867e92529075e85e
 links:
   - to: operator-alerting-watchers
-    relation: uses
-    description: All watchers paginate Airtable records through this access layer.
-  - to: outreach-eligibility-gate
     relation: implements
     description: >-
-      send-gate.py uses the air() wrapper which carries the URL-quoting fix for
-      table names with spaces.
+      Defines the scoping/query-shaping and write-validation conventions the
+      watchers and send-gate rely on
 generator:
   version: 1
 covers:
@@ -72,12 +73,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The air() wrapper and its read/write guards that gate Airtable access to control context costs and validate writes. Reads are scoped (unscoped reads refused, --all-fields capped unless --force, --max-records capped at 200, pageSize never exceeds 100), and writes are validated by a guard that refuses unknown fields, requires --allow-clear for clearing non-empty fields, and requires --replace for substantial value replacements while allowing appends that preserve old text. The guard was extracted from main() specifically to make refusals testable offline.
+The gated Airtable read/write wrappers that control context cost and validate writes. airtable-read.py refuses unscoped reads (exit 2), caps --all-fields unless --force, caps --max-records at 200 and pageSize at 100, and combines record IDs into OR(RECORD_ID()=...) formulas. airtable-write.py's guard validates single-record writes before hitting the API: unknown fields refused unless --force, clearing non-empty fields needs --allow-clear, and substantial value replacement needs --replace while appends preserving old text are allowed. The air() wrapper carries a URL-quoting fix for table names with spaces.
 
 ## Related
 
-- uses [[operator-alerting-watchers]] — All watchers paginate Airtable records through this access layer.
-- implements [[outreach-eligibility-gate]] — send-gate.py uses the air() wrapper which carries the URL-quoting fix for table names with spaces.
+- implements [[operator-alerting-watchers]] — Defines the scoping/query-shaping and write-validation conventions the watchers and send-gate rely on
 <!-- context:generated:end -->
 
 ## Notes

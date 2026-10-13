@@ -1,25 +1,24 @@
 ---
-name: State & Staleness Probes
-slug: state-staleness-probes
+name: Memory Staleness & Snapshot Probes
+slug: memory-staleness-snapshot-probes
 type: system
 sources:
   - path: scripts/ops/staleness-report.py
-    hash: 3076f30a8be1b80c196dec59ede54a8a67f314edf5af263f37c234f09dabeb55
+    hash: ebae44b614629bd12ad5e8db730b3eb731008cd740b6e73893cedb810c052516
   - path: scripts/ops/state-snapshot.py
     hash: 3112f4632b64a6b531b215ea81ba82b2ceb6436942511f816de94ced3171bfe8
-sources_digest: 29dedeec004a4ac67aaa14675d886b3baa6b91e5eafd52ccf2d96577da9b03a8
+sources_digest: f92ca02060669c378b36a34db8f70ba54e9a9e2f8ee50d32236fc84dc10c7c92
 links:
-  - to: harness-loop-core
+  - to: memory-ledger-files
     relation: uses
     description: >-
-      state-snapshot is invoked per-cycle by the harness; its DELTA semantics
-      state that 'none' does not mean 'nothing to do' — standing orders still
-      apply.
+      Both read memories/human-directive.md, operator-requests.md,
+      operator-decisions.md, consensus.md and related docs
   - to: work-window-brake
     relation: produces
     description: >-
       state-snapshot.py's DELTA line is the input the work-window brake parses
-      to decide whether a change opened a K-cycle window.
+      to detect surface changes
 generator:
   version: 1
 covers:
@@ -49,22 +48,25 @@ covers:
     at: 'scripts/ops/staleness-report.py:L110-L117'
   - symbol: ledger_rows
     kind: function
-    at: 'scripts/ops/staleness-report.py:L120-L132'
+    at: 'scripts/ops/staleness-report.py:L120-L142'
   - symbol: prompt_rows
     kind: function
-    at: 'scripts/ops/staleness-report.py:L135-L142'
+    at: 'scripts/ops/staleness-report.py:L145-L152'
   - symbol: weekly_rows
     kind: function
-    at: 'scripts/ops/staleness-report.py:L145-L155'
+    at: 'scripts/ops/staleness-report.py:L155-L168'
+  - symbol: _accepted_weekly_gaps
+    kind: function
+    at: 'scripts/ops/staleness-report.py:L175-L191'
   - symbol: backup_rows
     kind: function
-    at: 'scripts/ops/staleness-report.py:L158-L168'
+    at: 'scripts/ops/staleness-report.py:L197-L213'
   - symbol: build
     kind: function
-    at: 'scripts/ops/staleness-report.py:L171-L179'
+    at: 'scripts/ops/staleness-report.py:L216-L224'
   - symbol: main
     kind: function
-    at: 'scripts/ops/staleness-report.py:L182-L199'
+    at: 'scripts/ops/staleness-report.py:L227-L244'
   - symbol: file_sha16
     kind: function
     at: 'scripts/ops/state-snapshot.py:L54-L61'
@@ -84,12 +86,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Read-only probes that collapse per-cycle state checks into single turns and measure document staleness. state-snapshot.py computes a DELTA line against a previous snapshot so an unchanged world can be dismissed without re-probing, always exits 0 so a probe failure never kills the calling cycle, and implements OPREQ-INFRA-ANALYST-ROUTING-001 Option B by making the auditor report hash delta-visible. staleness-report.py generates a deterministic markdown report for the Program Auditor with mechanical flags like 'ARŞİV ADAYI' and 'BOŞLUK', tracking a re-charter date (2026-08-24) to identify pre-recharter decisions needing archival.
+Read-only, stdlib-only probes that mechanically measure the Program Auditor's memory surfaces. staleness-report.py writes a markdown report of 'bayatlık' flags (ARŞİV ADAYI, BÖLÜMLE, etc.) that the auditor treats as suggestions, never recomputing them; state-snapshot.py collapses per-cycle state checks into one grep-friendly DELTA line against a previous snapshot so an unchanged world can be dismissed. Both always exit 0 so a probe failure never kills the calling cycle, and both write only their own state files atomically.
 
 ## Related
 
-- uses [[harness-loop-core]] — state-snapshot is invoked per-cycle by the harness; its DELTA semantics state that 'none' does not mean 'nothing to do' — standing orders still apply.
-- produces [[work-window-brake]] — state-snapshot.py's DELTA line is the input the work-window brake parses to decide whether a change opened a K-cycle window.
+- uses [[memory-ledger-files]] — Both read memories/human-directive.md, operator-requests.md, operator-decisions.md, consensus.md and related docs
+- produces [[work-window-brake]] — state-snapshot.py's DELTA line is the input the work-window brake parses to detect surface changes
 <!-- context:generated:end -->
 
 ## Notes

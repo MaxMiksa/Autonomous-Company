@@ -1,84 +1,17 @@
 ---
-name: Wowcar Source Modules
-slug: wowcar-source-modules
+name: wowcar revenue vocabulary
+slug: wowcar-revenue-vocabulary
 type: system
 sources:
-  - path: scripts/ops/staleness-report.py
-    hash: 3076f30a8be1b80c196dec59ede54a8a67f314edf5af263f37c234f09dabeb55
-  - path: scripts/ops/state-snapshot.py
-    hash: 3112f4632b64a6b531b215ea81ba82b2ceb6436942511f816de94ced3171bfe8
   - path: scripts/ops/wowcar-revenue-vocabulary-acceptance.py
     hash: bc164912338c15636cc9183c9327a6f77fdab6aebc86e2747f197f01f824fab2
-sources_digest: ab7558a3a658b5361284b7ad75f8ec82ebda0b98802ce88e87ecfb3724943152
-links:
-  - to: state-staleness-probes
-    relation: uses
-    description: >-
-      state-snapshot.py hashes the sorted per-file SHA-256 set of the Wowcar
-      source directory.
-  - to: wowcar-revenue-relabel-acceptance
-    relation: implements
-    description: The modules whose behavior the acceptance harness pins and validates.
+  - path: tests/test_wowcar_revenue_vocabulary_acceptance.sh
+    hash: 2d2ccfe9406d4effbc4872168e5d1f2a48f41842d8ac28397be5a2809dd28083
+sources_digest: 4eb70e546cbb6fb7a1344012fe2a8672d9debb3e0ce1f627feeb641de13670bb
+links: []
 generator:
   version: 1
 covers:
-  - symbol: _bytes
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L37-L38'
-  - symbol: _read
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L41-L45'
-  - symbol: _sections
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L48-L55'
-  - symbol: _heading_date
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L58-L65'
-  - symbol: directive_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L68-L86'
-  - symbol: opreq_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L89-L99'
-  - symbol: decisions_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L102-L107'
-  - symbol: consensus_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L110-L117'
-  - symbol: ledger_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L120-L132'
-  - symbol: prompt_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L135-L142'
-  - symbol: weekly_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L145-L155'
-  - symbol: backup_rows
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L158-L168'
-  - symbol: build
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L171-L179'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/staleness-report.py:L182-L199'
-  - symbol: file_sha16
-    kind: function
-    at: 'scripts/ops/state-snapshot.py:L54-L61'
-  - symbol: directive_state
-    kind: function
-    at: 'scripts/ops/state-snapshot.py:L64-L72'
-  - symbol: opreq_open
-    kind: function
-    at: 'scripts/ops/state-snapshot.py:L75-L87'
-  - symbol: wowcar_sources
-    kind: function
-    at: 'scripts/ops/state-snapshot.py:L90-L104'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/state-snapshot.py:L107-L166'
   - symbol: AcceptanceFailure
     kind: class
     at: 'scripts/ops/wowcar-revenue-vocabulary-acceptance.py:L383-L384'
@@ -176,12 +109,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The internal Wowcar financial modeling modules (model.py, build_xlsx.py, recalc.py, test.py, capraz.py, tanila.py, kohort.py) that produce the revenue workbook. These are the subject of the vocabulary-relabel acceptance harness and are hashed by state-snapshot's wowcar_sources function.
-
-## Related
-
-- uses [[state-staleness-probes]] — state-snapshot.py hashes the sorted per-file SHA-256 set of the Wowcar source directory.
-- implements [[wowcar-revenue-relabel-acceptance]] — The modules whose behavior the acceptance harness pins and validates.
+The WowCar revenue vocabulary acceptance check: wowcar-revenue-vocabulary-acceptance.py verifies the candidate vocabulary (fixed to projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, with a thin bash harness standardizing invocation.
 <!-- context:generated:end -->
 
 ## Notes

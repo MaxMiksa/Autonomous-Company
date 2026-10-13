@@ -3,17 +3,14 @@ name: cycle metadata extraction
 slug: cycle-metadata-extraction
 type: concept
 sources:
+  - path: scripts/core/auto-loop.sh
+    hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
   - path: tests/test_cycle_metadata.sh
     hash: ed0597fda8cb7dd8c8f45b5dea353e18374e12a7f4b247afab630f455e708c2e
   - path: tests/test_mixed_harness.sh
     hash: bd8a1f81df957e0bfdfacf44982a2274a58809d5f9bd8618c64c3efeecb868cc
-sources_digest: a2275503526f7c6027a9cae8b0ff17f8e3b22d00e8ccca9ebccabc3e4f7429a8
-links:
-  - to: auto-loop-core-engine
-    relation: part_of
-    description: >-
-      extract_cycle_metadata() and codex-final-text.py live in
-      scripts/core/auto-loop.sh
+sources_digest: 41c372a61544e37903d76e2cf30c939868aad7751cf5856aa2c205b95737efec
+links: []
 generator:
   version: 1
 covers: []
@@ -21,11 +18,7 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-extract_cycle_metadata() parses per-cycle CYCLE_TYPE/CYCLE_SUBTYPE/RESULT_TEXT from engine output (Claude JSON, Codex plain-prose, or no-JSON edge). It must never kill the loop/container when Codex is routed through alternation or fallback (APP-240 regression). Companion codex-final-text.py converts the Codex CLI JSONL event stream into clean summary text without leaking reasoning/thread metadata.
-
-## Related
-
-- part of [[auto-loop-core-engine]] — extract_cycle_metadata() and codex-final-text.py live in scripts/core/auto-loop.sh
+Per-cycle attribution of engine, harness, provider, and result text so that mixed-harness loops (claude→jcode, codex→cli) correctly attribute cost and metadata. Per-cycle variables override any global LOOP_HARNESS; stale jcode cost must not leak into subsequent CLI cycles; unmeasured or zero-cost jcode cycles fail and latch.
 <!-- context:generated:end -->
 
 ## Notes

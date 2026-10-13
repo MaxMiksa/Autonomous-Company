@@ -1,8 +1,10 @@
 ---
-name: auto-loop core engine
-slug: auto-loop-core-engine
+name: auto-loop core loop engine
+slug: auto-loop-core-loop-engine
 type: system
 sources:
+  - path: scripts/core/auto-loop.sh
+    hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
   - path: tests/test_cycle_counter.sh
     hash: ab58cfed1b942c55ff2422535c8904c0292904f40786afc3cb7a66774d635065
   - path: tests/test_cycle_metadata.sh
@@ -25,29 +27,31 @@ sources:
     hash: c75dd121edbe7aed5432f718bdfff952149464b77f9ab22baced3682261ebc98
   - path: tests/test_tier_ladder_daily.sh
     hash: d0bfb4ace48e1fa9665e17059be3f618b46fda0dcf432544a6bb16c07a3ed8db
-sources_digest: cb643a966d7d79c6d552f1f267213d4c070645f3942f124ed355e7b7e3b3a29f
+sources_digest: 61156bc0b6613e1fb593cecf1376f5571e6b0115a1196f39656dc97d58ac6784
 links:
   - to: cycle-metadata-extraction
     relation: implements
     description: >-
       extract_cycle_metadata() must not kill the loop when Codex is routed
-      through alternation/fallback (APP-240)
-  - to: engine-usage-cost-adapter
-    relation: uses
+      through alternation/fallback (APP-240); codex-final-text.py converts JSONL
+      event stream to clean summary text.
+  - to: escalation-one-shot-logic
+    relation: implements
     description: >-
-      cost attribution per cycle depends on the model-hint mechanism when
-      watchdog kills cycles before a done event
+      apply_cycle_escalation() consumes an armed escalation exactly once; a
+      refusal leaves it ARMED rather than burning approval.
   - to: prompt-transport-contract
     relation: implements
     description: >-
       run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex
       uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts
-      >=126000 bytes with PROMPT-TOO-LARGE
-  - to: set-e-and-list-hazard
-    relation: implements
+      >=126000 bytes with PROMPT-TOO-LARGE before spawning.
+  - to: set-e-shape-lint
+    relation: validates
     description: >-
-      auto-loop.sh must avoid '[ test ] && action' as a function's last command
-      or before bare return, which propagates exit 1 and kills unguarded callers
+      test_seteshape_lint.py scans auto-loop.sh for the fatal '[ test ] &&
+      action' pattern that propagates exit 1 and kills unguarded callers (root
+      cause of APP-240).
 generator:
   version: 1
 covers:
@@ -70,14 +74,14 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle execution: prompt assembly, engine dispatch (claude/codex/jcode), cycle counter persistence, tier-ladder budget selection, escalation, idle-skip, discretionary spend caps, and cycle metadata extraction. Many tests extract its functions verbatim via awk/sed to test the shipping code rather than copies, so its function boundaries and shell-option strictness (set -euo pipefail) are load-bearing contracts.
+The central orchestration script (scripts/core/auto-loop.sh) that drives the agent loop: cycle counter persistence, prompt assembly, engine dispatch (claude/codex/jcode), escalation, tier ladder, idle skip, discretionary budget, and cycle metadata extraction. Many tests extract its function bodies verbatim via awk/sed to drive the shipping code rather than copies, so any change to function boundaries or extraction patterns breaks tests loudly.
 
 ## Related
 
-- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240)
-- uses [[engine-usage-cost-adapter]] — cost attribution per cycle depends on the model-hint mechanism when watchdog kills cycles before a done event
-- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE
-- implements [[set-e-and-list-hazard]] — auto-loop.sh must avoid '[ test ] && action' as a function's last command or before bare return, which propagates exit 1 and kills unguarded callers
+- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240); codex-final-text.py converts JSONL event stream to clean summary text.
+- implements [[escalation-one-shot-logic]] — apply_cycle_escalation() consumes an armed escalation exactly once; a refusal leaves it ARMED rather than burning approval.
+- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE before spawning.
+- validates [[set-e-shape-lint]] — test_seteshape_lint.py scans auto-loop.sh for the fatal '[ test ] && action' pattern that propagates exit 1 and kills unguarded callers (root cause of APP-240).
 <!-- context:generated:end -->
 
 ## Notes

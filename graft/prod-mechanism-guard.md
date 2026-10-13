@@ -1,27 +1,40 @@
 ---
-name: prod-mechanism guard
+name: Prod-Mechanism Guard
 slug: prod-mechanism-guard
 type: file
 sources:
+  - path: scripts/prod-mechanism-guard.py
+    hash: e3d5c01038affa27aaed85106b6b8ff0705c6be14fa3b2caa1c21144fde5acee
   - path: tests/test_prod_mechanism_guard.sh
     hash: 1c8df67eca679e21cbbe4ea2daac7f761fc952f17b25f99d2673a4782ffa6824
-sources_digest: bdb259f08d24f80a2819e8b7ef84bd6ad99c9a2524f41664136ac3d5c33790b4
+sources_digest: 85f0fc7428c6e4e3dfe8a3574ea24ed99ff361f071029bc7d1a9cbef79456bc1
 links:
-  - to: send-gate-rfq-send
+  - to: auto-loop-harness
     relation: validates
-    description: Blocks edits to these production scripts unless override marker is fresh
+    description: >-
+      Protects scripts/core/auto-loop.sh from unplanned edits; its sync check is
+      asserted in tests
 generator:
   version: 1
-covers: []
+covers:
+  - symbol: is_protected
+    kind: function
+    at: 'scripts/prod-mechanism-guard.py:L49-L52'
+  - symbol: check_sync
+    kind: function
+    at: 'scripts/prod-mechanism-guard.py:L55-L81'
+  - symbol: main
+    kind: function
+    at: 'scripts/prod-mechanism-guard.py:L84-L126'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-scripts/prod-mechanism-guard.py is a PreToolUse hook blocking edits to production-critical surfaces (auto-loop.sh, send-gate.py, deploy/runtime.env) with a 3-hour override via a fresh .claude/.prod-change-approved marker. Fails open on malformed JSON, ignores container paths like /app. --check-sync parses the '## Prod-Mechanism Change Rule' section of CLAUDE.md to detect drift between documented and actual PROTECTED_* lists.
+A PreToolUse tripwire hook for Claude Code that mechanically blocks unplanned writes to protected production surfaces (scripts/core/auto-loop.sh, dashboard/server.py, Dockerfile, runtime.env) unless a fresh marker file exists. It is deliberately fail-open on malformed stdin and no-ops when CLAUDE_PROJECT_DIR points to /app (deferring to PROMPT.md's OPREQ authorization machine). Known limitation: sed -i in Bash bypasses it entirely — it is a tripwire, not a boundary. Also implements a --check-sync drift detector verifying every backtick-referenced surface in CLAUDE.md is covered.
 
 ## Related
 
-- validates [[send-gate-rfq-send]] — Blocks edits to these production scripts unless override marker is fresh
+- validates [[auto-loop-harness]] — Protects scripts/core/auto-loop.sh from unplanned edits; its sync check is asserted in tests
 <!-- context:generated:end -->
 
 ## Notes
