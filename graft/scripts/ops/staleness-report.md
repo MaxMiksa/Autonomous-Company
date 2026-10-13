@@ -1,4 +1,4 @@
-# scripts/ops/staleness-report.py · [[staleness-report]] [[state-snapshot-staleness]]
+# scripts/ops/staleness-report.py · [[state-snapshot-delta-probing]]
 
 Read-only stdlib script that measures staleness/rot across Program Auditor memory surfaces and writes a deterministic markdown report for the auditor to interpret.
 

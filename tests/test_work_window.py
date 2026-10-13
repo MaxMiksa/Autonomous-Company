@@ -102,6 +102,24 @@ rc, out, st = run("DELTA: changed=wowcar_sources\n", 350,
 check("changed refreshes opened_at to 350", st and st.get("opened_at_cycle") == 350)
 check("changed refreshes reason", st and "wowcar_sources" in st.get("reason_fields", ""))
 
+# 12-17. Directive-closed rule (2026-10-13): DONE pull / archive does not open the window.
+DONE_SNAP = "directive: status=DONE sha16=f3854a5fc46262d7\n"
+PEND_SNAP = "directive: status=PENDING sha16=753b0f09b4d3c0f1\n"
+rc, out, st = run(DONE_SNAP + "DELTA: changed=directive_status,directive_sha16\n", 1003)
+check("DONE pull does not open (exit 0)", rc == CLOSED and out == "")
+check("DONE pull stores a closed window", st and st.get("ttl_cycles") == 0)
+rc, out, st = run(DONE_SNAP + "DELTA: changed=directive_sha16\n", 1004,
+                  state={"opened_at_cycle": 1001, "ttl_cycles": 5, "reason_fields": "directive_sha16"})
+check("archive while DONE closes a still-open window", rc == CLOSED)
+rc, out, st = run("DELTA: none\n", 1005, state=st)
+check("next idle cycle after DONE stays closed", rc == CLOSED)
+rc, out, st = run(PEND_SNAP + "DELTA: changed=directive_status,directive_sha16\n", 1010)
+check("new PENDING append still opens", rc == OPEN)
+rc, out, st = run(DONE_SNAP + "DELTA: changed=directive_status,opreq_open\n", 1011)
+check("DONE plus another field still opens", rc == OPEN)
+rc, out, st = run("DELTA: changed=directive_sha16\n", 1012)
+check("directive change without status line fails closed (opens)", rc == OPEN)
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILURE(S): " + ", ".join(_failures))

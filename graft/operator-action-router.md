@@ -12,9 +12,9 @@ links:
   - to: consensus-memory-state-files
     relation: uses
     description: Reads operator-requests.md and human-directive.md
-  - to: operator-request-notify
+  - to: operator-request-resolution
     relation: uses
-    description: Both read operator-requests.md and human-directive.md from memories/
+    description: Consumes operator-requests.md and human-directive.md as inputs
   - to: telegram-notification-channel
     relation: uses
     description: Sends the consolidated digest via telegram-notify.sh
@@ -78,7 +78,7 @@ operator-action-router.py is a Telegram firehose digest consolidating the operat
 ## Related
 
 - uses [[consensus-memory-state-files]] — Reads operator-requests.md and human-directive.md
-- uses [[operator-request-notify]] — Both read operator-requests.md and human-directive.md from memories/
+- uses [[operator-request-resolution]] — Consumes operator-requests.md and human-directive.md as inputs
 - uses [[telegram-notification-channel]] — Sends the consolidated digest via telegram-notify.sh
 <!-- context:generated:end -->
 

@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/dashboard/pages.ts · [[snapog-landing-dashboard-pages]]
+# projects/_archive/snapog/src/dashboard/pages.ts
 
 Module defining all HTML page templates and shared CSS for the SnapOG dashboard and landing site.
 

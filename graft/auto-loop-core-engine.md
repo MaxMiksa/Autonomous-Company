@@ -3,8 +3,6 @@ name: auto-loop core engine
 slug: auto-loop-core-engine
 type: system
 sources:
-  - path: scripts/core/auto-loop.sh
-    hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
   - path: tests/test_cycle_counter.sh
     hash: ab58cfed1b942c55ff2422535c8904c0292904f40786afc3cb7a66774d635065
   - path: tests/test_cycle_metadata.sh
@@ -27,42 +25,34 @@ sources:
     hash: c75dd121edbe7aed5432f718bdfff952149464b77f9ab22baced3682261ebc98
   - path: tests/test_tier_ladder_daily.sh
     hash: d0bfb4ace48e1fa9665e17059be3f618b46fda0dcf432544a6bb16c07a3ed8db
-sources_digest: 61156bc0b6613e1fb593cecf1376f5571e6b0115a1196f39656dc97d58ac6784
+sources_digest: cb643a966d7d79c6d552f1f267213d4c070645f3942f124ed355e7b7e3b3a29f
 links:
   - to: cycle-metadata-extraction
     relation: implements
     description: >-
       extract_cycle_metadata() must not kill the loop when Codex is routed
-      through alternation/fallback, and must attribute per-cycle
-      harness/provider overriding global LOOP_HARNESS
-  - to: escalation-one-shot-semantics
+      through alternation/fallback (APP-240 regression)
+  - to: idle-skip-mechanism
+    relation: implements
+    description: >-
+      _idle_skip_due() never skips the first cycle of a UTC day and reads the
+      kill switch at call time
+  - to: one-shot-escalation
     relation: implements
     description: >-
       apply_cycle_escalation() consumes an escalation exactly once; a refusal
       leaves it ARMED rather than burning approval
-  - to: idle-skip-mechanism
-    relation: implements
-    description: >-
-      _idle_skip_due() never skips the first cycle of a UTC day, reads
-      IDLE_SKIP_ENABLED at call time, and writes last-full-cycle.date only on
-      success
   - to: prompt-transport-contract
     relation: implements
     description: >-
       run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex
-      uses `-` sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts
+      uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts
       >=126000 bytes with PROMPT-TOO-LARGE before spawning
-  - to: set-e-shape-lint
-    relation: validates
-    description: >-
-      test_seteshape_lint.py scans auto-loop.sh for the fatal `[ test ] &&
-      action` last-command pattern that caused APP-240
-  - to: tier-ladder-selection
+  - to: tier-ladder-budgeting
     relation: implements
     description: >-
       apply_tier_ladder() selects daily-budget-based tiers per engine
-      independently, reading BG_CLAUDE_DAILY/BG_CODEX_DAILY and
-      TOTAL_DAILY_BUDGET_USD
+      independently (APP-263)
 generator:
   version: 1
 covers:
@@ -85,16 +75,15 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, escalation, tier selection, idle-skip, and discretionary budget gating. It is the highest-risk surface in the repo: a single stray quote or a `[ test ] && action` list as a function's last command can kill the whole container (APP-240). Many tests extract its function bodies verbatim via awk/sed to drive the shipping code rather than copies, so any change to function boundaries or extraction patterns breaks tests loudly.
+The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, escalation, tier-ladder budgeting, idle-skip, and prompt transport. Multiple regression tests extract its function bodies verbatim via awk/sed to drive the shipping code rather than copies, so any change to function boundaries or extraction patterns breaks tests loudly. Key invariants: cycle counter is monotonic across redeploys (never resets to 1), the discretionary spend cap injects a warning line at exactly two prompt sites, and the mixed-harness attribution must override any global LOOP_HARNESS per cycle.
 
 ## Related
 
-- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback, and must attribute per-cycle harness/provider overriding global LOOP_HARNESS
-- implements [[escalation-one-shot-semantics]] — apply_cycle_escalation() consumes an escalation exactly once; a refusal leaves it ARMED rather than burning approval
-- implements [[idle-skip-mechanism]] — _idle_skip_due() never skips the first cycle of a UTC day, reads IDLE_SKIP_ENABLED at call time, and writes last-full-cycle.date only on success
-- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses `-` sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE before spawning
-- validates [[set-e-shape-lint]] — test_seteshape_lint.py scans auto-loop.sh for the fatal `[ test ] && action` last-command pattern that caused APP-240
-- implements [[tier-ladder-selection]] — apply_tier_ladder() selects daily-budget-based tiers per engine independently, reading BG_CLAUDE_DAILY/BG_CODEX_DAILY and TOTAL_DAILY_BUDGET_USD
+- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240 regression)
+- implements [[idle-skip-mechanism]] — _idle_skip_due() never skips the first cycle of a UTC day and reads the kill switch at call time
+- implements [[one-shot-escalation]] — apply_cycle_escalation() consumes an escalation exactly once; a refusal leaves it ARMED rather than burning approval
+- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE before spawning
+- implements [[tier-ladder-budgeting]] — apply_tier_ladder() selects daily-budget-based tiers per engine independently (APP-263)
 <!-- context:generated:end -->
 
 ## Notes

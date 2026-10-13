@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/alerts/graphql.ts · [[snapog-cost-alerts]]
+# projects/_archive/snapog/src/alerts/graphql.ts
 
 Thin Cloudflare Analytics GraphQL client used only to fetch R2 bucket storage byte counts for alert checks.
 

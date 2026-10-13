@@ -756,6 +756,25 @@ select {
   background: rgba(41, 211, 163, 0.12);
 }
 
+/* Director: directive section summary (2026-10-13) */
+.directive-summary { font-size: 0.82rem; }
+.directive-summary-warn { color: var(--warn); }
+.directive-sections {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+.directive-sections li { display: flex; gap: 8px; align-items: baseline; overflow-wrap: anywhere; }
+.directive-sections .badge { font-size: 0.62rem; padding: 1px 7px; flex: none; }
+.directive-sections .mono { flex: none; min-width: 5.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.badge-sec-main { color: var(--cyan); border-color: rgba(103, 217, 255, 0.5); }
+.badge-sec-active { color: var(--amber); border-color: rgba(247, 166, 65, 0.6); background: rgba(247, 166, 65, 0.12); }
+.badge-sec-archive { color: var(--muted); border-color: rgba(156, 184, 198, 0.4); }
+
 /* === Cost & Credits panel === */
 .cost .panel-head {
   display: flex;

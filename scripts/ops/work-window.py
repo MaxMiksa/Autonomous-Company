@@ -39,6 +39,14 @@ from pathlib import Path
 DELTA_RE = re.compile(r"^DELTA:\s*(none|first snapshot|changed=(.+?))\s*(?:—.*)?$", re.MULTILINE)
 STATE_REL = "logs/work-window.json"
 DEFAULT_TTL = 5
+# Directive-closed rule (operator decision 2026-10-13). When the ONLY fields that moved are
+# the directive's own (status/sha) AND the snapshot reports Status DONE, the change is the
+# liaison pulling DONE or archiving a finished section: there is no follow-on work for the
+# company, so the window must not open, and a window still open from the directive's PENDING
+# phase is closed. A new directive append flips Status back to PENDING and opens it as before.
+# Unparseable status = not DONE (fail-closed: window opens).
+DIRECTIVE_FIELDS = {"directive_status", "directive_sha16"}
+DIRECTIVE_STATUS_RE = re.compile(r"^directive:\s*status=([A-Z_-]+)", re.MULTILINE)
 
 
 def _app_dir(arg: str | None) -> Path:
@@ -130,6 +138,19 @@ def main() -> int:
         return 10
 
     cycle = args.cycle
+
+    # Directive-closed rule: a DONE pull / archive-only change closes instead of opening.
+    if kind == "changed":
+        moved = {f.strip() for f in fields.split(",") if f.strip()}
+        sm = DIRECTIVE_STATUS_RE.search(block or "")
+        if moved and moved <= DIRECTIVE_FIELDS and sm and sm.group(1) == "DONE":
+            try:
+                _write_state(state_path, {"opened_at_cycle": cycle, "reason_fields": fields,
+                                          "ttl_cycles": 0, "updated_at_cycle": cycle,
+                                          "closed_reason": "directive DONE"})
+            except Exception:
+                pass  # closed either way: an unwritten state only risks an old window lingering
+            return 0
 
     # A fresh change (re)opens the window at this cycle.
     if kind == "changed":

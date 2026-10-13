@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/alerts/check.ts · [[snapog-cost-alerts]]
+# projects/_archive/snapog/src/alerts/check.ts
 
 Cost-alerting check module that independently evaluates D1 write volume, cache hit rate, signups, active users, and R2 storage against thresholds to surface cost risks.
 

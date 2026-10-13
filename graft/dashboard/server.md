@@ -1,6 +1,6 @@
-# dashboard/server.py · [[cockpit-dashboard-server]] [[dashboard-server]] [[directive-writer]] [[refusal-format-contract]]
+# dashboard/server.py
 
-Local dashboard HTTP server for the Auto Company autonomous loop, exposing status, settings, directive, and operator-request controls across Windows/WSL/macOS/Linux hosts.
+Local dashboard HTTP server for Auto Company that exposes status, settings, directive, and operator-request controls across Windows/WSL/macOS/Linux hosts.
 
 - ps_quote · function · L123-L124 — Escapes a string for safe embedding as a single-quoted PowerShell argument by doubling embedded single quotes.
 - detect_host_kind · function · L127-L137 — Maps the OS platform name to the internal host kind (windows/macos/linux) and rejects unsupported hosts.
@@ -9,64 +9,67 @@ Local dashboard HTTP server for the Auto Company autonomous loop, exposing statu
 - get_host_profile · function · L220-L253 — Selects the runner, parser, and start/stop scripts appropriate for the detected host platform.
 - read_text_file · function · L256-L270 — Reads a file decoding it across several encodings (utf-8, BOM, gb18030, cp936) with a fallback for missing files.
 - read_text_file_tail · function · L273-L305 — Reads only the last max_bytes of a file (dropping a partial first line) to bound work on large persistent logs, decoding like read_text_file.
-- read_directive · function · L315-L347 — Parses memories/human-directive.md into a structured payload with present/status/updated/directive fields.
-- _section · function · L326-L337 — Extracts a named '## ' markdown section, capturing to end-of-file for the free-form Directive section so embedded headings don't truncate it.
-- DirectiveRefused · class · L350-L351 — Exception raised when a gate (most often a still-PENDING live directive) refuses a directive write.
-- write_directive · function · L354-L397 — Writes a new PENDING human directive by routing through the single deterministic directive_writer.py, refusing to clobber in-flight work unless allow_pending.
-- parse_proposed_authorization · function · L426-L435 — Splits a 'Proposed authorization' value into its System/Action/Target/Limit components by slicing between label positions.
-- read_operator_requests · function · L438-L473 — Reads the operator-request ledger and returns structured request records for the cockpit panel.
-- _decisions_audit · function · L476-L483 — Appends a timestamped line to the operator-decisions audit log.
-- write_operator_decision · function · L486-L572 — Writes an operator decision for a request into the decisions ledger, validating the answer shape per request type and auditing it.
-- _parse_env_file · function · L575-L587 — Parses a runtime.env file into a key/value dict.
-- read_ideas · function · L590-L608 — Reads the candidate-registry ideas file into a structured payload.
-- read_tool_usage · function · L611-L648 — Parses the engine log tail to extract per-tool usage counts for the dashboard.
-- read_analysis · function · L651-L669 — Reads the analysis-directive file into a structured payload.
-- analyst_trigger_state · function · L672-L679 — Reports the on-demand analyst trigger state from the RUNNING/LAST_TRIGGER marker files.
-- analyst_run_now · function · L682-L708 — Writes an ANALYST_RUN_REQUEST file to trigger the host-side analyst watcher on demand.
-- read_directive_templates · function · L726-L733 — Reads available directive templates for the Director panel.
-- read_settings · function · L736-L778 — Reads runtime.env and returns the whitelisted non-secret settings with their types and labels.
-- write_settings · function · L781-L827 — Validates and writes whitelisted non-secret settings to runtime.env, rejecting anything not in SETTINGS_SPEC.
-- _proc_cmdline · function · L830-L835 — Reads a process's command line from /proc.
-- _proc_ppid · function · L838-L845 — Reads a process's parent PID from /proc.
-- read_hold · function · L852-L875 — Reads the current loop hold state.
-- set_hold · function · L878-L915 — Arms or disarms the loop hold with a reason.
-- wake_loop · function · L918-L976 — Wakes the autonomous loop from a hold.
-- trigger_redeploy · function · L979-L1015 — Triggers a redeploy of the app.
-- _week_start_epoch · function · L1031-L1038 — Computes the epoch of the start of the current UTC week for rolling budget windows.
-- _ccusage_compute · function · L1041-L1096 — Computes cost/usage summary from the ccusage data for the dashboard.
-- _run · function · L1047-L1055 — Runs the ccusage CLI with extra args and returns its stdout.
-- _is_codex · function · L1070-L1072 — Determines whether a ccusage entry name refers to Codex.
-- read_ccusage · function · L1099-L1119 — Reads ccusage data, computing it in a background thread to avoid blocking the status poll.
-- _bg · function · L1111-L1116 — Background worker that computes ccusage and caches the result.
-- read_engine_runtime · function · L1122-L1219 — Parses the persistent auto-loop.log tail to extract current engine runtime state (banner, router/tier lines) for status display.
-- _window_cutoff_epoch · function · L1222-L1250 — Computes the epoch cutoff for a rolling spend window.
-- read_cost_summary · function · L1253-L1384 — Aggregates cost/spend data from logs into a summary for the dashboard budget display.
-- _last_budget_gate · function · L1387-L1395 — Extracts the most recent budget-gate event from log text to show when a budget pause last triggered.
-- read_tail · function · L1398-L1405 — Reads the last N lines of a file as text.
-- parse_sections · function · L1408-L1423 — Splits raw status output into named sections.
-- parse_int · function · L1426-L1430 — Parses a string to int or None.
-- parse_positive_int · function · L1433-L1438 — Parses a string to a positive int, falling back to a default.
-- parse_key_values · function · L1441-L1448 — Parses rows of key: value lines into a dict.
-- blank_parsed · function · L1451-L1475 — Returns a blank/empty parsed status structure.
-- parse_windows_status_output · function · L1478-L1560 — Parses Windows status script output into a structured status dict.
-- parse_macos_status_output · function · L1563-L1599 — Parses macOS/Linux status script output into a structured status dict.
-- read_state_file_pairs · function · L1602-L1610 — Reads state file key/value pairs.
-- run_status_command · function · L1613-L1616 — Runs the status script for the detected host and returns its result.
-- run_dashboard_action · function · L1619-L1631 — Runs a start/stop dashboard action for the detected host.
-- parse_status_output · function · L1634-L1636 — Dispatches status output parsing to the host-appropriate parser.
-- gather_status_payload · function · L1639-L1659 — Assembles the full status payload shown by the dashboard by reading engine runtime, directive, operator requests, and graft freshness state.
-- read_graft_freshness · function · L1662-L1672 — Reads graft freshness state to report how recently the loop's graft data was updated.
-- DashboardHandler · class · L1675-L1980 — HTTP request handler serving the dashboard UI and JSON API endpoints.
-- _json · method · L1676-L1683 — Writes a JSON response with the given status code.
-- _text · method · L1685-L1694 — Writes a plain-text response with the given status code and content type.
-- _serve_file · method · L1696-L1700 — Serves a static file with the given content type.
-- do_GET · method · L1702-L1707 — Dispatches GET requests to the internal handler.
-- _do_GET · method · L1709-L1775 — Routes GET requests to the appropriate data endpoint or static file.
-- _read_body · method · L1777-L1784 — Reads the request body up to a size limit.
-- do_POST · method · L1786-L1791 — Dispatches POST requests to the internal handler.
-- _do_POST · method · L1793-L1856 — Routes POST requests to the appropriate action endpoint.
-- _handle_operator_decision · method · L1858-L1898 — Handles a POST to record an operator decision.
-- _handle_directive · method · L1900-L1946 — Handles a POST to write a new human directive.
-- _handle_settings · method · L1948-L1977 — Handles a POST to update settings.
-- log_message · method · L1979-L1980 — Suppresses default request logging.
-- main · function · L1983-L2005 — Entry point that parses args and starts the dashboard HTTP server.
+- _directive_writer_module · function · L321-L336 — Loads scripts/core/directive_writer.py once and caches the module so the panel reuses its split_body/live_body helpers instead of a drifting second parser.
+- directive_sections · function · L339-L358 — Splits the live directive body into main/archive/active sections with byte counts for the panel summary, returning empty on any failure.
+- as_directive_section · function · L361-L382 — Normalizes panel text into exactly one '## ' section (adding an OPERATÖR DİREKTİFİ heading and demoting inner headings to '### ') so the writer appends it as a single droppable unit.
+- read_directive · function · L385-L421 — Parses memories/human-directive.md into a structured payload with PENDING/DONE/NONE status and section byte breakdown for the dashboard.
+- _section · function · L396-L407 — Extracts a named '## ' markdown section, capturing to end-of-file for the free-form Directive section so embedded headings don't truncate it.
+- DirectiveRefused · class · L424-L425 — Exception raised when a gate (most often a still-PENDING live directive) refuses a directive write.
+- write_directive · function · L428-L466 — Appends panel text as one new '## ' section (Status -> PENDING) to the live directive rather than replacing the whole body, guarding against wiping the ~39 KB directive.
+- parse_proposed_authorization · function · L495-L504 — Splits a 'Proposed authorization' value into its System/Action/Target/Limit components by slicing between label positions.
+- read_operator_requests · function · L507-L542 — Reads the operator-request ledger and returns structured request records for the cockpit panel.
+- _decisions_audit · function · L545-L552 — Appends a timestamped line to the operator-decisions audit log.
+- write_operator_decision · function · L555-L641 — Writes an operator decision for a request into the decisions ledger, validating the answer shape per request type and auditing it.
+- _parse_env_file · function · L644-L656 — Parses a runtime.env file into a key/value dict.
+- read_ideas · function · L659-L677 — Reads the candidate-registry ideas file into a structured payload.
+- read_tool_usage · function · L680-L717 — Parses the engine log tail to extract per-tool usage counts for the dashboard.
+- read_analysis · function · L720-L738 — Reads the analysis-directive file into a structured payload.
+- analyst_trigger_state · function · L741-L748 — Reports the on-demand analyst trigger state from the RUNNING/LAST_TRIGGER marker files.
+- analyst_run_now · function · L751-L777 — Writes an ANALYST_RUN_REQUEST file to trigger the host-side analyst watcher on demand.
+- read_directive_templates · function · L795-L802 — Reads available directive templates for the Director panel.
+- read_settings · function · L805-L847 — Reads runtime.env and returns the whitelisted non-secret settings with their types and labels.
+- write_settings · function · L850-L896 — Validates and writes whitelisted non-secret settings to runtime.env, rejecting anything not in SETTINGS_SPEC.
+- _proc_cmdline · function · L899-L904 — Reads a process's command line from /proc.
+- _proc_ppid · function · L907-L914 — Reads a process's parent PID from /proc.
+- read_hold · function · L921-L944 — Reads the current loop hold state.
+- set_hold · function · L947-L984 — Arms or disarms the loop hold with a reason.
+- wake_loop · function · L987-L1045 — Wakes the autonomous loop from a hold.
+- trigger_redeploy · function · L1048-L1084 — Triggers a redeploy of the app.
+- _week_start_epoch · function · L1100-L1107 — Computes the epoch of the start of the current UTC week for rolling budget windows.
+- _ccusage_compute · function · L1110-L1165 — Computes cost/usage summary from the ccusage data for the dashboard.
+- _run · function · L1116-L1124 — Runs the ccusage CLI with extra args and returns its stdout.
+- _is_codex · function · L1139-L1141 — Determines whether a ccusage entry name refers to Codex.
+- read_ccusage · function · L1168-L1188 — Reads ccusage data, computing it in a background thread to avoid blocking the status poll.
+- _bg · function · L1180-L1185 — Background worker that computes ccusage and caches the result.
+- read_engine_runtime · function · L1191-L1288 — Parses the persistent auto-loop.log tail to extract current engine runtime state (banner, router/tier lines) for status display.
+- _window_cutoff_epoch · function · L1291-L1319 — Computes the epoch cutoff for a rolling spend window.
+- read_cost_summary · function · L1322-L1453 — Aggregates cost/spend data from logs into a summary for the dashboard budget display.
+- _last_budget_gate · function · L1456-L1464 — Extracts the most recent budget-gate event from log text to show when a budget pause last triggered.
+- read_tail · function · L1467-L1474 — Reads the last N lines of a file as text.
+- parse_sections · function · L1477-L1492 — Splits raw status output into named sections.
+- parse_int · function · L1495-L1499 — Parses a string to int or None.
+- parse_positive_int · function · L1502-L1507 — Parses a string to a positive int, falling back to a default.
+- parse_key_values · function · L1510-L1517 — Parses rows of key: value lines into a dict.
+- blank_parsed · function · L1520-L1544 — Returns a blank/empty parsed status structure.
+- parse_windows_status_output · function · L1547-L1629 — Parses Windows status script output into a structured status dict.
+- parse_macos_status_output · function · L1632-L1668 — Parses macOS/Linux status script output into a structured status dict.
+- read_state_file_pairs · function · L1671-L1679 — Reads state file key/value pairs.
+- run_status_command · function · L1682-L1685 — Runs the status script for the detected host and returns its result.
+- run_dashboard_action · function · L1688-L1700 — Runs a start/stop dashboard action for the detected host.
+- parse_status_output · function · L1703-L1705 — Dispatches status output parsing to the host-appropriate parser.
+- gather_status_payload · function · L1708-L1728 — Assembles the full status payload shown by the dashboard by reading engine runtime, directive, operator requests, and graft freshness state.
+- read_graft_freshness · function · L1731-L1741 — Reads graft freshness state to report how recently the loop's graft data was updated.
+- DashboardHandler · class · L1744-L2049 — HTTP request handler serving the dashboard UI and its JSON API endpoints (status, settings, directive, operator requests, analyst trigger).
+- _json · method · L1745-L1752 — Writes a JSON response with the given status code.
+- _text · method · L1754-L1763 — Writes a plain-text response with the given status code and content type.
+- _serve_file · method · L1765-L1769 — Serves a static file with the given content type.
+- do_GET · method · L1771-L1776 — Dispatches GET requests to the internal handler.
+- _do_GET · method · L1778-L1844 — Routes GET requests to the appropriate data endpoint or static file.
+- _read_body · method · L1846-L1853 — Reads the request body up to a size limit.
+- do_POST · method · L1855-L1860 — Dispatches POST requests to the internal handler.
+- _do_POST · method · L1862-L1925 — Routes POST requests to the appropriate action endpoint.
+- _handle_operator_decision · method · L1927-L1967 — Handles a POST to record an operator decision.
+- _handle_directive · method · L1969-L2015 — Handles the directive endpoint, reading or writing the human directive via read_directive/write_directive and returning JSON responses.
+- _handle_settings · method · L2017-L2046 — Handles a POST to update settings.
+- log_message · method · L2048-L2049 — Suppresses default request logging.
+- main · function · L2052-L2074 — Entry point that parses args and starts the dashboard HTTP server.

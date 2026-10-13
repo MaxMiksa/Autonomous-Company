@@ -1,4 +1,4 @@
-# scripts/context-watch.py · [[context-watch-hook]]
+# scripts/context-watch.py
 
 A Claude Code hook that watches context-window fullness from the last assistant message's usage and emits warning/compact-ritual messages at 50%/60% thresholds, once per session, re-arming after a compact.
 

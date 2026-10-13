@@ -1,4 +1,4 @@
-# scripts/core/engine-usage-cost.py · [[cost-budget-accounting]] [[engine-usage-cost-adapter]]
+# scripts/core/engine-usage-cost.py · [[cost-budget-accounting]]
 
 Adapter that converts token usage (from claude CLI or jcode ndjson) into notional USD at Anthropic list prices so the APP-263 budget gates keep seeing real numbers, with a conservative unknown-model fallback that never silently reports zero.
 

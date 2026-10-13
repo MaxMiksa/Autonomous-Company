@@ -1,4 +1,4 @@
-# scripts/compact-report.py · [[compact-ritual-tooling]]
+# scripts/compact-report.py
 
 PreCompact hook that prints a single measured operational digest (repo sync, prod drift, loop status, discretionary budget) without ever blocking the compact ritual.
 

@@ -1,4 +1,4 @@
-# scripts/analyst/promote_directive.py · [[directive-promotion-gate]] [[directive-writer]]
+# scripts/analyst/promote_directive.py
 
 Deterministic fail-closed gate that decides whether the Opportunity Analyst's report may auto-promote into human-directive.md, blocking on any risk keyword, missing field, or escalation near the active validation.
 

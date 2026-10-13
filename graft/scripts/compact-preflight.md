@@ -1,4 +1,4 @@
-# scripts/compact-preflight.py · [[compact-ritual-tooling]]
+# scripts/compact-preflight.py
 
 PreCompact hook'u otomatik/manuel koşan, compact öncesi açık kalemleri (resume tazeliği, git riskleri, proje ek kontrolleri) sayıp raporlayan ve otomatik compact'i resume hazır değilken bir kez erteleyen ön-kontrol betiği.
 

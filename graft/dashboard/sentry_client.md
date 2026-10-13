@@ -1,4 +1,4 @@
-# dashboard/sentry_client.py · [[sentry-client]]
+# dashboard/sentry_client.py
 
 Stdlib-only best-effort Sentry error reporter for the cockpit dashboard that POSTs exceptions to Sentry's legacy Store API without ever raising into the caller.
 

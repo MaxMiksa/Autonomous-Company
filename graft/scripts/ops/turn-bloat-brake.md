@@ -1,4 +1,4 @@
-# scripts/ops/turn-bloat-brake.py · [[cycle-escalation-brakes]] [[turn-economy-audits]]
+# scripts/ops/turn-bloat-brake.py · [[fail-closed-harness-brakes]] [[operator-alerting-watchers]]
 
 CLI tool that tracks consecutive BLOATED cycles and escalates to a hard persist-and-end mandate once a streak crosses a threshold, resetting on any non-BLOATED verdict.
 

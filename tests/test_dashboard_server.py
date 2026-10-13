@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -430,6 +431,106 @@ class WindowCutoffTests(unittest.TestCase):
                 self.assertAlmostEqual(
                     dashboard_server._window_cutoff_epoch(), time.time() - 18000, delta=2
                 )
+
+
+class DirectorPanelAppendTests(unittest.TestCase):
+    """Director panel writes by APPEND (2026-10-13), never by whole-body replace.
+
+    Real directive_writer.py against a temp AC_APP_DIR, so the panel is tested
+    through the same gates (PENDING, size brake, backup, audit) as production.
+    """
+
+    MAIN = ("## Kaynak belgeler\n\nTablo.\n\n# ANA DİREKTİF\n## WOWCAR 2.0 ŞİRKET\n\n"
+            "### 1. Görev\nAna metin satırı.\n\n## Operatör açıklaması\n\nNot.\n\n")
+    BODY = MAIN + ("## ARŞİV 4 — eski tur\n\nÖzet.\n\n"
+                   "## KAYIT DÜZENLEME GÜVENLİĞİ — kural\n\nKalıcı kural.\n")
+
+    def setUp(self) -> None:
+        self.td = tempfile.TemporaryDirectory()
+        self.app = Path(self.td.name)
+        (self.app / "memories").mkdir(parents=True)
+        self.env = {**os.environ, "AC_APP_DIR": str(self.app), "AC_ACTOR": "test"}
+        body = self.app / "b.md"
+        body.write_text(self.BODY, encoding="utf-8")
+        self._w("write", "--body-file", str(body))
+        sha = self._show()["body_sha256"]
+        self._w("status", "--expect-status", "PENDING", "--to", "DONE", "--expect-body-sha256", sha)
+        self.patches = [
+            mock.patch.object(dashboard_server, "DIRECTIVE_APP_DIR", self.app),
+            mock.patch.object(dashboard_server, "DIRECTIVE_FILE", self.app / "memories" / "human-directive.md"),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self) -> None:
+        for p in self.patches:
+            p.stop()
+        self.td.cleanup()
+
+    def _w(self, *argv: str) -> None:
+        r = subprocess.run([sys.executable, str(dashboard_server.DIRECTIVE_WRITER), *argv],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _show(self) -> dict:
+        r = subprocess.run([sys.executable, str(dashboard_server.DIRECTIVE_WRITER), "show"],
+                           capture_output=True, text=True, env=self.env)
+        return dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+
+    def _live(self) -> str:
+        return (self.app / "memories" / "human-directive.md").read_text(encoding="utf-8")
+
+    def test_send_on_done_appends_and_keeps_body(self) -> None:
+        out = dashboard_server.write_directive("İki satırlık operatör notu.\nİkinci satır.")
+        live = self._live()
+        self.assertEqual(out["status"], "PENDING")
+        self.assertIn("Ana metin satırı.", live)            # ANA DİREKTİF intact
+        self.assertIn("## KAYIT DÜZENLEME GÜVENLİĞİ", live)  # earlier section intact
+        self.assertIn("## OPERATÖR DİREKTİFİ — cockpit ", live)
+        self.assertTrue(live.rstrip().endswith("İkinci satır."))
+
+    def test_inner_headings_are_demoted_to_one_section(self) -> None:
+        before = len(dashboard_server.read_directive()["sections"])
+        dashboard_server.write_directive("Şablon başlangıcı\n\n## Decision\nKarar.\n# Büyük başlık\nSon.")
+        live = self._live()
+        self.assertIn("### Decision", live)
+        self.assertIn("### Büyük başlık", live)
+        self.assertNotIn("\n## Decision", live)
+        self.assertEqual(len(dashboard_server.read_directive()["sections"]), before + 1)
+
+    def test_own_heading_is_kept(self) -> None:
+        dashboard_server.write_directive("## YENİ İŞ — test\n\nMadde 1.\n## alt\nMadde 2.")
+        live = self._live()
+        self.assertIn("\n## YENİ İŞ — test\n", live)
+        self.assertNotIn("OPERATÖR DİREKTİFİ — cockpit", live)
+        self.assertIn("### alt", live)
+
+    def test_pending_gate_then_allow_pending_appends(self) -> None:
+        dashboard_server.write_directive("Birinci ek.")
+        with self.assertRaises(dashboard_server.DirectiveRefused) as cm:
+            dashboard_server.write_directive("İkinci ek.")
+        self.assertIn("PENDING", str(cm.exception))
+        dashboard_server.write_directive("İkinci ek.", allow_pending=True)
+        live = self._live()
+        self.assertIn("Birinci ek.", live)
+        self.assertIn("İkinci ek.", live)
+        self.assertIn("Ana metin satırı.", live)
+
+    def test_sections_summary_partitions_body(self) -> None:
+        d = dashboard_server.read_directive()
+        kinds = [s["kind"] for s in d["sections"]]
+        self.assertEqual(kinds, ["main", "archive", "active"])
+        self.assertEqual(sum(s["bytes"] for s in d["sections"]), d["bodyBytes"])
+        self.assertEqual(d["sections"][2]["heading"], "KAYIT DÜZENLEME GÜVENLİĞİ — kural")
+        self.assertEqual(d["warnBytes"], dashboard_server.DIRECTIVE_WARN_BYTES)
+
+    def test_sections_empty_when_writer_unloadable(self) -> None:
+        with mock.patch.object(dashboard_server, "_directive_writer_mod", None), \
+             mock.patch.object(dashboard_server, "DIRECTIVE_WRITER", self.app / "missing.py"):
+            d = dashboard_server.read_directive()
+        self.assertEqual(d["sections"], [])
+        self.assertEqual(d["status"], "DONE")
+        self.assertIn("Ana metin satırı.", d["directive"])
 
 
 if __name__ == "__main__":

@@ -310,6 +310,76 @@ def read_text_file_tail(path: Path, max_bytes: int, fallback: str = "") -> str:
 ENGINE_RUNTIME_TAIL_BYTES = 262144
 
 DIRECTIVE_MAX_CHARS = 20000
+# The writer runs with AC_APP_DIR = DIRECTIVE_APP_DIR (tests point it at a temp app).
+DIRECTIVE_APP_DIR = REPO_ROOT
+DIRECTIVE_WRITER = REPO_ROOT / "scripts" / "core" / "directive_writer.py"
+# Mirrors the writer's DIRECTIVE_BODY_WARN_BYTES default; the panel only colours the summary.
+DIRECTIVE_WARN_BYTES = 50000
+_directive_writer_mod: Any = None
+
+
+def _directive_writer_module() -> Any:
+    """Load scripts/core/directive_writer.py once, for its pure section helpers.
+
+    The panel must split the body exactly as the writer's append/archive do, so it
+    reuses split_body/live_body instead of a second parser that could drift.
+    """
+    global _directive_writer_mod
+    if _directive_writer_mod is None:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("ac_directive_writer", DIRECTIVE_WRITER)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {DIRECTIVE_WRITER}")
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _directive_writer_mod = mod
+    return _directive_writer_mod
+
+
+def directive_sections(raw: str) -> tuple[list[dict[str, Any]], int]:
+    """([{heading, bytes, kind}], body_bytes) for the panel summary; ([], 0) on any failure.
+
+    kind: main (ANA DİREKTİF + preamble, never split), archive ('## ARŞİV…' summaries),
+    active (everything else). Byte counts partition the body, so they sum to body_bytes.
+    """
+    try:
+        w = _directive_writer_module()
+        body = w.live_body(raw)
+        first, secs = w.split_body(body)
+    except Exception:  # noqa: BLE001 — the summary is optional; the panel must still render
+        return [], 0
+    out: list[dict[str, Any]] = [
+        {"heading": "ANA DİREKTİF + önsöz", "bytes": len(first.encode("utf-8")), "kind": "main"}
+    ]
+    for heading, text in secs:
+        title = heading[3:].strip()
+        kind = "archive" if title.startswith("ARŞİV") else "active"
+        out.append({"heading": title, "bytes": len(text.encode("utf-8")), "kind": kind})
+    return out, len(body.encode("utf-8"))
+
+
+def as_directive_section(text: str, stamp: str) -> str:
+    """Turn panel text into exactly ONE '## ' section for `directive_writer.py append`.
+
+    A first line that is already '## …' is kept as the heading; otherwise a
+    'OPERATÖR DİREKTİFİ — cockpit <stamp>' heading is added. Every later '# '/'## '
+    line is demoted to '### ' — templates carry their own '## Decision' etc., and
+    left alone they would split one submission into several sections, which the
+    archive step then cannot drop as a unit.
+    """
+    lines = text.strip().splitlines()
+    out: list[str] = []
+    if lines and lines[0].startswith("## "):
+        out.append(lines[0].rstrip())
+        rest = lines[1:]
+    else:
+        out += [f"## OPERATÖR DİREKTİFİ — cockpit {stamp}", ""]
+        rest = lines
+    for line in rest:
+        if line.startswith("# ") or line.startswith("## "):
+            line = "### " + line.lstrip("#").lstrip()
+        out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def read_directive() -> dict[str, Any]:
@@ -339,11 +409,15 @@ def read_directive() -> dict[str, Any]:
     status = (_section("Status") or "PENDING").splitlines()[0].strip().upper()
     if status not in {"PENDING", "DONE"}:
         status = "PENDING"
+    sections, body_bytes = directive_sections(raw)
     return {
         "present": True,
         "status": status,
         "updated": _section("Updated"),
         "directive": _section("Directive", to_end=True),
+        "sections": sections,
+        "bodyBytes": body_bytes,
+        "warnBytes": DIRECTIVE_WARN_BYTES,
     }
 
 
@@ -352,41 +426,36 @@ class DirectiveRefused(Exception):
 
 
 def write_directive(text: str, allow_pending: bool = False) -> dict[str, Any]:
-    """Write a new PENDING human directive through scripts/core/directive_writer.py."""
+    """APPEND the panel text to the live directive as one new '## ' section (Status -> PENDING).
+
+    Until 2026-10-13 this called the writer's `write`, which REPLACES the whole body:
+    two lines typed here while the directive was DONE would have wiped the ~39 KB body,
+    ANA DİREKTİF included. The panel now only appends; whole-body replace stays on the
+    liaison channel (apply-directive.sh AC_MODE=replace) where it is a deliberate act.
+    """
     clean = text.strip()
     if not clean:
         raise ValueError("directive text is empty")
     if len(clean) > DIRECTIVE_MAX_CHARS:
         raise ValueError(f"directive too long (max {DIRECTIVE_MAX_CHARS} chars)")
 
-    updated = datetime.now(timezone.utc).isoformat()
-    body = (
-        "# Human Directive\n\n"
-        "<!-- Set by the dashboard Director panel. The autonomous loop must\n"
-        "     treat a PENDING directive as the top priority for this cycle,\n"
-        "     then set Status to DONE once it has been acted on. -->\n\n"
-        "## Status\nPENDING\n\n"
-        f"## Updated\n{updated}\n\n"
-        f"## Directive\n{clean}\n"
-    )
-    # Route through the single deterministic writer rather than writing here.
-    # Five writers used to touch this slot their own way; only one of them
-    # refused to clobber in-flight work, and none locked. The writer does
-    # lock -> in-flight gate -> backup -> atomic rename -> read-back -> audit
-    # -> notify, and refuses to overwrite a PENDING directive unless the caller
-    # says so explicitly. `allow_pending` is what the panel's confirm maps to;
-    # default False means a click cannot silently destroy a live instruction.
+    section = as_directive_section(clean, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"))
+    # Route through the single deterministic writer rather than writing here. The
+    # writer does lock -> in-flight gate -> size brake -> backup -> atomic rename ->
+    # read-back -> audit -> notify, and refuses to add to a PENDING directive unless
+    # the caller says so explicitly. `allow_pending` is what the panel's confirm maps
+    # to; appending never deletes text, so the confirm only guards the work queue.
     import subprocess
     import tempfile as _tf
     with _tf.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as fh:
-        fh.write(clean + "\n")
+        fh.write(section)
         body_path = fh.name
     try:
-        cmd = [sys.executable, str(REPO_ROOT / "scripts" / "core" / "directive_writer.py"),
-               "--actor", "cockpit-director-panel", "write", "--body-file", body_path]
+        cmd = [sys.executable, str(DIRECTIVE_WRITER),
+               "--actor", "cockpit-director-panel", "append", "--section-file", body_path]
         if allow_pending:
             cmd.append("--allow-pending")
-        env = {**os.environ, "AC_APP_DIR": str(REPO_ROOT)}
+        env = {**os.environ, "AC_APP_DIR": str(DIRECTIVE_APP_DIR)}
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
     finally:
         Path(body_path).unlink(missing_ok=True)
@@ -1912,15 +1981,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             directive = write_directive(text, allow_pending=allow_pending)
         except DirectiveRefused as exc:
-            # 409, not 400: the request was well-formed and the slot is busy. The
-            # panel shows the reason and offers to retry with allowPending, so
-            # destroying a live instruction stays a decision someone makes.
+            # 409, not 400: the request was well-formed and the writer refused it.
+            # Only a PENDING refusal is retryable with allowPending (the panel asks
+            # first); size-brake and section-reference refusals are not.
             self._json(
                 {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "ok": False,
                     "refused": True,
-                    "needsAllowPending": True,
+                    "needsAllowPending": "PENDING" in str(exc),
                     "error": str(exc),
                 },
                 code=HTTPStatus.CONFLICT,

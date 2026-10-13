@@ -106,10 +106,11 @@
         <span id="directiveBadge" class="badge badge-none">NONE</span>
       </div>
       <p class="muted director-hint">
-        Steer the autonomous company without breaking its autonomy. Your directive becomes the
-        top priority for the next cycle's <strong>Next Action</strong>. It stays in effect until
-        its own completion condition is met or you replace it — a directive with no completion
-        condition (watch mode) simply runs until superseded.
+        Steer the autonomous company without breaking its autonomy. What you send is
+        <strong>appended</strong> to the live directive as one new section (the main directive and
+        earlier sections are kept) and Status becomes PENDING, so it is the top priority for the
+        next cycle's <strong>Next Action</strong>. Replacing or archiving sections is done on the
+        liaison channel, not here.
       </p>
       <div class="director-templates">
         <span class="muted">Templates — click one to load it into the box, then Send. No editing needed: each reads the candidate, the parked items and the blockers from the company's own records.</span>
@@ -126,8 +127,10 @@
           <button class="collapse-toggle" data-target="directiveCurrentBody" aria-expanded="false" aria-label="Toggle current directive">▸</button>
           <span class="muted">Current directive</span>
           <span id="directiveUpdated" class="muted mono"></span>
+          <span id="directiveSummary" class="directive-summary muted mono"></span>
         </div>
         <div id="directiveCurrentBody" class="collapsible collapsed">
+          <ul id="directiveSections" class="directive-sections" aria-label="Directive sections"></ul>
           <p id="directiveCurrent" class="director-current-text mono">(none)</p>
         </div>
       </div>

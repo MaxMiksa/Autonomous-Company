@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/og/render.ts · [[snapog-og-rendering]]
+# projects/_archive/snapog/src/og/render.ts
 
 Module that renders OG images and builds deterministic cache keys for them.
 

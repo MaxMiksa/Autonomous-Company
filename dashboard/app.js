@@ -63,6 +63,8 @@ const els = {
   directiveStatus: document.getElementById("directiveStatus"),
   directiveCurrent: document.getElementById("directiveCurrent"),
   directiveUpdated: document.getElementById("directiveUpdated"),
+  directiveSummary: document.getElementById("directiveSummary"),
+  directiveSections: document.getElementById("directiveSections"),
   btnDirective: document.getElementById("btnDirective"),
   settingsForm: document.getElementById("settingsForm"),
   settingsBadge: document.getElementById("settingsBadge"),
@@ -482,6 +484,51 @@ function renderDirective(directive) {
     els.directiveCurrent.textContent = "(none)";
     els.directiveUpdated.textContent = "";
   }
+  renderDirectiveSections(directive);
+}
+
+// One-line section summary + per-section list (2026-10-13). The body is now built by
+// append/archive, so its shape (how many live sections, how many archive summaries,
+// how big) is what the operator needs to see before reading 40 KB of text.
+function renderDirectiveSections(directive) {
+  const secs = (directive && directive.present && Array.isArray(directive.sections))
+    ? directive.sections : [];
+  els.directiveSummary.textContent = "";
+  els.directiveSummary.classList.remove("directive-summary-warn");
+  els.directiveSections.replaceChildren();
+  if (!secs.length) return;
+  const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
+  const active = secs.filter((s) => s.kind === "active");
+  const archived = secs.filter((s) => s.kind === "archive");
+  const last = active.length ? active[active.length - 1].heading : "";
+  const lastShort = last.length > 60 ? `${last.slice(0, 59)}…` : last;
+  const parts = [
+    `${secs.length} sections`,
+    kb(directive.bodyBytes || 0),
+    `active ${active.length}`,
+    `archive ${archived.length}`,
+  ];
+  if (lastShort) parts.push(`last: ${lastShort}`);
+  els.directiveSummary.textContent = parts.join(" · ");
+  if ((directive.bodyBytes || 0) > (directive.warnBytes || 50000)) {
+    els.directiveSummary.classList.add("directive-summary-warn");
+    els.directiveSummary.title = "Body is over the writer's warning size — archive closed sections.";
+  } else {
+    els.directiveSummary.title = "";
+  }
+  for (const s of secs) {
+    const li = document.createElement("li");
+    const badge = document.createElement("span");
+    badge.className = `badge badge-sec-${s.kind}`;
+    badge.textContent = s.kind;
+    const size = document.createElement("span");
+    size.className = "muted mono";
+    size.textContent = kb(s.bytes || 0);
+    const title = document.createElement("span");
+    title.textContent = s.heading;
+    li.append(badge, " ", size, " ", title);
+    els.directiveSections.appendChild(li);
+  }
 }
 
 async function submitDirective() {
@@ -507,9 +554,9 @@ async function submitDirective() {
     // point, not an error. The server has always accepted `allowPending` for the
     // deliberate supersede; the panel just never offered it, so a refusal was a
     // dead end here and the operator had to fall back to the CLI. Ask, then retry.
-    if ((!res.ok || !data.ok) && /PENDING/i.test(String(data.error || ""))) {
+    if ((!res.ok || !data.ok) && data.needsAllowPending) {
       const cur = (lastDirective && lastDirective.updated) ? ` (last updated ${lastDirective.updated})` : "";
-      if (confirm(`The live directive is still PENDING${cur} — in-flight work.\n\n${data.error}\n\nReplace it deliberately with what is in the box?`)) {
+      if (confirm(`The live directive is still PENDING${cur} — work is in flight.\n\n${data.error}\n\nAdd the text in the box as one more section anyway? Nothing already there is deleted.`)) {
         res = await send(true);
         data = await res.json();
       }
@@ -518,7 +565,7 @@ async function submitDirective() {
       throw new Error(data.error || "Failed to send directive");
     }
     els.directiveInput.value = "";
-    els.directiveStatus.textContent = "Directive sent — the next cycle will pick it up.";
+    els.directiveStatus.textContent = "Section added — Status is PENDING, the next cycle will pick it up.";
     renderDirective(data.directive || {});
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

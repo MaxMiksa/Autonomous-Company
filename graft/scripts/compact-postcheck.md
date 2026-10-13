@@ -1,4 +1,4 @@
-# scripts/compact-postcheck.py · [[compact-ritual-tooling]]
+# scripts/compact-postcheck.py
 
 Post-compact audit hook that records whether the real compact_summary carried the required resume anchor sections into a history log and prints a canary warning when any are missing.
 

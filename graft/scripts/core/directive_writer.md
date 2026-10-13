@@ -1,4 +1,4 @@
-# scripts/core/directive_writer.py · [[directive-writer]] [[human-directive-write-path]]
+# scripts/core/directive_writer.py · [[human-directive-write-path]]
 
 The single locked pipeline (lock → in-flight gate → backup → atomic write → verify → audit → notify) through which every write to memories/human-directive.md must pass, enforcing that in-flight PENDING work is never clobbered and that the body is immutable after acceptance.
 

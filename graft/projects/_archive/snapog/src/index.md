@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/index.ts · [[snapog-worker]]
+# projects/_archive/snapog/src/index.ts
 
 The main Cloudflare Worker entrypoint that wires Hono routes for OG image generation, key registration, dashboard, health, and a scheduled cost-alert cron.
 

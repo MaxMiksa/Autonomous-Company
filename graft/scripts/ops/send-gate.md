@@ -1,4 +1,4 @@
-# scripts/ops/send-gate.py · [[outreach-eligibility-gate]] [[send-gate]]
+# scripts/ops/send-gate.py · [[airtable-access-wrappers]] [[fail-closed-harness-brakes]] [[g4-attribution-evidence]]
 
 Fail-closed gate that decides from live evidence whether a firm may be emailed, enforcing caps, no-duplicate, opt-out, and live G4 verification with the operator out of the loop.
 

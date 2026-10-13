@@ -3,8 +3,6 @@ name: Session Brief & Compact Ritual
 slug: session-brief-compact-ritual
 type: system
 sources:
-  - path: scripts/compact_yol.py
-    hash: 617adabc76e0edaa59787115e1c95e883fa607510c8483a701a97df4539f17da
   - path: scripts/session-brief.py
     hash: f71655446ca0f9824d90922f64f2bbb113d24b5fc01df2dd8ff3fdfa99827dae
   - path: tests/test_compact_anchor_sync.py
@@ -13,29 +11,16 @@ sources:
     hash: 2d94865ee02e9d01b5770928d95abef8e3f9157576dc40326fb74e8a164408f9
   - path: tests/test_compact_yol.py
     hash: 707405adc7816737d22c7079fe2e3484cb6959a80f4b4323acb76f44d4074e49
-sources_digest: d8ce4c73237af6d2fb523a1f0f02a3c1481cd9edf0cc3ddb380e3c956aa3f2e6
+sources_digest: 3c62da0ecfdd1d5ea8e18f21665f42588364eb13f72704b2fba22d19992c35a0
 links:
-  - to: auto-loop-harness
-    relation: part_of
-    description: SessionStart hook wired into the harness lifecycle
+  - to: state-snapshot-delta-probing
+    relation: uses
+    description: >-
+      session-brief reads a fresh preflight file to surface open ⚠ items for
+      verification
 generator:
   version: 1
 covers:
-  - symbol: temizle
-    kind: function
-    at: 'scripts/compact_yol.py:L57-L60'
-  - symbol: _git
-    kind: function
-    at: 'scripts/compact_yol.py:L63-L69'
-  - symbol: repo_adi
-    kind: function
-    at: 'scripts/compact_yol.py:L72-L89'
-  - symbol: yol
-    kind: function
-    at: 'scripts/compact_yol.py:L92-L95'
-  - symbol: main
-    kind: function
-    at: 'scripts/compact_yol.py:L98-L107'
   - symbol: sh
     kind: function
     at: 'scripts/session-brief.py:L24-L28'
@@ -79,11 +64,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-SessionStart hook and compact-ritual tooling that inject a measured, real-time session brief into agent context at startup/resume/compact. session-brief.py gathers git state, checks resume-file freshness via compact_yol.yol(), and runs an optional .claude/brief-extra.sh, with an 8-second timeout so the brief never blocks the session; it deliberately injects only the resume path and freshness, not its content. compact_yol.py derives ritual file paths from repository names to prevent cross-project collisions in shared /tmp paths, with graceful fallback to directory names when git is absent. Anchor strings (İLK İŞ, KARAR, etc.) must stay identical across lint, postcheck, template, and fixtures.
+SessionStart hook and compact-ritual machinery that inject a measured real-time brief (git state, resume freshness, optional .claude/brief-extra.sh) without ever blocking the session, and derive ritual file paths from repository names via compact_yol.py to prevent cross-project collisions in shared /tmp paths. The brief measures current state instead of asserting claims, skips lines on any error, and injects only the resume path and freshness, not its content. Anchor strings (İLK İŞ, KARAR, etc.) must stay identical across four locations enforced by a dedicated test.
 
 ## Related
 
-- part of [[auto-loop-harness]] — SessionStart hook wired into the harness lifecycle
+- uses [[state-snapshot-delta-probing]] — session-brief reads a fresh preflight file to surface open ⚠ items for verification
 <!-- context:generated:end -->
 
 ## Notes
