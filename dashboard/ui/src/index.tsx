@@ -1,3 +1,5 @@
+import { tween, timing, quiet, reveal, positions, layout, reconcile } from "./motion";
+import { Selection } from "./selection";
 import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -9,14 +11,18 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import { cn } from "./lib/utils";
-import { element, mountControls, primitives, buttonProps, notifications, notify, loading, groupTabs, Hint, productSwitcher, alertMessage } from "./controls";
+import { element, mountControls, primitives, buttonProps, notifications, notify, loading, groupTabs, Hint, productSwitcher, alertMessage, disposeControls } from "./controls";
 import { Skeleton } from "./components/ui/skeleton";
 import { Alert } from "./components/ui/alert";
-import { ChevronDown, EllipsisVertical, Settings } from "lucide-react";
+import { ChevronDown, EllipsisVertical } from "lucide-react";
 
 type ModalElement = HTMLElement & { showModal: () => void; close: () => void; open: boolean };
 type MenuItem = { label: string; disabled?: boolean; reason?: string; danger?: boolean; action: () => void; focusKey?: string };
 type MenuProps = { id: string; label: string; items: MenuItem[] };
+function createDashboardUI(document: Document) {
+const roots: Root[] = [];
+const closers: (() => void)[] = [];
+const ownRoot = (host: HTMLElement) => { const root = createRoot(host); roots.push(root); return root; };
 const menus = new Map<string, { host: HTMLSpanElement; root: Root }>();
 
 // The controllers own records and form values. The shared UI owns modal/menu
@@ -28,18 +34,73 @@ function installModal(original: HTMLElement, sheet = false) {
   const host = document.createElement("span");
   host.dataset.uiRoot = sheet ? "sheet" : "dialog";
   document.body.append(host);
-  const root = createRoot(host);
+  const root = ownRoot(host);
   let open = false;
   let returnFocus: HTMLElement | null = null;
   let content: HTMLDivElement | null = null;
+  let exiting: { surface: HTMLElement; slot: HTMLElement; overlay: HTMLElement | null } | null = null;
+  let revision = 0;
+  let entrance: { visual: { opacity: string; transform: string; rect: DOMRect } | null } | null = null;
+  const enter = (node: HTMLDivElement) => {
+    if (!entrance) return;
+    const visual = entrance.visual; entrance = null;
+    const surface = node.parentElement!;
+    const backdrop = surface.previousElementSibling as HTMLElement;
+    const target = sheet ? 'none' : 'translate(-50%,-50%)';
+    surface.style.transition = 'none';
+    if (visual) {
+      surface.style.transform = target;
+      const box = surface.getBoundingClientRect();
+      const matrix = new DOMMatrix(getComputedStyle(surface).transform);
+      matrix.e += visual.rect.left - box.left; matrix.f += visual.rect.top - box.top;
+      Object.assign(surface.style, { opacity: visual.opacity, transform: matrix.toString() });
+    } else Object.assign(surface.style, { opacity: '0', transform: sheet ? 'translateX(100%)' : `${target} translateY(6px)` });
+    tween(surface, { opacity: '1', transform: target }, sheet ? timing.drawer : timing.local, () => { surface.style.removeProperty('opacity'); surface.style.removeProperty('transform'); });
+    if (backdrop?.matches('[data-slot$="overlay"]')) { backdrop.style.opacity = visual?.opacity || '0'; tween(backdrop, { opacity: '1' }, timing.local); }
+  };
   original.dataset.dialogId = id;
   if (sheet) original.hidden = true;
-  const change = (next: boolean) => {
+  const parkExit = () => {
+    if (!exiting) return;
+    while (exiting.slot.firstChild) original.append(exiting.slot.firstChild);
+    exiting.surface.remove(); exiting.overlay?.remove(); exiting = null; original.id = id;
+  };
+  const change = (next: boolean, instant = false) => {
+    if (instant) { ++revision; parkExit(); }
     if (next === open) return;
-    if (next) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const token = ++revision;
+    const liveSurface = content?.parentElement;
+    const liveOverlay = liveSurface?.previousElementSibling as HTMLElement | null;
+    const previous = exiting?.surface || liveSurface;
+    const visual = previous ? { opacity: getComputedStyle(previous).opacity, transform: getComputedStyle(previous).transform, rect: previous.getBoundingClientRect() } : null;
+    const anchor = liveSurface ? { left: getComputedStyle(liveSurface).left, top: getComputedStyle(liveSurface).top, width: getComputedStyle(liveSurface).width, height: getComputedStyle(liveSurface).height } : null;
+    const surface = !next && liveSurface ? liveSurface.cloneNode(false) as HTMLElement : null;
+    const overlay = !next && liveOverlay?.matches('[data-slot$="overlay"]') ? liveOverlay.cloneNode(false) as HTMLElement : null;
+    const exitSlot = !next && content ? content.cloneNode(false) as HTMLElement : null;
+    const overlayOpacity = liveOverlay ? getComputedStyle(liveOverlay).opacity : '1';
+    const resuming = next && Boolean(exiting);
+    if (next) parkExit();
+    if (next && !resuming) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    entrance = next && !quiet() && !instant ? { visual } : null;
     open = next;
     flushSync(render);
-    if (!next) original.dispatchEvent(new Event("close"));
+    if (next && content) enter(content);
+    else if (!next) {
+      if (surface && exitSlot && visual && !quiet() && !instant) {
+        original.id = `${id}-parking`; exitSlot.id = id;
+        while (original.firstChild) exitSlot.append(original.firstChild);
+        surface.append(exitSlot); surface.inert = true; surface.setAttribute('aria-hidden', 'true'); surface.dataset.motionExit = '';
+        // Releasing the modal scroll lock must not move the exit surface.
+        surface.style.pointerEvents = 'none'; Object.assign(surface.style, anchor, { opacity: visual.opacity, transform: visual.transform });
+        surface.removeAttribute('role'); surface.dataset.state = 'closed';
+        if (overlay) { overlay.style.pointerEvents = 'none'; overlay.style.opacity = overlayOpacity; overlay.setAttribute('aria-hidden', 'true'); document.body.append(overlay); }
+        document.body.append(surface); exiting = { surface, slot: exitSlot, overlay }; bind(exitSlot);
+        tween(surface, { opacity: '0', transform: sheet ? 'translateX(100%)' : 'translate(-50%,-50%) translateY(6px)' }, sheet ? timing.drawer : timing.local,
+          () => { if (token === revision) parkExit(); });
+        if (overlay) tween(overlay, { opacity: '0' }, timing.local);
+      }
+      original.dispatchEvent(new Event("close"));
+    }
   };
   const attach = (node: HTMLDivElement | null) => {
     if (node) {
@@ -48,6 +109,7 @@ function installModal(original: HTMLElement, sheet = false) {
       while (original.firstChild) node.append(original.firstChild);
       content = node;
       bind(node);
+      enter(node);
     } else if (content) {
       while (content.firstChild) original.append(content.firstChild);
       original.id = id;
@@ -66,6 +128,7 @@ function installModal(original: HTMLElement, sheet = false) {
       "aria-labelledby": titleId,
       "aria-describedby": undefined,
       showCloseButton: false,
+      container: document.body,
       onInteractOutside: (event: CustomEvent<{ originalEvent: Event }>) => {
         // Shell controls retain their DOM identity when moved into this portal.
         // Test containment against DOM, not their original React ancestry.
@@ -95,6 +158,7 @@ function installModal(original: HTMLElement, sheet = false) {
       : confirmation ? <AlertDialog open={open} onOpenChange={change}><AlertDialogContent {...alertProps} aria-describedby={original.getAttribute("aria-describedby") || "confirmMessage"}>{slot}</AlertDialogContent></AlertDialog>
       : <Dialog open={open} onOpenChange={change}><DialogContent {...common}>{slot}</DialogContent></Dialog>);
   }
+  closers.push(() => change(false, true));
   bind(original);
   flushSync(render);
 }
@@ -138,10 +202,28 @@ let updateFilter: ((value: string) => void) | undefined;
 function selectFilter(value: string) { updateFilter?.(value); }
 function CatalogFilters({ node }: { node: Element }) {
   const [value, setValue] = React.useState("all");
+  const group = React.useRef<HTMLDivElement>(null);
+  const [selection, setSelection] = React.useState({ x: 0, y: 0, width: 0, height: 0 });
+  React.useLayoutEffect(() => {
+    const container = group.current;
+    if (!container) return;
+    const measure = () => {
+      const active = container.querySelector<HTMLButtonElement>('[data-state="on"]');
+      if (!active) return;
+      const next = { x: active.offsetLeft, y: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight };
+      setSelection(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(container);
+    container.querySelectorAll('button').forEach(button => resize.observe(button));
+    return () => resize.disconnect();
+  }, [value]);
   updateFilter = next => { if (next !== value) flushSync(() => setValue(next)); };
-  return <ToggleGroup id="filters" className="filters" type="single" value={value}
+  return <ToggleGroup ref={group} id="filters" className="filters" type="single" value={value}
     aria-label={node.getAttribute("aria-label") || undefined} data-i18n-aria="filterProducts"
     onValueChange={next => { if (next) setValue(next); }}>
+    <span className="filter-selection" aria-hidden="true" style={{ transform: `translate(${selection.x}px, ${selection.y}px)`, width: selection.width, height: selection.height }} />
     {[...node.children].map(button => <ToggleGroupItem key={button.getAttribute("data-filter")!}
       value={button.getAttribute("data-filter")!} data-filter={button.getAttribute("data-filter")}
       className="filter-button">
@@ -162,12 +244,7 @@ function ProfileMenu() {
         <ChevronDown className="profile-chevron" aria-hidden="true" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent className="ac-menu" align="end" sideOffset={4}>
-      <DropdownMenuItem onSelect={() => setTimeout(() => {
-        trigger.current?.focus({ preventScroll: true });
-        document.getElementById("settingsButton")?.click();
-      }, 0)}><Settings aria-hidden="true" />{chinese ? "设置" : "Settings"}</DropdownMenuItem>
-    </DropdownMenuContent>
+    <DropdownMenuContent className="ac-menu local-menu" aria-label={chinese ? "本机" : "Local"} align="end" sideOffset={4} />
   </DropdownMenu>;
 }
 
@@ -210,7 +287,7 @@ function mountShell() {
     return tag === "button" && node.hasAttribute("title") && node.hasAttribute("aria-label") ? <Hint key={key} label={node.getAttribute("aria-label")!}>{control}</Hint> : control;
   }
   const content = [...document.body.childNodes].map(convert);
-  const shell = createRoot(document.body);
+  const shell = ownRoot(document.body);
   flushSync(() => shell.render(<>{content}</>));
 }
 
@@ -225,14 +302,15 @@ function installTabs() {
   }));
   container.removeAttribute("role");
   container.className = "ac-tabs-host";
-  const root = createRoot(container);
+  const root = ownRoot(container);
   function JournalTabs() {
     const [value, setValue] = React.useState(options[0].value);
     updateTab = (next) => { if (next !== value) flushSync(() => setValue(next)); };
     return <Tabs className="ac-tabs" activationMode="manual" value={value} onValueChange={next => {
       document.dispatchEvent(new CustomEvent("ui-tab-change", { detail: next }));
     }}>
-      <TabsList variant="line" className="tabs" aria-label={label}>
+      <TabsList variant="line" className="tabs motion-selection-list" aria-label={label}>
+        <Selection value={value} />
         {options.map(option => <TabsTrigger key={option.value} value={option.value} id={option.id}
           className="tab" data-tab={option.value} data-i18n={option.key} aria-controls={option.panel}>{option.label}</TabsTrigger>)}
       </TabsList>
@@ -242,16 +320,23 @@ function installTabs() {
 }
 function selectTab(value: string) { updateTab?.(value); }
 
-declare global {
-  interface Window { DashboardUI: { element: typeof element; mountControls: typeof mountControls; notify: typeof notify; loading: typeof loading; groupTabs: typeof groupTabs; productSwitcher: typeof productSwitcher; alertMessage: typeof alertMessage; menu: typeof menu; retainMenus: typeof retainMenus; selectTab: typeof selectTab; selectFilter: typeof selectFilter } }
-}
-window.DashboardUI = { element, mountControls, notify, loading, groupTabs, productSwitcher, alertMessage, menu, retainMenus, selectTab, selectFilter };
+const api = { element, mountControls: (scope: ParentNode = document.body) => mountControls(scope), notify, loading, groupTabs, reveal, positions, layout, reconcile,
+  productSwitcher: (entries: Parameters<typeof productSwitcher>[0], current: string, labels: Parameters<typeof productSwitcher>[2], reset = false) => productSwitcher(entries, current, labels, reset, document.body), alertMessage, menu, retainMenus, selectTab, selectFilter,
+  pause() { closers.forEach(close => close()); document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); },
+  dispose() { closers.forEach(close => close()); retainMenus([]); disposeControls(document.body); roots.reverse().forEach(root => root.unmount()); },
+};
 mountShell();
 installTabs();
-mountControls();
-notifications();
-productSwitcher([], "", { search: "", empty: "", current: "" });
+mountControls(document.body);
+productSwitcher([], "", { search: "", empty: "", current: "" }, false, document.body);
 document.querySelectorAll<HTMLElement>("dialog").forEach(node => installModal(node));
 const queue = document.getElementById("queueDrawer");
 if (queue) installModal(queue, true);
 document.documentElement.dataset.ui = "shadcn";
+return api;
+}
+declare global {
+  interface Window { createDashboardUI: typeof createDashboardUI; DashboardUI: ReturnType<typeof createDashboardUI> }
+}
+window.createDashboardUI = createDashboardUI;
+notifications();

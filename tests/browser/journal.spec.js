@@ -508,13 +508,59 @@ test("cycle timeline preserves disclosures, keyboard focus and selected logs acr
   await expect(page.locator("#historyList > [data-disclosure]").first()).toHaveAttribute("open", "");
   await expect(summary).toBeFocused();
   await expect(page.locator(".current-cycle")).toHaveAttribute("aria-current", "step");
-  expect(await page.locator(".current-column").evaluate((node) => getComputedStyle(node, "::before").width)).toBe("2px");
+  expect(await page.locator(".current-cycle").evaluate((node) => getComputedStyle(node, "::before").width)).toBe("2px");
   await page.locator("#tab-logs").click();
   await page.locator("#logSelect").selectOption("cycle-0001-fixture");
   await fs.writeFile(latest, JSON.stringify({ result: "Another changed report" }));
   await refreshRecords(page);
   await expect(page.locator("#logSelect")).toHaveValue("cycle-0001-fixture");
   await expect(page.locator("#logText")).toContainText("Fixture log 1");
+});
+
+test("current round expands in place and keeps its collapsed state after refresh", async ({ page, journal }) => {
+  await page.goto(`${journal.url}/journal`);
+  const heading = page.locator('.current-cycle-heading');
+  await expect(heading).toHaveAttribute('aria-expanded', 'true');
+  await heading.click();
+  await expect(heading).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.current-cycle-content')).toBeHidden();
+  await expect(page.locator('#tab-work')).toHaveAttribute('aria-selected', 'true');
+  await refreshRecords(page);
+  await expect(heading).toHaveAttribute('aria-expanded', 'false');
+  await heading.press('Enter');
+  await expect(page.locator('.current-cycle-content')).toBeVisible();
+  await expect(page.locator('.project-runtime .runtime-details dd')).toHaveCount(9);
+  await expect(page.locator('.brand')).toHaveAttribute('href', '/center');
+});
+
+test("all cycle headings share full-row interaction and retain height when toggled", async ({ page, journal }) => {
+  await page.goto(`${journal.url}/journal`);
+  await expect(page.locator('#workspaceProjectName')).toHaveText('Journal Fixture');
+  for (const width of [1597, 390]) {
+    await page.setViewportSize({ width, height: 919 });
+    for (const row of [page.locator('.current-cycle'), page.locator('#historyList .cycle-row').first()]) {
+      const heading = row.locator('.disclosure-trigger');
+      const before = await heading.boundingBox();
+      const rowBox = await row.boundingBox();
+      expect(before.width).toBeCloseTo(rowBox.width, 0);
+      const expanded = await heading.getAttribute('aria-expanded');
+      await heading.click({ position: { x: 10, y: before.height / 2 } });
+      await expect(heading).toHaveAttribute('aria-expanded', expanded === 'true' ? 'false' : 'true');
+      expect((await heading.boundingBox()).height).toBe(before.height);
+      await heading.press('Enter');
+      expect((await heading.boundingBox()).height).toBe(before.height);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
+});
+
+test("unnamed projects use a preset title in the workspace tab", async ({ page, journal }) => {
+  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  data.project = { ...data.project, displayName: '', name: '' };
+  data.entry = null;
+  await page.route('**/api/journal', route => route.fulfill({ json: data }));
+  await page.goto(`${journal.url}/journal`);
+  await expect(page.locator('#workspaceProjectName')).toHaveText('未命名项目');
 });
 
 test("compact records preserve failures and unknowns while hiding technical details in both languages", async ({ page, journal }) => {
@@ -542,7 +588,7 @@ test("compact records preserve failures and unknowns while hiding technical deta
   await expect(page.locator("#currentCycle .record-check .progress-failed")).toHaveCount(1);
   await expect(page.locator("#currentCycle")).not.toContainText(command);
   await expect(page.locator("#currentCycle .report-disclosure, #currentCycle .event-command")).toHaveCount(0);
-  await expect(page.locator("#projectSidebar")).toContainText("Preview ended");
+  await expect(page.locator("#projectSidebar")).not.toContainText("Preview ended");
   await expect(page.locator("#projectSidebar")).not.toContainText("File changed or missing");
   for (const locale of ["en", "zh-CN"]) {
     language = locale;

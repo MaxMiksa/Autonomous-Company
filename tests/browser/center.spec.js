@@ -2,7 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 const test = base.extend({
   centerCycles: [6, { option: true }],
@@ -45,6 +45,462 @@ async function openCenter(page, center) {
   await page.goto(`${center.url}/center`);
   await expect(page.locator('#observedAt')).not.toBeEmpty();
 }
+
+for (const kind of ['center', 'journal']) {
+  test(`${kind} first paint stays styled while UI scripts are delayed`, async ({ page, center }) => {
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    await page.route('**/ui-assets/ui.js', async route => { await pending; await route.continue(); });
+    try {
+      await page.goto(`${center.url}/${kind === 'center' ? 'center' : `products/${center.entryId}`}`, { waitUntil: 'commit' });
+      const header = page.locator(kind === 'center' ? '.center-header' : '.site-header');
+      await expect(header).toBeVisible();
+      // Wait for stylesheet application while the component bundle remains blocked.
+      await expect.poll(() => page.locator('.brand-logo').evaluate(node => node.complete && node.naturalWidth > 0 ? node.getBoundingClientRect().height : 0)).toBeCloseTo(44.16, 1);
+      const before = await page.evaluate(() => {
+        window.initialFrame = document.querySelector('.app-frame');
+        window.initialView = document.querySelector('.workspace-view');
+        return {
+          booted: Boolean(window.createDashboardUI),
+          skipBottom: document.querySelector('.skip-link').getBoundingClientRect().bottom,
+          header: document.querySelector('header').getBoundingClientRect().toJSON(),
+        };
+      });
+      expect(before.booted).toBe(false);
+      expect(before.skipBottom).toBeLessThanOrEqual(0);
+      expect(before.header.height).toBe(56);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      release();
+      await page.waitForLoadState('load');
+      await expect.poll(() => page.evaluate(() => window.DashboardNavigation.inspect().active)).toBe(kind);
+      const after = await page.evaluate(() => ({
+        sameFrame: window.initialFrame === document.querySelector('.app-frame'),
+        sameView: window.initialView === document.querySelector('.workspace-view'),
+        header: document.querySelector('header').getBoundingClientRect().toJSON(),
+      }));
+      expect(after.sameFrame).toBe(true);
+      expect(after.sameView).toBe(true);
+      await expect(page.locator('.app-frame')).toHaveCount(1);
+      await expect(page.locator('.workspace-view')).toHaveCount(1);
+      for (const key of ['x', 'y', 'width', 'height']) expect(after.header[key]).toBeCloseTo(before.header[key], 1);
+    } finally { release(); }
+  });
+}
+
+test('search icon stays fixed throughout expansion and collapse', async ({ page, center }) => {
+  await openCenter(page, center);
+  for (const width of [1359, 390]) {
+    await page.setViewportSize({ width, height: 919 });
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(220);
+    const result = await page.evaluate(async () => {
+      const input = document.querySelector('#productSearch'), icon = document.querySelector('.search-field svg');
+      const samples = [icon.getBoundingClientRect().toJSON()];
+      for (const expanded of [true, false]) {
+        expanded ? input.focus() : input.blur();
+        const start = performance.now();
+        while (performance.now() - start < 230) {
+          await new Promise(requestAnimationFrame); samples.push(icon.getBoundingClientRect().toJSON());
+        }
+      }
+      return samples;
+    });
+    for (const sample of result) for (const key of ['x', 'y']) expect(Math.abs(sample[key] - result[0][key])).toBeLessThan(0.2);
+  }
+});
+
+test('settings exit holds its horizontal position and reverses the entrance offset', async ({ page, center }) => {
+  await openCenter(page, center);
+  await page.locator('#settingsButton').click();
+  await expect.poll(() => page.locator('.ac-dialog').evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  const result = await page.evaluate(() => {
+    const node = document.querySelector('#settingsDialog').parentElement;
+    const before = node.getBoundingClientRect().toJSON();
+    document.querySelector('#settingsDialog').close();
+    const exit = document.querySelector('[data-motion-exit]'), animations = exit.getAnimations();
+    animations.forEach(animation => animation.pause());
+    const samples = [0, 90, 180].map(time => {
+      animations.forEach(animation => { animation.currentTime = time; });
+      return { ...exit.getBoundingClientRect().toJSON(), opacity: Number(getComputedStyle(exit).opacity) };
+    });
+    animations.forEach(animation => animation.play());
+    return { before, samples };
+  });
+  for (const sample of result.samples) {
+    expect(sample.x).toBeCloseTo(result.before.x, 1);
+    expect(sample.width).toBeCloseTo(result.before.width, 1);
+    expect(sample.height).toBeCloseTo(result.before.height, 1);
+  }
+  expect(result.samples[0].y).toBeCloseTo(result.before.y, 1);
+  expect(result.samples[2].y - result.before.y).toBeCloseTo(6, 1);
+  expect(result.samples[1].opacity).toBeGreaterThan(0);
+  expect(result.samples[1].opacity).toBeLessThan(1);
+});
+
+test('settings motion preserves draft, position and focus across rapid reversals', async ({ page, center }, testInfo) => {
+  await openCenter(page, center);
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsForm .form-status')).toHaveText('');
+  await page.locator('#settingsForm [name=model]').fill('unsaved-motion-draft');
+  const samples = await page.evaluate(() => {
+    const form = document.querySelector('#settingsForm'), results = [];
+    for (let index = 0; index < 12; index++) {
+      const live = document.querySelector('#settingsDialog').parentElement;
+      live.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = 70; });
+      const beforeClose = live.getBoundingClientRect().toJSON();
+      document.querySelector('#settingsDialog').close();
+      const exit = document.querySelector('[data-motion-exit]');
+      const afterClose = exit.getBoundingClientRect().toJSON();
+      exit.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = 60; });
+      const beforeOpen = exit.getBoundingClientRect().toJSON();
+      document.querySelector('#settingsButton').click();
+      const reopened = document.querySelector('#settingsDialog').parentElement;
+      results.push({ beforeClose, afterClose, beforeOpen, afterOpen: reopened.getBoundingClientRect().toJSON(), sameForm: form === document.querySelector('#settingsForm') });
+    }
+    return results;
+  });
+  await testInfo.attach('settings-motion-reversals.json', { body: JSON.stringify(samples, null, 2), contentType: 'application/json' });
+  for (const sample of samples) {
+    expect(sample.sameForm).toBe(true);
+    for (const key of ['x', 'y', 'width', 'height']) {
+      expect(Math.abs(sample.beforeClose[key] - sample.afterClose[key])).toBeLessThan(1);
+      expect(Math.abs(sample.beforeOpen[key] - sample.afterOpen[key])).toBeLessThan(1);
+    }
+  }
+  await page.waitForTimeout(260);
+  await expect(page.locator('#settingsForm [name=model]')).toHaveValue('unsaved-motion-draft');
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+  await expect(page.locator('.ac-dialog')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settingsButton')).toBeFocused();
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
+});
+
+test('local motion settles safely on resize, reduced motion and backgrounding', async ({ page, center }) => {
+  await openCenter(page, center);
+  for (const event of ['resize', 'reduced', 'hidden', 'missing']) {
+    await page.locator('#settingsButton').click();
+    await expect(page.locator('#settingsForm .form-status')).toHaveText('');
+    await page.evaluate(() => document.querySelector('#settingsDialog').close());
+    if (event === 'resize') await page.setViewportSize({ width: 390, height: 844 });
+    if (event === 'reduced') await page.emulateMedia({ reducedMotion: 'reduce' });
+    if (event === 'hidden') await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+    await expect(page.locator('#settingsButton')).toBeFocused();
+    if (event === 'reduced') await page.emulateMedia({ reducedMotion: 'no-preference' });
+    if (event === 'hidden') await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
+    if (event === 'missing') {
+      await page.evaluate(() => { Element.prototype.animate = undefined; });
+      await page.locator('#settingsButton').click();
+      await expect(page.locator('#settingsForm')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+    }
+  }
+  expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
+});
+
+test('detail navigation fades out on the reversed page timeline', async ({ page, center }) => {
+  await openCenter(page, center);
+  await page.locator('.product-link').first().click();
+  await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+  const result = await page.evaluate(async () => {
+    const navigation = document.querySelector('.topbar > .navline');
+    document.querySelector('#journalBackLink').click();
+    const animation = navigation.getAnimations()[0];
+    if (!animation) return null;
+    await animation.ready;
+    const rate = animation.playbackRate;
+    animation.pause();
+    const duration = Number(animation.effect.getTiming().duration);
+    const opacity = [duration, duration / 2, 0].map(time => { animation.currentTime = time; return Number(getComputedStyle(navigation).opacity); });
+    animation.play();
+    return { rate, opacity };
+  });
+  expect(result).not.toBeNull();
+  expect(result.rate).toBe(-1);
+  expect(result.opacity[0]).toBe(1);
+  expect(result.opacity[1]).toBeGreaterThan(0);
+  expect(result.opacity[1]).toBeLessThan(1);
+  expect(result.opacity[2]).toBe(0);
+});
+
+test('detail header keeps its width through a delayed response and places the read-only icon beside the title', async ({ page, center }, testInfo) => {
+  for (const width of [1359, 390]) {
+    await page.setViewportSize({ width, height: 919 });
+    await openCenter(page, center);
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    const routePattern = '**/journal?*';
+    await page.route(routePattern, async route => { await pending; await route.continue(); });
+    const snapshot = () => page.evaluate(() => Object.fromEntries(['.topbar > .navline', '.topbar .ac-tabs-host', '.workspace-project-heading'].map(selector => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return [selector, { x: box.x, width: box.width }];
+    })));
+    try {
+      await page.locator('.product-link').first().click();
+      await expect(page.locator('#journalBackLink')).toBeVisible();
+      const before = await snapshot();
+      release();
+      await expect(page.locator('#cycleTitle')).toBeVisible();
+      await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+      const after = await snapshot();
+      await testInfo.attach(`stable-header-${width}.json`, { body: JSON.stringify({ before, after }, null, 2), contentType: 'application/json' });
+      for (const selector of Object.keys(before)) for (const key of ['x', 'width']) expect(after[selector][key]).toBeCloseTo(before[selector][key], 1);
+      await expect(page.locator('.workspace-project-heading #readOnlyIndicator')).toBeVisible();
+      await expect(page.locator('#readOnlyIndicator')).toHaveAttribute('aria-label', /Read.only|只读/i);
+      const icon = await page.locator('#readOnlyIndicator').boundingBox();
+      const name = await page.locator('#workspaceProjectName').boundingBox();
+      expect(icon.x - name.x - name.width).toBeCloseTo(4, 1);
+      expect(await page.locator('#runtimeState').evaluate(node => node.classList.contains('sr-only'))).toBe(true);
+      await expect(page.locator('#runtimeControls')).toBeHidden();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    } finally { release(); await page.unroute(routePattern); }
+  }
+});
+
+test('fluid navigation reveals its rounded shape and name together without a flying label', async ({ page, center }, testInfo) => {
+  await openCenter(page, center);
+  for (const width of [1359, 390]) {
+    await page.setViewportSize({ width, height: 919 });
+    await page.locator('.product-link').first().click();
+    await expect(page.locator('#cycleTitle')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+    await page.locator('#journalBackLink').click();
+    await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+    const result = await page.evaluate(async () => {
+      document.querySelector('.product-link').click();
+      const navigation = document.querySelector('.topbar > .navline');
+      const path = navigation.querySelector('.navigation-fluid-surface path');
+      const label = document.querySelector('#workspaceProjectName');
+      const animations = document.getAnimations();
+      await Promise.all(animations.map(animation => animation.ready));
+      animations.forEach(animation => animation.pause());
+      const duration = Math.max(...animations.map(animation => Number(animation.effect.getTiming().duration)));
+      const snapshot = () => ({ path: getComputedStyle(path).d, shape: path.getBBox().toJSON ? path.getBBox().toJSON() : { y: path.getBBox().y, height: path.getBBox().height }, label: label.getBoundingClientRect().toJSON(), opacity: Number(getComputedStyle(label.closest('.workspace-project-heading')).opacity), navigation: navigation.getBoundingClientRect().toJSON() });
+      const frames = [0, duration / 3, duration].map(time => { animations.forEach(animation => { animation.currentTime = time; }); return snapshot(); });
+      animations.forEach(animation => { animation.currentTime = duration / 3; });
+      const before = snapshot();
+      document.querySelector('#journalBackLink').click();
+      const after = snapshot();
+      const flyingLabels = document.querySelectorAll('.workspace-motion-identity').length;
+      animations.forEach(animation => animation.play());
+      return { frames, before, after, flyingLabels };
+    });
+    await testInfo.attach(`fluid-navigation-${width}.json`, { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
+    expect(result.flyingLabels).toBe(0);
+    expect(result.frames[0].shape.height).toBe(0);
+    expect(result.frames[1].shape.height).toBeGreaterThan(0);
+    expect(result.frames[1].shape.height).toBeLessThan(result.frames[2].shape.height);
+    expect(result.frames[2].shape.height).toBeCloseTo(result.frames[2].navigation.height, 1);
+    expect(result.frames[0].opacity).toBe(0); expect(result.frames[2].opacity).toBe(1);
+    for (const frame of result.frames) expect(frame.label.x).toBeCloseTo(result.frames[2].label.x, 1);
+    expect(result.after.path).toBe(result.before.path);
+    expect(result.after.label.y).toBeCloseTo(result.before.label.y, 1);
+    await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+    await expect(page.locator('.navigation-fluid-surface')).toHaveCount(0);
+    await expect(page.locator('.product-link').first()).toBeFocused();
+  }
+});
+
+test('fluid navigation can reopen during exit without losing the detail view', async ({ page, center }) => {
+  await openCenter(page, center);
+  await page.locator('.product-link').first().click();
+  await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+  const result = await page.evaluate(async () => {
+    const navigation = document.querySelector('.topbar > .navline');
+    document.querySelector('#journalBackLink').click();
+    await new Promise(resolve => setTimeout(resolve, 90));
+    const path = navigation.querySelector('.navigation-fluid-surface path');
+    const before = getComputedStyle(path).d;
+    document.querySelector('.product-link').click();
+    return { before, after: getComputedStyle(path).d };
+  });
+  expect(result.after).toBe(result.before);
+  await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  await expect(page.locator('.navigation-fluid-surface')).toHaveCount(0);
+  await expect(page.locator('.workspace-motion-identity')).toHaveCount(0);
+  await expect(page.locator('#workspaceProjectName')).toBeVisible();
+  await page.locator('#journalBackLink').click();
+  await expect(page.locator('.product-link').first()).toBeFocused();
+});
+
+test('motion gate: reversing entry uses the current frame and restores the real row', async ({ page, center }, testInfo) => {
+  await openCenter(page, center);
+  const result = await page.evaluate(async () => {
+    const link = document.querySelector('.product-link');
+    const shell = document.querySelector('.app-frame');
+    link.click();
+    const frames = [];
+    let reversed = false, before, after;
+    await new Promise((resolve, reject) => {
+      const started = performance.now();
+      function sample() {
+        const surface = document.querySelector('.workspace-motion-surface');
+        if (surface) {
+          const animation = surface.getAnimations()[0];
+          const rect = surface.getBoundingClientRect();
+          frames.push({ time: performance.now(), progress: animation?.currentTime, x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+            background: getComputedStyle(surface).backgroundColor, pageBackground: getComputedStyle(shell).backgroundColor, borderWidth: getComputedStyle(surface).borderTopWidth });
+          if (!reversed && animation?.currentTime >= 70) {
+            before = rect.toJSON();
+            document.querySelector('#journalBackLink').click();
+            after = surface.getBoundingClientRect().toJSON(); reversed = true;
+          }
+        } else if (reversed) { resolve(); return; }
+        if (performance.now() - started > 5000) { reject(new Error('Navigation did not reverse')); return; }
+        requestAnimationFrame(sample);
+      }
+      requestAnimationFrame(sample);
+    });
+    return { before, after, frames, sameShell: shell === document.querySelector('.app-frame'), activeKey: document.activeElement.dataset.focusKey, href: location.pathname };
+  });
+  await testInfo.attach('navigation-reversal-frames.json', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
+  expect(result.sameShell).toBe(true);
+  expect(result.href).toBe('/center');
+  for (const key of ['x', 'y', 'width', 'height']) expect(Math.abs(result.after[key] - result.before[key])).toBeLessThan(0.1);
+  expect(result.frames.length).toBeGreaterThan(3);
+  for (const frame of result.frames) {
+    expect(frame.background).toBe(frame.pageBackground);
+    expect(frame.borderWidth).toBe('0px');
+  }
+  expect(result.frames.at(-1).height).toBeLessThan(result.before.height);
+  await expect(page.locator('.product-link').first()).toBeFocused();
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await expect(page.locator('#productSearch')).toBeVisible();
+});
+
+test('workspace lifecycle stays bounded through twenty visits and browser history', async ({ page, center }, testInfo) => {
+  test.setTimeout(60000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.addInitScript(() => {
+    const set = window.setInterval, clear = window.clearInterval;
+    window.activeIntervals = new Set();
+    window.setInterval = (...args) => { const id = set(...args); window.activeIntervals.add(id); return id; };
+    window.clearInterval = id => { window.activeIntervals.delete(id); clear(id); };
+  });
+  await openCenter(page, center);
+  const cdp = await page.context().newCDPSession(page);
+  const samples = [];
+  for (let index = 0; index < 20; index++) {
+    await page.locator('.product-link').first().click();
+    await expect(page.locator('#cycleTitle')).toBeVisible();
+    await page.locator('#journalBackLink').click();
+    await expect(page.locator('.product-link').first()).toBeFocused();
+    expect(await page.evaluate(() => window.activeIntervals.size)).toBe(1);
+    expect(await page.locator('.workspace-view').count()).toBe(1);
+    await cdp.send('HeapProfiler.collectGarbage');
+    samples.push(await cdp.send('Memory.getDOMCounters'));
+  }
+  await testInfo.attach('lifecycle-counters.json', { body: JSON.stringify(samples, null, 2), contentType: 'application/json' });
+  expect(samples.at(-1).documents).toBeLessThanOrEqual(samples[2].documents + 1);
+  expect(samples.at(-1).nodes).toBeLessThan(samples[2].nodes + 100);
+  expect(samples.at(-1).jsEventListeners).toBeLessThan(samples[2].jsEventListeners + 10);
+  await page.goBack(); await expect(page.locator('#cycleTitle')).toBeVisible();
+  await page.goForward(); await expect(page.locator('.product-link').first()).toBeVisible();
+});
+
+test('return while a detail template is loading ignores its late completion', async ({ page, center }) => {
+  await openCenter(page, center);
+  let release;
+  await page.route('**/products/*', async route => {
+    await new Promise(resolve => { release = resolve; });
+    await route.continue();
+  });
+  await page.locator('.product-link').first().click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await page.goBack();
+  await expect(page.locator('.product-link').first()).toBeFocused();
+  release();
+  await page.waitForTimeout(400);
+  await expect(page).toHaveURL(`${center.url}/center`);
+  await expect(page.locator('#mainContent')).toHaveCount(0);
+  await expect(page.locator('#productSearch')).toBeEnabled();
+});
+
+test('closing dialogs can reopen from their visible position without losing the form', async ({ page, center }, testInfo) => {
+  await openCenter(page, center);
+  await page.locator('#newWorkButton').click();
+  await page.locator('[name=direction]').fill('Keep this unfinished draft');
+  const result = await page.evaluate(async () => {
+    const form = document.querySelector('#newWorkForm');
+    document.querySelector('#newWorkDialog').close();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const before = document.querySelector('[data-motion-exit]').getBoundingClientRect().toJSON();
+    const beforeTransform = getComputedStyle(document.querySelector('[data-motion-exit]')).transform;
+    document.querySelector('#newWorkButton').click();
+    const after = document.querySelector('#newWorkDialog').parentElement.getBoundingClientRect().toJSON();
+    const surface = document.querySelector('#newWorkDialog').parentElement;
+    return { before, after, beforeTransform, afterTransform: getComputedStyle(surface).transform, animations: surface.getAnimations().map(a => ({ time: a.currentTime, frames: a.effect.getKeyframes() })), style: surface.getAttribute('style'), same: form === document.querySelector('#newWorkForm') };
+  });
+  await testInfo.attach('dialog-reversal.json', { body: JSON.stringify(result), contentType: 'application/json' });
+  await writeFile(testInfo.outputPath('dialog-reversal.json'), JSON.stringify(result, null, 2));
+  expect(result.same).toBe(true);
+  for (const key of ['x', 'y', 'width', 'height']) expect(Math.abs(result.before[key] - result.after[key])).toBeLessThan(1);
+  await expect(page.locator('[name=direction]')).toHaveValue('Keep this unfinished draft');
+  await page.waitForTimeout(250);
+  await expect(page.locator('#newWorkDialog')).toBeVisible();
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#newWorkButton')).toBeFocused();
+  await expect(page.locator('#newWorkDialog')).not.toBeVisible();
+});
+
+test('cycle reversals retain the current height and stable refresh nodes', async ({ page, center }, testInfo) => {
+  await page.goto(`${center.url}/products/${center.entryId}`);
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const row = document.querySelector('#historyList .cycle-row');
+    const button = row.querySelector('.disclosure-trigger');
+    const panel = row.querySelector('[data-slot=collapsible-content]');
+    button.click();
+    await new Promise(resolve => setTimeout(resolve, 70));
+    const before = panel.getBoundingClientRect().height;
+    button.click();
+    const after = panel.getBoundingClientRect().height;
+    return { before, after, inert: panel.inert };
+  });
+  expect(result.before).toBeGreaterThan(0);
+  expect(Math.abs(result.before - result.after)).toBeLessThan(1);
+  expect(result.inert).toBe(true);
+  await expect(page.locator('#historyList .cycle-row').first().locator('[data-slot=collapsible-content]')).toBeHidden();
+  await page.evaluate(() => { window.savedCycleNode = document.querySelector('#currentCycle .cycle-row'); });
+  await page.locator('#settingsButton').click();
+  await page.locator('#refreshButton').click();
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => window.savedCycleNode === document.querySelector('#currentCycle .cycle-row'))).toBe(true);
+  await testInfo.attach('disclosure-reversal.json', { body: JSON.stringify(result), contentType: 'application/json' });
+});
+
+test('late product reads cannot populate a replacement detail, and animation failures preserve navigation', async ({ page, center }) => {
+  await openCenter(page, center);
+  let release;
+  await page.route(`**/entries/${center.entryId}/journal?*`, async route => {
+    const response = await route.fetch();
+    await new Promise(resolve => { release = resolve; });
+    try { await route.fulfill({ response }); } catch { /* The abandoned read may already be aborted. */ }
+  });
+  await page.locator('.product-link').first().click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await page.evaluate(() => DashboardNavigation.navigate('/products/absent-test-product'));
+  await expect(page.locator('#connectionError')).toBeVisible();
+  release(); await page.waitForTimeout(100);
+  await expect(page).toHaveURL(`${center.url}/products/absent-test-product`);
+  await expect(page.locator('#cycleTitle')).toHaveCount(0);
+  await page.locator('#journalBackLink').click();
+  await page.unroute(`**/entries/${center.entryId}/journal?*`);
+  await page.evaluate(() => { Element.prototype.animate = () => { throw new Error('Test animation failure'); }; });
+  await page.locator('.product-link').first().click();
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await page.locator('#journalBackLink').click();
+  await expect(page.locator('.product-link').first()).toBeFocused();
+});
 
 test('other products show four by default and expand with standard keyboard controls', async ({ page, center }) => {
   await page.route('**/api/center/v1/entries?*', async route => {
@@ -334,6 +790,7 @@ test('center restores reading position and moves focus when a refreshed product 
   });
   await openCenter(page, center);
   await page.getByRole('button', { name: /Show all/ }).click();
+  await expect.poll(() => page.locator('.other-products-disclosure').evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
   await page.evaluate(() => window.scrollTo(0, 500));
   await page.locator('.product-link').first().evaluate(link => link.click());
   await expect(page.locator('#journalBackLink')).toBeVisible();
@@ -366,7 +823,7 @@ test('D catalog separates runtime from latest round, keeps title navigation and 
   await row.locator('.product-link').click();
   await expect(page.locator('#cycleNumber')).toHaveText('06');
   await expect(page.locator('#runHeading')).toHaveCount(0);
-  await expect(page.locator('.history-row .progress-completed')).toHaveCount(5);
+  await expect(page.locator('#historyList .history-row .progress-completed')).toHaveCount(5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -395,7 +852,7 @@ test('D reference keeps recent products independent of running state and uses co
   await expect(groups.nth(0).locator('.latest-round .status-symbol')).toHaveClass([
     'status-symbol completed', 'status-symbol queued', 'status-symbol paused', 'status-symbol paused',
   ]);
-  expect((await page.locator('.header-inner').boundingBox()).height).toBe(42);
+  expect((await page.locator('.header-inner').boundingBox()).height).toBe(56);
   // Unknown-state reasons must remain readable; 66px is a minimum, not a cap.
   expect((await groups.nth(0).locator('.product-row').first().boundingBox()).height).toBeGreaterThanOrEqual(66);
   await expect(page.locator('.status-explanation')).toHaveCount(0);
@@ -406,7 +863,9 @@ test('D reference keeps recent products independent of running state and uses co
   await expect(page.locator('.product-link')).toHaveText('Product 6');
   await page.locator('#productSearch').fill('');
   await page.locator('#profileButton').click();
-  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Settings', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.locator('#settingsButton').click();
   await expect(page.locator('#settingsDialog')).toBeVisible();
 });
 
@@ -715,6 +1174,7 @@ test('shared shadcn menus and dialogs preserve focus, form nodes and keyboard bo
   await page.locator('#importDialog .dialog-close').first().click();
   await expect(page.locator('#importButton')).toBeFocused();
   await expect(page.locator('#importForm [name=root]')).toHaveValue('draft-path');
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
   await page.locator('#importButton').click();
   await expect(page.locator('#importForm [name=root]')).toHaveValue('');
   await page.locator('#importForm [name=root]').press('Escape');
@@ -733,6 +1193,7 @@ test('standard controls own selection, reset, notifications and product search',
   await expect(choices.first()).toBeChecked();
   expect(await form.evaluate(node => new FormData(node).get('executionMode'))).toBe('start_now');
   await page.keyboard.press('Escape');
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
   await page.locator('#newWorkButton').click();
   await expect(choices.last()).toBeChecked();
   await page.locator('#addWorkGroup').click();
@@ -761,9 +1222,6 @@ test('standard controls own selection, reset, notifications and product search',
 });
 
 test('catalog controls preserve search, preview choice and whole-row navigation', async ({ page, center }) => {
-  await page.addInitScript(() => window.addEventListener('pagereveal', event => {
-    if (event.viewTransition) event.viewTransition.ready.then(() => { window.navigationTransition = 'ready'; }, () => { window.navigationTransition = 'skipped'; });
-  }));
   await openCenter(page, center);
   const search = page.locator('#productSearch');
   await page.mouse.move(0, 0);
@@ -793,10 +1251,11 @@ test('catalog controls preserve search, preview choice and whole-row navigation'
   const row = page.locator(`.product-row[data-entry-id="${center.entryId}"]`);
   await row.locator('.recent-work').click();
   await expect(page).toHaveURL(`${center.url}/products/${center.entryId}`);
-  await expect.poll(() => page.evaluate(() => window.navigationTransition)).toBe('ready');
+  await expect.poll(() => page.evaluate(() => window.DashboardNavigation.inspect().active)).toBe('journal');
+  await expect.poll(() => page.evaluate(() => window.DashboardNavigation.inspect().transitioning)).toBe(false);
   await expect(page.locator('#projectName')).toBeVisible();
   expect(await page.locator('#journalBackLink').evaluate(node => !!node.closest('.topbar'))).toBeTruthy();
-  const history = page.locator('.history-row').first();
+  const history = page.locator('#historyList .history-row').first();
   await history.locator('.disclosure-trigger').click();
   await expect(history.locator('.cycle-report-surface')).toBeVisible();
   await expect(history.locator('.cycle-report-footer .cycle-log-link')).toBeVisible();
@@ -851,4 +1310,107 @@ test('reviewed layouts use white fields, compact settings and continuous product
   expect(layout.icon).toBe(layout.node);
   expect(layout.statusInName).toBeTruthy();
   expect(layout.overflow).toBeFalsy();
+});
+
+test('catalog selection slides to the active filter and stays aligned after resizing', async ({ page, center }) => {
+  await openCenter(page, center);
+  const search = await page.locator('.search-field').boundingBox();
+  const icon = await page.locator('.search-field svg').boundingBox();
+  expect(icon.x + icon.width / 2).toBeCloseTo(search.x + search.width / 2, 0);
+  await expect(page.locator('.example-heading')).toHaveCount(0);
+  for (const filter of ['running', 'all']) {
+    await page.locator(`.filter-button[data-filter="${filter}"]`).click();
+    await expect.poll(async () => {
+      const active = await page.locator('.filter-button[data-state=on]').boundingBox();
+      const selection = await page.locator('.filter-selection').boundingBox();
+      return Math.abs(active.x - selection.x) + Math.abs(active.y - selection.y) + Math.abs(active.width - selection.width);
+    }).toBeLessThan(2);
+  }
+  await page.setViewportSize({ width: 390, height: 919 });
+  await expect.poll(async () => {
+    const active = await page.locator('.filter-button[data-state=on]').boundingBox();
+    const selection = await page.locator('.filter-selection').boundingBox();
+    return Math.abs(active.x - selection.x) + Math.abs(active.y - selection.y);
+  }).toBeLessThan(2);
+});
+
+test('rapid targets, resize and reduced motion keep navigation and tab state coherent', async ({ page, center }) => {
+  await openCenter(page, center);
+  await page.evaluate(() => {
+    for (const filter of ['running', 'queued', 'all']) document.querySelector(`.filter-button[data-filter="${filter}"]`).click();
+  });
+  await expect(page.locator('.filter-button[data-state=on]')).toHaveAttribute('data-filter', 'all');
+  await expect(page.locator('.product-link')).toHaveCount(1);
+  await page.locator('.product-link').click();
+  await expect(page.locator('#journalBackLink')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  await page.evaluate(() => { for (const name of ['usage', 'logs', 'work']) document.querySelector(`#tab-${name}`).click(); });
+  await expect(page.locator('#tab-work')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.locator('#journalBackLink').click();
+  await page.locator('.product-link').click();
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await page.locator('#settingsButton').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settingsButton')).toBeFocused();
+  await expect(page.locator('[data-motion-exit]')).toHaveCount(0);
+});
+
+test('backgrounding settles motion and missing animation APIs retain working links', async ({ page, center }) => {
+  await openCenter(page, center);
+  await page.locator('.product-link').click();
+  await expect(page.locator('#journalBackLink')).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveAttribute('data-motion-hidden', '');
+  await page.evaluate(() => {
+    delete document.hidden; document.dispatchEvent(new Event('visibilitychange'));
+    document.querySelectorAll('.workspace-view[data-view=center] .product-row').forEach(row => row.remove());
+  });
+  await page.locator('#journalBackLink').click();
+  await expect(page.locator('#productSearch')).toBeEnabled();
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await page.evaluate(() => { Element.prototype.animate = undefined; });
+  await page.evaluate(url => DashboardNavigation.navigate(url), `${center.url}/products/${center.entryId}`);
+  await expect(page.locator('#cycleTitle')).toBeVisible();
+  await expect(page.locator('.workspace-motion-surface')).toHaveCount(0);
+  await page.locator('#journalBackLink').click();
+  await expect(page).toHaveURL(`${center.url}/center`);
+});
+
+for (const count of [100, 1000]) test(`synthetic ${count} products use bounded list motion and preserve the search field`, async ({ page, center }, testInfo) => {
+  test.setTimeout(60000);
+  await page.route('**/api/center/v1/entries?*', async route => {
+    const payload = await (await route.fetch()).json(), original = payload.data.items[0];
+    payload.data.items = Array.from({ length: count }, (_, index) => ({ ...original, entryId: `synthetic-${index}`, displayName: `Synthetic product ${index}` }));
+    payload.data.total = count; payload.data.nextCursor = null;
+    await route.fulfill({ json: payload });
+  });
+  await openCenter(page, center);
+  await expect(page.locator('.product-row')).toHaveCount(count);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  const measurement = await page.evaluate(async () => {
+    const field = document.querySelector('#productSearch'), started = performance.now();
+    document.querySelector('.other-products-disclosure .disclosure-trigger').click();
+    const panel = document.querySelector('.other-products-disclosure [data-slot=collapsible-content]');
+    const keyframes = panel.getAnimations().flatMap(animation => animation.effect.getKeyframes());
+    await Promise.all(panel.getAnimations().map(animation => animation.finished.catch(() => {})));
+    return { elapsed: performance.now() - started, keyframes, fieldSame: field === document.querySelector('#productSearch') };
+  });
+  expect(measurement.fieldSame).toBe(true);
+  expect(measurement.keyframes.every(frame => !Object.hasOwn(frame, 'height'))).toBe(true);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  await page.locator('#productSearch').fill(`Synthetic product ${count - 1}`);
+  await expect(page.locator('.product-row')).toHaveCount(1);
+  await expect(page.locator('#productSearch')).toBeFocused();
+  await testInfo.attach('synthetic-list-motion.json', { body: JSON.stringify({ count, cpuRate: 4, ...measurement }, null, 2), contentType: 'application/json' });
 });

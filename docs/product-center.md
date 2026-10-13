@@ -86,9 +86,9 @@ Every submitted request retains its own configuration snapshot. Later template e
 
 ### Upgrading from v2.0 / 从 v2.0 升级
 
-Back up the center data directory while its own service is stopped, keeping the original run directories and identity ledgers. Update a clean framework checkout to `v2.1.0`, then start that center with the same data directory and execution-domain settings. The release includes built Dashboard assets; users do not need Node to serve them. Developers changing the UI use `npm ci --prefix dashboard/ui`, then its `check` and `build` scripts.
+Back up the center data directory while its own service is stopped, keeping the original run directories and identity ledgers. Update a clean framework checkout to `v2.2.0`, then start that center with the same data directory and execution-domain settings. The release includes built Dashboard assets; users do not need Node to serve them. Developers changing the UI use `npm ci --prefix dashboard/ui`, then its `check` and `build` scripts.
 
-在中心服务停止时备份其数据目录，保留原运行目录及身份账本；把干净的框架副本更新到 `v2.1.0`，使用原数据目录和执行域设置启动。发布版自带前端资源，用户运行服务无需Node；开发者修改界面时在 `dashboard/ui` 安装锁定依赖后执行 `check`、`build`。
+在中心服务停止时备份其数据目录，保留原运行目录及身份账本；把干净的框架副本更新到 `v2.2.0`，使用原数据目录和执行域设置启动。发布版自带前端资源，用户运行服务无需Node；开发者修改界面时在 `dashboard/ui` 安装锁定依赖后执行 `check`、`build`。
 
 Existing saved preferences and request configuration snapshots remain intact. New dispatch starts paused after restart; review reconciled ownership before resuming. Default concurrency is four; lowering it never stops existing work. Old run copies are not automatically upgraded or migrated. Incompatible sources remain readable without gaining execution permission. Do not replace an active source checkout, clear uncertain ownership, or restore only the database while discarding its matching runtime directories.
 

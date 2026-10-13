@@ -11,6 +11,16 @@ const html = fs.readFileSync(path.join(dashboard, "index.html"), "utf8");
 const app = fs.readFileSync(path.join(dashboard, "app.js"), "utf8");
 const i18n = fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8");
 
+function registerJournal(context) {
+  context.URL = URL;
+  context.document.documentElement = { lang: 'en' };
+  context.window.DashboardNavigation = { register(_kind, mount) {
+    mount({ document: context.document, ui: context.window.DashboardUI ||= {}, active: true,
+      url: `http://127.0.0.1:8843${context.location?.pathname || '/journal'}`,
+      request: () => ({ valid: () => true, done() {} }) });
+  } };
+}
+
 function helpers() {
   const fields = new Map(["usagePeriod", "usageDate", "usageDateLabel", "usageRange"].map((id) => [id, {}]));
   const context = vm.createContext({ window: {}, document: {
@@ -18,13 +28,14 @@ function helpers() {
   } });
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
+  registerJournal(context);
   vm.runInContext(i18n, context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   // Expose existing closures before event wiring. There is no simulated DOM,
   // copied application logic, network request or production testing hook.
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
   assert.ok(binding > 0, "Journal event wiring must follow its helper declarations");
-  vm.runInContext(app.slice(0, binding) + "\n globalThis.journal = { state, message, aggregate, usageGroups, duration, cycleTitle, statusLabel, formatTime, fullTime, filterUsage, reportRows, liveDuration, checkCounts, checkPresentation, progressState, latestCycle, historyGroups, paddedCycleNumber, unavailableArtifact, mediaURL, mediaRetryError, iconPublicationWarning, publishedRefinement, readableLog };\n})();", context);
+  vm.runInContext(app.slice(0, binding) + "\n globalThis.journal = { state, message, aggregate, usageGroups, duration, cycleTitle, statusLabel, formatTime, fullTime, filterUsage, reportRows, liveDuration, checkCounts, checkPresentation, progressState, latestCycle, historyGroups, paddedCycleNumber, unavailableArtifact, mediaURL, mediaRetryError, iconPublicationWarning, publishedRefinement, readableLog };\n});", context);
   context.journal.state.language = "en";
   return { ...context.journal, messages: context.window.JOURNAL_MESSAGES, vocabulary: context.window.DashboardStatus, fields };
 }
@@ -302,6 +313,7 @@ function scopedUsageHarness() {
     request: (url) => new Promise((resolve, reject) => requests.push({ url, resolve, reject })),
     recordUsage: (usage) => renders.push(usage),
   });
+  registerJournal(context);
   vm.runInContext(i18n, context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
@@ -312,7 +324,7 @@ function scopedUsageHarness() {
     render = renderRuntime = refreshCenterContext = scheduleRefresh = connectionNotice = () => {};
     renderUsage = () => globalThis.recordUsage(state.scopedUsage);
     globalThis.journal = { state, refresh, refreshScopedUsage };
-  })();`, context);
+  });`, context);
   const snapshot = { ok: true, entryId: 'entry-a', sourceId: 'source-a', sourceRevision: 1, cycles: [], total: 0, generatedAt: '2026-10-01T00:00:00Z' };
   context.journal.state.data = snapshot;
   const usage = { entryId: 'entry-a', sourceId: 'source-a', sourceRevision: 1, period: 'all', startDate: null, endDate: null, usage: { totalTokens: 42 }, recorded: 1, unknown: 0 };
@@ -381,10 +393,11 @@ function logSourceHarness(center = true) {
     document: { getElementById(id) { assert.ok(fields.has(id), id); return fields.get(id); } },
     read: (url) => new Promise((resolve, reject) => reads.push({ url, resolve, reject })),
   });
+  registerJournal(context);
   vm.runInContext(i18n, context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
-  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = fetchJSON = globalThis.read; globalThis.journal = {state, loadLog};\n})();', context);
+  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = fetchJSON = globalThis.read; globalThis.journal = {state, loadLog};\n});', context);
   const snapshot = (source, revision = 1, resource = 'log-same-cycle') => ({ entryId: 'entry-a', sourceId: source, sourceRevision: revision,
     cycles: [{ id: 'same-cycle', logUrl: `/api/center/v1/entries/entry-a/resources/${resource}?sourceId=${source}` }] });
   context.journal.state.data = snapshot('source-a');

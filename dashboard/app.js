@@ -1,16 +1,18 @@
-(() => {
+window.DashboardNavigation.register('journal', (view) => {
   'use strict';
 
+  const document = view.document;
+  const UI = view.ui;
   const $ = (id) => document.getElementById(id);
-  const productMatch = (globalThis.location?.pathname || '/journal').match(/^\/products\/([^/]+)\/?$/);
+  const productMatch = new URL(view.url).pathname.match(/^\/products\/([^/]+)\/?$/);
   const scope = { center: Boolean(productMatch), entryId: productMatch ? decodeURIComponent(productMatch[1]) : null, token: 0, contextToken: 0, entries: [] };
-  const state = { data: null, language: 'zh-CN', tab: 'work', expanded: new Set(), selectedLog: scope.center ? '' : 'runtime', logText: '', logLoadedKey: '', logRequest: 0, logPending: null, refreshPending: null, signature: '', statusFailed: true, action: '', languageState: null, languageSaving: false, languageLoading: false, languageRevision: 0, languageError: '', languageSaved: false, timer: null, autoChanged: false, currentCycle: null, receivedAt: 0, elapsedTimer: null, centerSummary: null, scopedUsage: null, usageToken: 0, detailToken: 0, detailLoads: new Map(), mediaIntent: null };
+  const state = { data: null, language: document.documentElement.lang || 'zh-CN', tab: 'work', expanded: new Set(), selectedLog: scope.center ? '' : 'runtime', logText: '', logLoadedKey: '', logRequest: 0, logPending: null, refreshPending: null, signature: '', statusFailed: true, action: '', languageState: null, languageSaving: false, languageLoading: false, languageRevision: 0, languageError: '', languageSaved: false, timer: null, autoChanged: false, currentCycle: null, receivedAt: 0, elapsedTimer: null, centerSummary: null, scopedUsage: null, usageToken: 0, detailToken: 0, detailLoads: new Map(), mediaIntent: null };
   const message = (key, values = {}) => {
     const dictionary = window.JOURNAL_MESSAGES[state.language] || window.JOURNAL_MESSAGES.en;
     return Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, typeof value === 'number' && name !== 'number' ? new Intl.NumberFormat(state.language).format(value) : String(value)), dictionary[key] || key);
   };
   function element(tag, className, text) {
-    return window.DashboardUI.element(tag, className, text);
+    return UI.element(tag, className, text);
   }
   function clear(node) { node.replaceChildren(); return node; }
   function clean(value) {
@@ -102,6 +104,7 @@
     return message('otherWorkState', { state: statusLabel(centerRequestDisplayState(active, currentTime)), name: requestContextLabel(active) });
   }
   function renderCenterRuntimeContext(summary = state.centerSummary) {
+    if (!view.active) return;
     const value = centerRuntimeContextValue(summary);
     $('centerRuntimeContext').textContent = value;
     $('centerRuntimeContext').title = value;
@@ -109,13 +112,15 @@
   function pauseLabel(value) { return message(`pause_${value}`) === `pause_${value}` ? String(value || '') : message(`pause_${value}`); }
   async function fetchJSON(url, options = {}, timeout = 100000) {
     const controller = new AbortController();
+    const request = view.request(controller, options);
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
       const result = await response.json();
+      if (!request.valid()) throw new DOMException('Inactive view', 'AbortError');
       if (!response.ok || result.ok === false) throw new Error(result.error || result.output || `HTTP ${response.status}`);
       return result;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); request.done(); }
   }
   async function fetchCenter(path, options = {}, timeout = 100000) {
     const result = await fetchJSON(`/api/center/v1${path}`, options, timeout);
@@ -212,9 +217,15 @@
   async function fetchScopedText(value, timeout = 15000) {
     const url = safeScopedResource(value);
     if (!url) throw new Error('Invalid scoped resource');
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeout);
-    try { const response = await fetch(url, { cache: 'no-store', signal: controller.signal }); if (!response.ok) throw new Error(`HTTP ${response.status}`); return await response.text(); }
-    finally { clearTimeout(timer); }
+    const controller = new AbortController();
+    const request = view.request(controller, {}); const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      if (!request.valid()) throw new DOMException('Inactive view', 'AbortError');
+      return text;
+    } finally { clearTimeout(timer); request.done(); }
   }
   function formatTime(value) { return fullTime(value); }
   function fullTime(value) { return window.DashboardDate.format(value, state.language) || message('unknownTime'); }
@@ -222,11 +233,11 @@
     root.querySelectorAll('time[datetime]').forEach(node => { node.title = fullTime(node.dateTime); node.setAttribute('aria-label', node.title); });
   }
   function saveJournalView() {
-    try { sessionStorage.setItem(`journal:view:${scope.entryId || location.pathname}`, JSON.stringify({ expanded: [...state.expanded], tab: state.tab, selectedLog: state.selectedLog, scroll: window.scrollY })); } catch (_) {}
+    try { sessionStorage.setItem(`journal:view:${scope.entryId || new URL(view.url).pathname}`, JSON.stringify({ expanded: [...state.expanded], tab: state.tab, selectedLog: state.selectedLog, scroll: window.scrollY })); } catch (_) {}
   }
   function restoreJournalView() {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(`journal:view:${scope.entryId || location.pathname}`) || 'null');
+      const saved = JSON.parse(sessionStorage.getItem(`journal:view:${scope.entryId || new URL(view.url).pathname}`) || 'null');
       if (!saved || typeof saved !== 'object') return;
       if (Array.isArray(saved.expanded)) state.expanded = new Set(saved.expanded.filter(key => typeof key === 'string').slice(0, 500));
       if (['work', 'usage', 'logs'].includes(saved.tab)) state.tab = saved.tab;
@@ -422,7 +433,9 @@
     for (const artifact of cycle.artifacts || []) {
       if (artifact.kind !== 'document') continue;
       rows.push({ kind: 'document', time: artifact.recordedAt, title: message(artifact.available === true ? 'documentRecorded' : 'documentUnavailable'),
-        detail: artifact.displayLabel || String(artifact.path || artifact.label || '').split(/[\\/]/).pop(), url: scope.center ? safeScopedResource(artifact.url) : null });
+        detail: artifact.displayLabel || String(artifact.path || artifact.label || '').split(/[\\/]/).pop(),
+        path: artifact.available === true && !scope.center ? artifact.path : null,
+        url: artifact.available === true && scope.center ? safeScopedResource(artifact.url) : null });
     }
     if (cycle.workReport && cycle.workReportStatus === 'valid') rows.push({ kind: 'report', time: cycle.workReport.recorded_at, title: message('workRecorded') });
     // Missing timestamps remain unknown, rather than borrowing a cycle or consensus time.
@@ -439,11 +452,17 @@
       body.append(title);
       if (record.detail || record.path || record.url) {
         const detail = element('div', `record-detail${record.status === 'failed' ? ' status-failed' : ''}`);
-        if (record.detail) detail.append(element('span', 'record-counts', record.detail));
+        if (record.detail && (record.kind !== 'document' || (!record.path && !record.url))) detail.append(element('span', 'record-counts', record.detail));
         if (record.path || record.url) {
-          const link = element('a', 'check-report', message(record.kind === 'document' ? 'document' : 'checkReport'));
+          const link = element('a', record.kind === 'document' ? 'artifact-link' : 'check-report');
           link.href = record.url || `/api/journal/document?path=${encodeURIComponent(record.path)}`; link.target = '_blank'; link.rel = 'noopener';
-          link.append(icon('external-link')); detail.append(link);
+          if (record.kind === 'document') {
+            link.append(icon('file-text'), element('span', '', record.detail));
+            link.setAttribute('aria-label', record.detail); link.title = record.detail;
+          } else link.append(message('checkReport'));
+          const arrow = icon('external-link');
+          if (record.kind === 'document') arrow.classList.add('artifact-arrow');
+          link.append(arrow); detail.append(link);
         }
         body.append(detail);
       }
@@ -466,40 +485,16 @@
     if (!cycle.active && !work.final) section.append(element('p', 'sidebar-note', message('unfinishedWorkReport')));
     return section;
   }
+  const cycleNodes = new Map();
   function renderCurrent(cycle) {
-    const container = clear($('currentCycle'));
+    const container = $('currentCycle');
     if (!cycle) {
       const empty = element('div', 'empty-state');
       empty.append(element('h2', '', message('noCycles')), element('p', '', message(readOnly() ? 'noCyclesBody' : 'noCyclesLive')));
-      container.append(empty);
+      UI.reconcile(container, [empty]);
       return;
     }
-    const article = element('article', 'current-cycle');
-    article.setAttribute('aria-current', 'step');
-    article.setAttribute('aria-labelledby', 'cycleTitle');
-    const gutter = element('div', 'cycle-gutter');
-    const cycleNumber = element('span', 'cycle-number', paddedCycleNumber(cycle));
-    cycleNumber.id = 'cycleNumber';
-    gutter.append(cycleNumber);
-    const body = element('div', 'cycle-body');
-    const title = element('h2', 'cycle-title', cycleTitle(cycle));
-    title.id = 'cycleTitle';
-    const headline = element('div', 'cycle-headline');
-    const stamp = element('time', 'cycle-timestamp', formatTime(cycle.endedAt || cycle.startedAt || cycle.reservedAt, true));
-    if (cycle.endedAt || cycle.startedAt || cycle.reservedAt) stamp.dateTime = cycle.endedAt || cycle.startedAt || cycle.reservedAt;
-    headline.append(title, stamp);
-    const cycleLink = logButton(cycle);
-    if (cycleLink.tagName === 'BUTTON') {
-      cycleLink.className = element('button', 'current-cycle-link icon-button').className;
-      cycleLink.dataset.size = 'icon';
-      cycleLink.dataset.focusKey = `headline-log:${cycle.id}`;
-      cycleLink.setAttribute('aria-label', message('viewLog')); cycleLink.title = message('viewLog');
-      cycleLink.replaceChildren(icon('chevron-right')); headline.append(cycleLink);
-    }
-    body.append(headline, metadata(cycle));
-    body.append(reportSurface(cycle, true));
-    article.append(gutter, progressIcon(cycle.status), body);
-    container.append(article);
+    UI.reconcile(container, [cycleRow(cycle, true)]);
   }
   function reportSurface(cycle, current = false) {
     const report = element('section', 'report-section');
@@ -535,15 +530,25 @@
     footer.append(logButton(cycle)); surface.append(footer);
     return surface;
   }
-  function historyRow(cycle) {
-    const row = bindDisclosure(element('details', 'history-row'), `cycle:${cycle.id}`);
+  function cycleRow(cycle, current = false) {
+    const signature = JSON.stringify([cycle, current, state.language, state.detailErrors?.has(cycle.id)]);
+    const cached = cycleNodes.get(cycle.id);
+    if (cached?.signature === signature) return cached.row;
+    const row = bindDisclosure(element('details', `history-row cycle-row${current ? ' current-cycle' : ''}`), `cycle:${cycle.id}`, current);
+    if (current) { row.setAttribute('aria-current', 'step'); row.setAttribute('aria-labelledby', 'cycleTitle'); }
     row.dataset.cycleId = cycle.id;
-    const summary = element('summary');
+    const summary = element('summary', current ? 'current-cycle-heading' : '');
+    summary.dataset.focusKey = `headline-expand:${cycle.id}`;
     const association = cycle.projectStatus === 'other' ? message('otherProjectCycle') : cycle.projectStatus === 'unknown' ? message('unknownProjectCycle') : cycle.identityKind === 'exploration' ? message('explorationCycles') : '';
     const number = element('span', 'history-number');
-    number.append(element('span', 'history-number-value', paddedCycleNumber(cycle)));
+    const numberValue = element('span', 'history-number-value', paddedCycleNumber(cycle));
+    if (current) numberValue.id = 'cycleNumber';
+    number.append(numberValue);
     const title = element('span', 'history-title');
-    title.append(element('span', 'history-title-text', cycleTitle(cycle)));
+    const titleText = element('span', 'history-title-text', cycleTitle(cycle));
+    titleText.setAttribute('role', 'heading'); titleText.setAttribute('aria-level', '2');
+    if (current) titleText.id = 'cycleTitle';
+    title.append(titleText);
     if (association) title.append(element('span', 'cycle-association', association));
     const timing = element('time', `history-meta${cycle.status === 'failed' ? ' status-failed' : ''}`, formatTime(cycle.endedAt || cycle.startedAt || cycle.reservedAt, true));
     timing.title = statusLabel(cycle.status);
@@ -552,9 +557,9 @@
     const arrow = icon('chevron-right'); arrow.classList.add('history-chevron');
     arrow.setAttribute('aria-hidden', 'true');
     summary.append(arrow);
-    const content = element('div', 'history-content');
+    const content = element('div', `history-content${current ? ' current-cycle-content' : ''}`);
     content.append(metadata(cycle));
-    content.append(reportSurface(cycle));
+    content.append(reportSurface(cycle, current));
     if (state.detailErrors?.has(cycle.id)) {
       const error = element('p', 'status-failed', message('detailReadFailed'));
       const retry = element('button', 'text-button', message('retryRead')); retry.type = 'button'; retry.dataset.focusKey = `detail-retry:${cycle.id}`;
@@ -562,6 +567,7 @@
       error.append(retry); content.append(error);
     }
     row.append(summary, content);
+    cycleNodes.set(cycle.id, { signature, row });
     if (scope.center && cycle.detailStatus === 'limited') row.addEventListener('toggle', () => { if (row.open) loadCycleDetail(cycle.id); });
     return row;
   }
@@ -594,7 +600,9 @@
   }
   function renderHistory() {
     const focus = rememberFocus();
-    const history = clear($('historyList'));
+    const history = $('historyList');
+    const positions = UI.positions(history, '.cycle-row');
+    const nodes = [];
     const groups = historyGroups(state.data, state.currentCycle);
     const older = groups.main;
     older.sort((a, b) => Number(a.numbering === 'legacy') - Number(b.numbering === 'legacy'));
@@ -603,14 +611,18 @@
     let group = null;
     for (const cycle of visible) {
       const nextGroup = cycle.numbering === 'legacy' ? 'legacy' : 'persistent';
-      if (nextGroup !== group && nextGroup === 'legacy' && state.data.cycleNumbering?.mode === 'persistent') history.append(element('h3', 'history-group-label', message('legacyCycles')));
+      if (nextGroup !== group && nextGroup === 'legacy' && state.data.cycleNumbering?.mode === 'persistent') nodes.push(element('h3', 'history-group-label', message('legacyCycles')));
       group = nextGroup;
-      history.append(historyRow(cycle));
+      nodes.push(cycleRow(cycle));
     }
+    UI.reconcile(history, nodes);
+    const retained = new Set([state.currentCycle?.id, ...visible.map(cycle => cycle.id)]);
+    for (const key of cycleNodes.keys()) if (!retained.has(key)) cycleNodes.delete(key);
+    UI.layout(history, '.cycle-row', positions);
     document.querySelector('.history-section').hidden = !older.length;
     document.querySelector('.journal-layout').classList.toggle('no-history', !older.length);
     describeTimes(history);
-    window.DashboardUI?.mountControls();
+    UI?.mountControls();
     restoreFocus(focus);
   }
   function aggregate(cycles) {
@@ -651,13 +663,15 @@
   }
   function languageLabel(value) { return value === 'zh-CN' || value === 'zh' ? message('languageChinese') : value === 'en' ? message('languageEnglish') : value || message('unknown'); }
   function actionMessage(key, values = {}, error = false) {
-    if (key === 'actionComplete') { window.DashboardUI.notify(message(key, values)); $('actionStatus').hidden = true; return; }
+    if (!view.active) return;
+    if (key === 'actionComplete') { UI.notify(message(key, values)); $('actionStatus').hidden = true; return; }
     const node = $('actionStatus');
     node.hidden = false;
-    node.replaceChildren(window.DashboardUI.alertMessage(message(key, values)));
+    node.replaceChildren(UI.alertMessage(message(key, values)));
     node.classList.toggle('status-failed', error);
   }
   function renderRuntime() {
+    if (!view.active) return;
     const data = state.data;
     const runtime = data?.runtime || {};
     const unavailable = scope.center ? false : state.statusFailed || runtime.available === false;
@@ -673,6 +687,7 @@
     $('startButton').title = $('stopButton').title = readOnly() ? message('readOnly') : unavailable ? message('statusUnavailable') : '';
     $('startButton').hidden = scope.center || readOnly();
     $('stopButton').hidden = scope.center || readOnly();
+    $('runtimeControls').hidden = scope.center || readOnly();
     $('refreshButton').disabled = Boolean(state.refreshPending || state.action);
     $('modeNote').textContent = data ? message(scope.center ? centerModeKey() : readOnly() ? 'preview' : 'live') : '';
     $('autoRefresh').disabled = Boolean(data && readOnly() && !scope.center);
@@ -680,8 +695,13 @@
     document.querySelectorAll('.dialog-links a[href^="/docs/"]').forEach((node) => { node.hidden = readOnly(); });
     const reason = runtime.pauseReason || data?.budgetPause?.reason;
     const paused = ['paused', 'waiting_limit', 'circuit_break'].includes(runtime.state);
-    $('runtimeNotice').hidden = !data || (scope.center && !reason && !paused && !data?.budgetPause) || (!readOnly() && (unavailable || (!reason && !paused && !data?.budgetPause)));
-    $('runtimeNotice').textContent = reason ? message('pauseReason', { reason: pauseLabel(reason) }) : paused ? message('pauseReview') : data?.budgetPause ? message('budgetPause') : readOnly() ? message('readOnly') : '';
+    $('runtimeNotice').hidden = !data || (!reason && !paused && !data?.budgetPause) || (!readOnly() && unavailable);
+    $('runtimeNotice').textContent = reason ? message('pauseReason', { reason: pauseLabel(reason) }) : paused ? message('pauseReview') : data?.budgetPause ? message('budgetPause') : '';
+    const readOnlyIndicator = $('readOnlyIndicator');
+    readOnlyIndicator.hidden = !data || !readOnly();
+    readOnlyIndicator.title = message('readOnly');
+    readOnlyIndicator.setAttribute('aria-label', message('readOnly'));
+    readOnlyIndicator.replaceChildren(icon('eye'));
     updateElapsed();
     renderDiagnostics();
   }
@@ -691,6 +711,7 @@
     const unavailable = !scope.center && (state.statusFailed || runtime.available === false);
     const node = $('runtimeState');
     node.textContent = readOnly() && state.data?.status === null ? message('historicalRecord') : runtimeStatusLabel(displayedState);
+    $('headerRuntimeContext').classList.toggle('is-read-only', readOnly());
     if (node.dataset) node.dataset.state = unavailable ? 'unavailable' : displayedState;
   }
   function renderCenterLiveState() {
@@ -724,6 +745,7 @@
     if (state.statusFailed && status.raw) $('rawText').textContent = `${message('diagnosticsStale')}\n\n${status.raw}`;
   }
   function renderLanguage() {
+    if (!view.active) return;
     const current = state.languageState;
     const next = current?.nextLanguage || current?.language || state.language;
     const productLanguage = scope.center && current?.productLanguageStatus === 'unknown' ? null : current?.productLanguage || current?.language || state.data?.runtime?.language;
@@ -836,7 +858,6 @@
     const section = element('section', 'product-media');
     section.setAttribute('aria-label', message('productScreenshot'));
     const diagnostics = element('div', 'media-diagnostics');
-    diagnostics.append(element('h3', 'content-heading', message('mediaDetails')));
     const capture = media.screenshot || {};
     const original = capture.latestSuccess;
     const refinement = publishedRefinement(media);
@@ -868,16 +889,16 @@
         picture.append(image); link.append(picture);
       } else link.append(image);
       section.append(link);
-      const caption = element('p', 'sidebar-note screenshot-caption', message(refinement && !refinement.capturedAt ? 'captureSessionAt' : 'capturedAt', { time: formatTime(success.capturedAt || success.captureSessionAt, true) }));
-      if (!refinement && capture.currentVersion && success.version !== capture.currentVersion) caption.append(element('span', 'screenshot-stale', message('screenshotOldVersion')));
-      diagnostics.append(caption);
+      const caption = element('p', 'sidebar-note screenshot-caption', formatTime(success.capturedAt || success.captureSessionAt, true));
       const links = element('div', 'screenshot-links');
       for (const variant of variants) {
         const item = element('a', '', message(variant.viewport === 'mobile' ? 'mobileScreenshot' : 'desktopScreenshot'));
         item.href = mediaURL(variant.href, media.productId); item.target = '_blank'; item.rel = 'noopener';
         links.append(item);
       }
-      diagnostics.append(links);
+      const metadata = element('div', 'screenshot-meta');
+      metadata.append(links, caption); diagnostics.append(metadata);
+      if (!refinement && capture.currentVersion && success.version !== capture.currentVersion) diagnostics.append(element('p', 'sidebar-note screenshot-stale', message('screenshotOldVersion')));
     }
     if (!desktop || !['completed', 'ready', 'success', 'unchanged', 'stale'].includes(capture.state)) {
       const key = { capturing: 'screenshotCapturing', running: 'screenshotCapturing', pending: 'screenshotCapturing',
@@ -897,13 +918,20 @@
     section.append(diagnostics);
     return section;
   }
+  let sidebarSignature = '';
   function renderSidebar() {
+    if (!view.active) return;
+    const signature = JSON.stringify([state.language, state.statusFailed, state.mediaAction, { ...state.data, cycles: undefined, generatedAt: undefined }], (key, value) => ['observedAt', 'liveConfirmedAt', 'elapsedMs'].includes(key) ? undefined : value);
+    if (signature === sidebarSignature) return;
+    sidebarSignature = signature;
     const switcher = $('productSwitcherButton');
-    const sourceName = $('sourceName');
     const sidebar = clear($('projectSidebar'));
     const data = state.data;
     const overview = element('section', 'sidebar-block project-overview');
-    const name = element('h1', '', data.project?.displayName || data.project?.name || message('noProject')); name.id = 'projectName';
+    const projectName = data.project?.displayName?.trim() || data.project?.name?.trim() || data.entry?.displayName?.trim() || message('untitledProject');
+    $('workspaceProjectName').textContent = projectName;
+    $('workspaceProjectName').title = projectName;
+    const name = element('h1', '', projectName); name.id = 'projectName';
     const description = element('p', 'project-description', clean(data.project?.description)); description.id = 'projectDescription'; description.title = description.textContent;
     const latest = state.currentCycle;
     const identity = element('div', 'project-identity');
@@ -926,6 +954,7 @@
     if (visibleArtifacts.length) {
       const list = element('ul', 'artifact-list');
       for (const artifact of visibleArtifacts) {
+        if (artifact.kind === 'preview' && artifact.available === false && artifact.state === 'stopped' && artifact.associationStatus !== 'unknown') continue;
         const item = element('li');
         const label = artifact.displayLabel || (artifact.kind === 'preview' ? message(artifact.available === false ? 'previewName' : 'productPreview') : artifact.path?.split(/[\\/]/).pop()?.toUpperCase() === 'DELIVERY.MD' ? message('deliveryDocument') : String(artifact.label || artifact.path || '').split(/[\\/]/).pop());
         if (artifact.available === false || (!artifact.path && !artifact.url)) {
@@ -973,24 +1002,18 @@
       const cell = runtime.querySelectorAll('dd')[index];
       if (value) { cell.title = fullTime(value); cell.setAttribute('aria-label', cell.title); }
     }
-    const details = bindDisclosure(element('details', 'runtime-disclosure'), 'runtime');
-    const diagnosticsHeading = element('summary', 'sidebar-disclosure-heading');
-    const diagnosticsChevron = icon('chevron-down'); diagnosticsChevron.classList.add('disclosure-chevron');
-    diagnosticsHeading.append(element('span', '', message('diagnostics')), diagnosticsChevron);
-    details.append(diagnosticsHeading, runtimeRows([[message('engine'), config.engine], [message('model'), config.model], [message('reasoning'), effort === 'unknown' ? message('unknown') : effort], [message('language'), languageLabel(productLanguage)], [message('recordedUsage'), usage], [message('source'), data.sourceName]]));
-    details.append(element('p', 'sidebar-note', message(config.configSource === 'session_context' ? 'observedSession' : 'unconfirmedSession')));
-    details.classList.add('sidebar-block', 'project-diagnostics');
+    const configuration = runtimeRows([[message('engine'), config.engine], [message('model'), config.model], [message('reasoning'), effort === 'unknown' ? message('unknown') : effort], [message('language'), languageLabel(productLanguage)], [message('recordedUsage'), usage]]);
+    runtime.querySelector('.runtime-details').append(...configuration.childNodes);
     const productMedia = renderProductMedia(media);
     if (productMedia) {
-      details.append(productMedia.querySelector('.media-diagnostics'));
       overview.append(productMedia);
     }
-    if (artifactDiagnostics.children.length) details.append(artifactDiagnostics);
-    if (sourceName) details.append(sourceName);
-    sidebar.append(overview, artifacts, runtime, details);
-    window.DashboardUI?.mountControls(sidebar);
+    if (artifactDiagnostics.children.length) runtime.append(artifactDiagnostics);
+    sidebar.append(overview, artifacts, runtime);
+    UI?.mountControls(sidebar);
   }
   function applyLanguage() {
+    if (!view.active) return;
     document.documentElement.lang = state.language;
     document.title = `${state.data?.project?.name || 'Auto Company'} · ${message('work')}`;
     document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = message(node.dataset.i18n); });
@@ -998,8 +1021,16 @@
     $('centerContextNav').hidden = !scope.center;
     document.body.classList.toggle('center-journal', scope.center);
     $('journalBackLink').hidden = !scope.center;
-    if (scope.center) document.querySelector('.brand').href = '/center';
-    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal'], ['settingsButton', 'settings']]) iconLabel($(id), name, $(id).textContent);
+    const brand = document.querySelector('.brand');
+    brand.href = '/center';
+    const previewCenter = new URLSearchParams(location.search).get('center');
+    if (!scope.center && readOnly() && previewCenter) {
+      try {
+        const target = new URL(previewCenter);
+        if (target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname) && target.pathname === '/center' && !target.username && !target.password && !target.search && !target.hash) brand.href = target.href;
+      } catch (_) {}
+    }
+    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal']]) iconLabel($(id), name, $(id).textContent);
     $('refreshButton').replaceChildren(icon('refresh-cw'));
     $('closeSettingsButton').replaceChildren(icon('x'));
     $('refreshButton').title = message('refresh');
@@ -1011,7 +1042,7 @@
     document.querySelector('.table-scroll').setAttribute('aria-label', message('usageDetail'));
     $('projectSidebar').setAttribute('aria-label', message('productInfo'));
     $('productInfoJump').hidden = state.tab !== 'work';
-    window.DashboardIcons.hydrate();
+    window.DashboardIcons.hydrate(view.root);
   }
   function rememberFocus() {
     const active = document.activeElement;
@@ -1034,6 +1065,7 @@
       || (scoped ? data.cycles.find((cycle) => cycle.id === data.latestProjectCycleId && cycle.projectStatus === 'current') : data.cycles[0]);
   }
   function render() {
+    if (!view.active) return;
     const focus = rememberFocus();
     const data = state.data;
     applyLanguage();
@@ -1047,13 +1079,12 @@
     renderSidebar();
     renderRuntime();
     renderLanguage();
-    $('sourceName').textContent = message('sourceLabel', { name: data.sourceName || 'Auto Company' });
     if (!$('usageDate').value) $('usageDate').value = datePart(data.cycles.find((cycle) => !cycle.active)?.endedAt) || new Date().toISOString().slice(0, 10);
     renderUsage();
     renderLogOptions();
     selectTab(state.tab);
     describeTimes();
-    window.DashboardUI?.mountControls();
+    UI?.mountControls();
     restoreFocus(focus);
   }
   function filterUsage() {
@@ -1231,6 +1262,7 @@
     $('logStatus').textContent = `${value ? range : message('logEmpty')} · ${message('logReadAt', { time: fullTime(state.logLoadedAt) })}`;
   }
   async function loadLog() {
+    if (!view.active) return;
     const key = logContextKey();
     if (state.logPending) {
       if (state.logPending.key !== key) {
@@ -1269,31 +1301,35 @@
       state.logText = previous;
       $('copyLogButton').disabled = !previous;
       $('logStatus').textContent = `${message('logFailed')}${state.logLoadedAt ? ` ${message('logReadAt', { time: fullTime(state.logLoadedAt) })} · ${state.logRange || ''}` : ''}`;
-    } finally { if (state.logPending?.request === request) { state.logPending = null; $('refreshLogButton').disabled = false; } } })();
+    } finally { if (state.logPending?.request === request) { state.logPending = null; if (view.active) $('refreshLogButton').disabled = false; } } })();
     state.logPending = { key, request, promise };
     return promise;
   }
+  const tabScroll = new Map();
   function selectTab(tab, focus = false) {
+    const changed = state.tab !== tab;
+    if (changed) tabScroll.set(state.tab, window.scrollY);
     state.tab = tab;
-    window.DashboardUI?.selectTab(tab);
+    UI?.selectTab(tab);
     for (const button of document.querySelectorAll('[data-tab]')) {
       const active = button.dataset.tab === tab;
       button.setAttribute('aria-selected', String(active));
       button.tabIndex = active ? 0 : -1;
       $(`panel-${button.dataset.tab}`).hidden = !active || !state.data;
     }
+    if (changed) { UI.reveal($(`panel-${tab}`)); window.scrollTo({ top: tabScroll.get(tab) || 0, behavior: 'instant' }); }
     if (focus) $(`tab-${tab}`).focus();
     $('productInfoJump').hidden = tab !== 'work';
   }
   function connectionNotice(key) {
     const node = clear($('connectionError'));
-    node.append(window.DashboardUI.alertMessage(message(key)));
+    node.append(UI.alertMessage(message(key)));
     if (state.data?.generatedAt) node.firstElementChild.append(element('span', '', ` ${message('lastUpdated', { time: fullTime(state.data.generatedAt) })} `));
     const retry = element('button', 'text-button', message('retryRead')); retry.type = 'button';
     retry.addEventListener('click', refresh); node.firstElementChild.append(retry);
   }
   function renderProductSwitcher(reset = false) {
-    window.DashboardUI.productSwitcher(scope.entries.filter(entry => !entry.archived && entry.kind !== 'reference'), scope.entryId,
+    UI.productSwitcher(scope.entries.filter(entry => !entry.archived && entry.kind !== 'reference'), scope.entryId,
       { search: message('searchProducts'), empty: message('noProductsFound'), current: message('currentProduct') }, reset);
   }
   async function openProductSwitcher() {
@@ -1309,7 +1345,7 @@
     } catch (_) { if (token === scope.token) $('productSwitcherStatus').textContent = message('readFailed'); }
   }
   async function refreshCenterContext() {
-    if (!scope.center) return;
+    if (!scope.center || !view.active) return;
     const token = ++scope.contextToken; const entryId = scope.entryId;
     try {
       const summary = state.centerSummary || await fetchCenter('/summary');
@@ -1327,6 +1363,7 @@
     state.timer = setTimeout(refresh, state.statusFailed ? 15000 : 5000);
   }
   function refresh() {
+    if (!view.active) return;
     if (state.refreshPending) return state.refreshPending;
     clearTimeout(state.timer);
     $('refreshButton').disabled = true;
@@ -1372,7 +1409,7 @@
         state.restoreScroll = null;
         state.signature = signature;
         render();
-        requestAnimationFrame(() => window.scrollTo({ top: scrollPosition, behavior: 'instant' }));
+        requestAnimationFrame(() => { if (view.active) window.scrollTo({ top: scrollPosition, behavior: 'instant' }); });
       }
       renderRuntime();
       if (scope.center) renderUsage();
@@ -1380,6 +1417,7 @@
       $('refreshStatus').textContent = message('refreshed', { time: formatTime(data.generatedAt || new Date().toISOString()) });
       if (state.tab === 'logs') await loadLog();
     } catch (_) {
+      if (!view.active) return;
       state.statusFailed = true;
       state.signature = '';
       $('loadingState').hidden = true;
@@ -1394,8 +1432,7 @@
     } finally {
       clearTimeout(state.loadingTimer);
       state.refreshPending = null;
-      $('refreshButton').disabled = Boolean(state.action);
-      scheduleRefresh();
+      if (view.active) { $('refreshButton').disabled = Boolean(state.action); scheduleRefresh(); }
     } })();
     state.refreshPending = promise;
     return promise;
@@ -1458,9 +1495,10 @@
   $('copyLogButton').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(state.logText);
+      if (!view.active) return;
       $('copyLogButton').textContent = message('copied');
       $('logStatus').textContent = message('copiedRange', { range: state.logRange || message('logVisibleRange', { count: number(state.logText.length) }) });
-    } catch (_) { $('logStatus').textContent = message('copyFailed'); }
+    } catch (_) { if (view.active) $('logStatus').textContent = message('copyFailed'); }
   });
   $('settingsButton').addEventListener('click', () => { $('settingsDialog').showModal(); refreshLanguage(); });
   $('productSwitcherButton').addEventListener('click', openProductSwitcher);
@@ -1475,11 +1513,16 @@
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) $('settingsDialog').close();
   });
   $('productInfoJump').addEventListener('click', () => $('projectSidebar').focus({ preventScroll: true }));
-  window.addEventListener('pagehide', saveJournalView);
+  view.listen(window, 'pagehide', saveJournalView);
   restoreJournalView();
   applyLanguage();
   renderLanguage();
   $('loadingState').hidden = true;
   state.loadingTimer = setTimeout(() => { if (!state.data && state.refreshPending) $('loadingState').hidden = false; }, 300);
   refresh();
-})();
+  return {
+    pause() { saveJournalView(); ++scope.token; ++scope.contextToken; ++state.detailToken; ++state.usageToken; ++state.logRequest; clearTimeout(state.timer); clearTimeout(state.loadingTimer); clearInterval(state.elapsedTimer); },
+    resume() { applyLanguage(); clearInterval(state.elapsedTimer); state.elapsedTimer = setInterval(updateElapsed, 1000); refresh(); },
+    dispose() { clearTimeout(state.timer); clearTimeout(state.loadingTimer); clearInterval(state.elapsedTimer); },
+  };
+});

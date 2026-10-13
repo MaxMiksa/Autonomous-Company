@@ -20,7 +20,7 @@ Optional Cursor and OpenAI-compatible adapters require explicit configuration. S
 
 </div>
 
-**v2.1.0: Parallel projects, configuration templates and a refreshed Product Center.**
+**v2.2.0: A refined Dashboard with continuous work journals, smoother navigation and improved mobile layouts.**
 
 ---
 

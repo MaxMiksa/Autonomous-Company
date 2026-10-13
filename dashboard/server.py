@@ -782,6 +782,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/favicon.svg":
             self._serve_file(DASHBOARD_DIR / "favicon.svg", "image/svg+xml")
             return
+        if path == "/brand-logo.png":
+            self._serve_file(DASHBOARD_DIR / "brand-logo.png", "image/png")
+            return
         if path == "/api/status":
             self._json(gather_status_payload())
             return

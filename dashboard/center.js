@@ -1,6 +1,8 @@
-(() => {
+window.DashboardNavigation.register('center', (view) => {
   "use strict";
 
+  const document = view.document;
+  const UI = view.ui;
   const $ = (id) => document.getElementById(id);
   const API = "/api/center/v1";
   const OPEN_STATES = new Set(["queued", "starting", "running", "stopping", "attention", "preparing"]);
@@ -50,7 +52,7 @@
   function formatNumber(value) { return new Intl.NumberFormat(state.language).format(value); }
 
   function element(tag, className, text) {
-    return window.DashboardUI.element(tag, className, text);
+    return UI.element(tag, className, text);
   }
 
   function clear(node) { node.replaceChildren(); return node; }
@@ -87,19 +89,21 @@
 
   async function api(path, options = {}, timeout = 30000) {
     const controller = new AbortController();
+    const request = view.request(controller, options);
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(`${API}${path}`, { cache: "no-store", ...options, signal: controller.signal });
       let payload;
       try { payload = await response.json(); }
       catch (_) { throw new APIError({ code: "INVALID_RESPONSE", messageKey: "invalidResponse" }, response.status); }
+      if (!request.valid()) throw new DOMException('Inactive view', 'AbortError');
       if (!response.ok || payload?.code) throw new APIError(payload, response.status);
       if (!payload || payload.schemaVersion !== 1 || !Object.hasOwn(payload, "data")) throw new APIError({ code: "INVALID_RESPONSE", messageKey: "invalidResponse" }, response.status);
       if (payload.centerId) state.centerId = payload.centerId;
       if (Number.isFinite(payload.revision)) state.revision = payload.revision;
       if (payload.observedAt) state.observedAt = payload.observedAt;
       return payload.data;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); request.done(); }
   }
 
   async function write(path, body, timeout = 30000) {
@@ -353,9 +357,8 @@
       for (const mode of ["logo", "screenshot", "none"]) select.append(new Option(message(`example_${mode}`), mode));
       select.value = state.previewMode;
       select.addEventListener("change", () => { state.previewMode = select.value; saveView(); renderPage(); restoreFocus(`column:${groupKey}:preview`); });
-      const headingLabel = element("label", "example-heading", message(label));
-      select.id = `preview-${groupKey}`; headingLabel.htmlFor = select.id;
-      cell.append(headingLabel, select);
+      select.id = `preview-${groupKey}`;
+      cell.append(select);
     } else if (["status", "round"].includes(field)) {
       const select = focusKey(element("select", "column-select"), `column:${groupKey}:${field}`);
       select.setAttribute("aria-label", message("columnControl", { column: message(label) }));
@@ -404,11 +407,20 @@
     const value = latestRoundState(entry);
     const label = roundLabel(value);
     const mark = statusSymbol(value);
-    cell.append(mark, element("span", "round-label", label));
+    const status = element("span", "round-status");
+    status.append(mark, element("span", "round-label", label));
+    cell.append(status);
     return cell;
   }
 
+  const rowNodes = new Map();
+  function rowSignature(entry) {
+    return JSON.stringify([entry, state.language, state.previewMode, state.stale, entryState(entry), capability(entry, 'execute'), window.DashboardDate.day()],
+      (key, value) => ['observedAt', 'liveConfirmedAt', 'generatedAt'].includes(key) ? undefined : value);
+  }
   function renderRow(entry) {
+    const signature = rowSignature(entry), cached = rowNodes.get(entry.entryId);
+    if (cached?.signature === signature) return cached.row;
     const row = element("tr", "product-row"); row.setAttribute("role", "row"); row.dataset.entryId = entry.entryId;
     const identity = element("td", "product-identity"); identity.setAttribute("role", "cell");
     const copy = element("div");
@@ -465,21 +477,31 @@
       { label: message(entry.archived ? "restore" : "archive"), focusKey: `entry:${entry.entryId}:visibility`, action: () => confirmEntryVisibility(entry) });
     if (entry.kind === "reference" && !entry.archived) items.push({ label: message("detachReference"), danger: true,
       focusKey: `entry:${entry.entryId}:detach`, action: () => confirmReferenceDetach(entry) });
-    actions.append(window.DashboardUI.menu({ id: entry.entryId, label: message("moreActions"), items }));
+    actions.append(UI.menu({ id: entry.entryId, label: message("moreActions"), items }));
     const updated = element("td", "updated-cell"); updated.setAttribute("role", "cell");
     fieldLabel(updated, "updatedTime");
     activity.removeAttribute("role"); updated.append(activity, actions);
     row.append(preview, identity, status, latestRound(entry), recent, updated);
+    rowNodes.set(entry.entryId, { signature, row });
     return row;
   }
 
+  let entriesSignature = '';
   function renderEntries() {
-    const container = clear($("productRows"));
-    const listState = clear($("listState"));
-    if (state.loading && !state.entries.length) { if (performance.now() - state.loadStarted >= 300) window.DashboardUI.loading(listState, message("loading")); return; }
+    const container = $("productRows");
     const entries = sortedEntries();
+    const signature = JSON.stringify([entries.map(rowSignature), state.query, state.filter, state.sort, state.sortDirection, state.roundFilter, state.otherExpanded, state.loading]);
+    if (signature === entriesSignature) return;
+    entriesSignature = signature;
+    const positions = UI.positions(container, '.product-row');
+    const headerKey = JSON.stringify([state.language, state.sort, state.sortDirection, state.roundFilter, state.previewMode]);
+    const headers = container.dataset.headerKey === headerKey ? [...container.querySelectorAll('thead')] : [];
+    container.dataset.headerKey = headerKey;
+    clear(container);
+    const listState = clear($("listState"));
+    if (state.loading && !state.entries.length) { if (performance.now() - state.loadStarted >= 300) UI.loading(listState, message("loading")); return; }
     announce(message("searchResultCount", { count: entries.length }));
-    window.DashboardUI?.retainMenus(entries.map(entry => entry.entryId));
+    UI?.retainMenus(entries.map(entry => entry.entryId));
     // The API returns activity order; recent products are independent of execution state.
     const groups = [["recentProducts", entries.slice(0, 4)], ["otherProducts", entries.slice(4)]];
     for (const [groupIndex, [key, items]] of groups.entries()) {
@@ -491,7 +513,7 @@
       const head = element("tr", "product-head"); head.setAttribute("role", "row");
       for (const [label, field] of [["example", "preview"], ["productName", "name"], ["runtimeStatus", "status"], ["latestRound", "round"], ["recentWork", "work"], ["updatedTime", "activity"]]) head.append(columnHeader(label, field, groupIndex === 0 ? "primary" : "remaining"));
       const shown = groupIndex === 1 ? items.slice(0, 4) : items;
-      const header = element("thead"), body = element("tbody"); header.append(head); body.append(...shown.map(renderRow)); table.append(header, body); group.append(heading, table);
+      const header = element("thead"), body = element("tbody"); header.append(head); body.append(...shown.map(renderRow)); table.append(headers[groupIndex] || header, body); group.append(heading, table);
       if (groupIndex === 1 && items.length > 4) {
         const disclosure = element("details", "other-products-disclosure"); disclosure.open = state.otherExpanded;
         const label = () => message(state.otherExpanded ? "collapseProducts" : "expandProducts", { count: items.length });
@@ -510,6 +532,9 @@
       }
       container.append(group);
     }
+    const retained = new Set(entries.map(entry => entry.entryId));
+    for (const key of rowNodes.keys()) if (!retained.has(key)) rowNodes.delete(key);
+    UI.layout(container, '.product-row', positions);
     if (!entries.length) {
       const emptyState = emptyListState(entries);
       listState.append(element("span", "", emptyState.messageKey === "noMatches" ? `${message("noMatchesConditions", { query: state.query || message("anyQuery"), filter: filterLabel(state.filter) })}${state.roundFilter !== "all" ? ` ${message("latestRound")}: ${roundLabel(state.roundFilter)}` : ""}` : message(emptyState.messageKey)));
@@ -519,7 +544,7 @@
         listState.append(action);
       }
       if (!["noMatches", "loadFailed"].includes(emptyState.messageKey)) {
-        for (const [key, trigger] of [["newWork", "newWorkButton"], ["importProduct", "importButton"]]) {
+        for (const [key, trigger] of [["newWork", "newWorkButton"], ["importAction", "importButton"]]) {
           const action = element("button", key === "newWork" ? "button primary" : "button secondary", message(key)); action.type = "button"; action.disabled = $(trigger).disabled;
           action.onclick = () => $(trigger).click(); listState.append(action);
         }
@@ -553,7 +578,8 @@
   }
 
   function applyLanguage() {
-    window.DashboardUI.selectFilter?.(state.filter);
+    if (!view.active) return;
+    UI.selectFilter?.(state.filter);
     document.documentElement.lang = state.language;
     document.title = `Auto Company · ${message("products")}`;
     document.querySelectorAll("[data-i18n]").forEach((node) => { if (node.closest("button")?.dataset.idleText || node.closest('button[aria-busy="true"]')) return; node.textContent = message(node.dataset.i18n); });
@@ -562,6 +588,7 @@
   }
 
   function renderPage() {
+    if (!view.active) return;
     const focused = rememberFocus();
     applyLanguage(); renderActivity(); renderCounts(); renderEntries(); renderQueue();
     if ($("newWorkDialog").open) updateGroupButtons();
@@ -572,15 +599,15 @@
     $("newWorkUnavailable").textContent = state.stale ? message("staleActionsDisabled") : !executionAvailable ? message("executionUnavailable") : "";
     $("connectionNotice").hidden = !state.stale;
     if (state.stale) {
-      clear($("connectionNotice")).append(window.DashboardUI.alertMessage(message(state.entries.length ? "staleData" : "loadFailed") + (state.lastSuccessAt ? ` ${message("observedStale", { time: fullTime(state.lastSuccessAt) })}` : "")));
+      clear($("connectionNotice")).append(UI.alertMessage(message(state.entries.length ? "staleData" : "loadFailed") + (state.lastSuccessAt ? ` ${message("observedStale", { time: fullTime(state.lastSuccessAt) })}` : "")));
       const retry = element("button", "text-button", message("retry")); retry.type = "button"; retry.onclick = refresh; $("connectionNotice").querySelector("[data-slot=alert-description]").append(retry);
     }
     $("observedAt").textContent = state.lastSuccessAt ? message(state.stale ? "observedStale" : "refreshedAt", { time: fullTime(state.lastSuccessAt) }) : "";
     $("observedAt").title = fullTime(state.lastSuccessAt); $("observedAt").setAttribute("aria-label", fullTime(state.lastSuccessAt));
     document.querySelectorAll(".filter-button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.filter === state.filter)));
-    window.DashboardIcons.hydrate();
+    window.DashboardIcons.hydrate(view.root);
     state.projectionSignature = runtimeProjectionSignature();
-    window.DashboardUI?.mountControls();
+    UI?.mountControls();
     restoreFocus(focused);
   }
 
@@ -599,7 +626,7 @@
     const focused = rememberFocus();
     renderActivity(); renderCounts(); renderEntries(); renderQueue();
     state.projectionSignature = signature;
-    window.DashboardUI?.mountControls();
+    UI?.mountControls();
     restoreFocus(focused);
   }
 
@@ -626,8 +653,13 @@
     return Boolean(text(request?.dispatchId)) && ["starting", "running", "stopping", "attention"].includes(requestState(request));
   }
 
+  const queueNodes = new Map();
   function queueItem(request, index, group, queued) {
-    const item = element("article", "queue-item");
+    const signature = JSON.stringify([request, index, group, queued.map(item => item.requestId), requestDisplayState(request), state.language, state.stale, queueWaitReason(), [...state.actionLocks]],
+      (key, value) => key === 'observedAt' || key === 'liveConfirmedAt' ? undefined : value);
+    const cached = queueNodes.get(request.requestId);
+    if (cached?.signature === signature) return cached.node;
+    const item = cached?.node || element("article", "queue-item"); item.replaceChildren(); item.dataset.requestId = request.requestId;
     item.append(element("span", "queue-number", group === "queued" ? String(index + 1).padStart(2, "0") : ""));
     const body = element("div"); body.append(element("h4", "", text(request.displayName) || message(`kind_${request.kind}`)));
     const value = requestState(request);
@@ -657,7 +689,7 @@
       }
       const reconcile = focusKey(element("button", "text-button", message("reconcile")), `request:${request.requestId}:reconcile`); reconcile.type = "button"; reconcile.disabled = state.stale; reconcile.addEventListener("click", () => runRequestAction(request, "reconcile")); actions.append(reconcile);
     }
-    item.append(body, actions); return item;
+    item.append(body, actions); queueNodes.set(request.requestId, { signature, node: item }); return item;
   }
 
   function operationItem(operation) {
@@ -692,12 +724,18 @@
     return section;
   }
 
+  const queuePreviews = new Map();
   function renderQueueSidebar(groups) {
-    const content = clear($("queueSidebarContent"));
+    const content = $("queueSidebarContent"), nodes = [];
+    const positions = UI.positions(content, '.queue-preview');
     const requests = groups.queued;
     clear($("queueSidebarCount")).append(element("span", "count-badge", formatNumber(requests.length)));
     for (const request of requests) {
-      const item = element("article", "queue-preview");
+      const index = groups.queued.indexOf(request);
+      const signature = JSON.stringify([request.requestId, request.displayName, request.kind, request.createdAt, index, requestDisplayState(request), queueWaitReason(), state.language, state.entries.find(entry => entry.entryId === request.entryId)?.description]);
+      const cached = queuePreviews.get(request.requestId);
+      if (cached?.signature === signature) { nodes.push(cached.node); continue; }
+      const item = cached?.node || element("article", "queue-preview"); item.replaceChildren(); item.dataset.requestId = request.requestId;
       item.append(element("span", "queue-preview-number", requestState(request) === "queued" ? String(groups.queued.indexOf(request) + 1) : "!"));
       const body = element("div", "queue-preview-body");
       const name = element(request.entryId ? "a" : "strong", "queue-preview-name", text(request.displayName) || message(`kind_${request.kind}`));
@@ -709,10 +747,14 @@
       body.append(element("p", "", queueWaitReason()));
       const more = focusKey(element("button", "more-button"), `queue-preview:${request.requestId}`); more.type = "button"; more.append(window.DashboardIcons.icon("ellipsis-vertical"));
       more.setAttribute("aria-label", `${message("queueControls")} · ${name.textContent}`); more.addEventListener("click", openQueue);
-      item.append(body, more); content.append(item);
+      item.append(body, more); nodes.push(item); queuePreviews.set(request.requestId, { signature, node: item });
     }
+    UI.reconcile(content, nodes); UI.layout(content, '.queue-preview', positions);
+    const retained = new Set(requests.map(request => request.requestId));
+    for (const key of queuePreviews.keys()) if (!retained.has(key)) queuePreviews.delete(key);
   }
 
+  let queueSignature = "";
   function renderQueue() {
     const capacity = $("capacityForm");
     if (capacity && !capacity.dataset.dirty) {
@@ -727,8 +769,13 @@
     $("dispatchButton").disabled = state.stale || state.actionLocks.has("dispatch") || (!enabled && state.summary?.executionAvailable === false);
     $("dispatchButton").title = !enabled && state.summary?.executionAvailable === false ? message("executionUnavailable") : "";
     if ($("dispatchButton").disabled) $("dispatchHint").textContent += ` ${message(state.stale ? "staleActionsDisabled" : "executionUnavailable")}`;
-    const content = clear($("queueContent"));
     const groups = queueGroups();
+    const signature = JSON.stringify([groups, state.language, state.stale, state.historyVisible, state.entries.map(entry => [entry.entryId, entry.description]), queueWaitReason(), state.requests.map(request => requestDisplayState(request)), [...state.actionLocks]],
+      (key, value) => key === 'observedAt' || key === 'liveConfirmedAt' ? undefined : value);
+    if (signature === queueSignature) return;
+    queueSignature = signature;
+    const content = $("queueContent"), positions = UI.positions(content, '.queue-item');
+    clear(content);
     renderQueueSidebar(groups);
     if (groups.running.length) content.append(queueSection("runningSection", groups.running, "running", groups.queued));
     if (groups.preparing.length) content.append(operationSection("preparingSection", groups.preparing));
@@ -739,12 +786,16 @@
     if (state.historyVisible && groups.operationHistory.length) content.append(operationSection("preparationHistorySection", groups.operationHistory));
     if (!groups.running.length && !groups.preparing.length && !groups.queued.length && !groups.attention.length && !groups.operationAttention.length && !(state.historyVisible && (groups.history.length || groups.operationHistory.length))) content.append(element("p", "list-state", message("queueEmpty")));
     $("queueHistoryButton").textContent = message(state.historyVisible ? "hideHistory" : "showHistory");
+    UI.layout(content, '.queue-item', positions);
+    const retained = new Set(state.requests.map(request => request.requestId));
+    for (const key of queueNodes.keys()) if (!retained.has(key)) queueNodes.delete(key);
     const ownedAttention = groups.attention.some(requestOwnsDispatch);
     $("stopAllButton").disabled = state.stale || (!groups.running.length && !groups.preparing.length && !groups.queued.length && !ownedAttention);
     $("stopAllReason").textContent = $("stopAllButton").disabled ? message(state.stale ? "staleActionsDisabled" : "noActiveWork") : "";
   }
 
   async function refresh() {
+    if (!view.active) return;
     if (state.refreshing) return state.refreshing;
     const token = ++state.refreshToken;
     const promise = (async () => {
@@ -764,15 +815,15 @@
         if (token !== state.refreshToken) return;
         state.loading = false; state.stale = true; renderPage();
       } finally {
-        state.refreshing = null; clearTimeout(state.timer); if (state.autoRefresh) state.timer = setTimeout(refresh, state.stale ? 15000 : 5000);
+        state.refreshing = null; clearTimeout(state.timer); if (view.active && state.autoRefresh) state.timer = setTimeout(refresh, state.stale ? 15000 : 5000);
       }
     })();
     state.refreshing = promise; return promise;
   }
 
   function showStatus(key, values = {}, isError = false) {
-    if (!isError) window.DashboardUI.notify(message(key, values));
-    if (isError) { $("actionError").hidden = false; $("actionError").replaceChildren(window.DashboardUI.alertMessage(message(key, values))); }
+    if (!isError) UI.notify(message(key, values));
+    if (isError) { $("actionError").hidden = false; $("actionError").replaceChildren(UI.alertMessage(message(key, values))); }
     else { $("actionError").hidden = true; $("actionError").textContent = ""; }
 
   }
@@ -827,10 +878,10 @@
   }
 
   function openDialog(dialog) {
-    window.DashboardUI?.mountControls();
+    UI?.mountControls();
     dialog.querySelectorAll("[data-error-id]").forEach(clearFieldError); dialog.showModal();
     dialog.querySelectorAll('[type="submit"], #commitImportButton, #centerRefreshButton').forEach(reserveSubmissionWidth);
-    if (!window.DashboardUI) dialog.querySelector("input:not([type=radio]), textarea, select")?.focus();
+    if (!UI) dialog.querySelector("input:not([type=radio]), textarea, select")?.focus();
   }
   function closeDialog(dialog) { if (dialog.open) dialog.close(); }
 
@@ -879,13 +930,15 @@
       group.querySelector(".template-editor").open = true;
       group.querySelector(".template-name").focus();
     };
-    window.DashboardUI?.mountControls(group);
+    UI?.mountControls(group);
     updateGroupButtons();
   }
 
   function selectWorkGroup(group) {
+    const changed = state.activeWorkGroupId !== group.id;
     state.activeWorkGroupId = group.id;
     updateGroupButtons();
+    if (changed) UI.reveal(group);
   }
 
   function updateGroupButtons() {
@@ -904,7 +957,7 @@
       group.querySelector(".remove-group").hidden = groups.length === 1;
       group.querySelectorAll("[data-count-step]").forEach(control => { control.disabled = Number(control.dataset.countStep) < 0 ? count <= 1 : count >= 100; });
     });
-    window.DashboardUI.groupTabs(tabs, options, state.activeWorkGroupId, id => selectWorkGroup($(id)));
+    UI.groupTabs(tabs, options, state.activeWorkGroupId, id => selectWorkGroup($(id)));
     $("workBatchSummary").textContent = message("workBatchSummary", { count: total, groups: groups.length });
     const form = $("newWorkForm"), submit = form.querySelector('[type="submit"]');
     if (!state.workSubmitting) { submit.textContent = message("workCreateProjects", { count: total }); reserveSubmissionWidth(submit); }
@@ -984,7 +1037,7 @@
       if (workGroup) updateGroupButtons();
     });
     updateActions();
-    window.DashboardUI?.mountControls(container);
+    UI?.mountControls(container);
     if (workGroup) updateGroupButtons();
   }
 
@@ -1147,7 +1200,7 @@
     managementAction(actions, "captureMedia", current && capture.enabled, !current ? "selectCurrentFirst" : capture.reason, () => sourceOperation(`/entries/${encodeURIComponent(entry.entryId)}/media/capture`, { sourceId: source.sourceId, expectedRevision: sourceRevision }));
     managementAction(actions, "detachEntry", current && !release.enabled, !current ? "selectCurrentFirst" : release.enabled ? "releaseFirst" : "", () => { closeDialog($("sourceDialog")); confirmReferenceDetach(entry); }, true);
     body.append(actions);
-    window.DashboardUI?.mountControls(body);
+    UI?.mountControls(body);
   }
 
   async function openSourceManager(entry) {
@@ -1262,9 +1315,13 @@
       confirmAction("stopAllTitle", "stopAllMessage", async () => { await write("/queue/stop-all", { expectedRevision: state.summary?.queueRevision }, 60000); showStatus("actionAccepted"); await refresh(); }, true, names.join(" · "), "stopAll");
     });
     $("queueHistoryButton").addEventListener("click", () => { state.historyVisible = !state.historyVisible; renderQueue(); });
-    $("newWorkButton").addEventListener("click", () => { const form = $("newWorkForm"); form.reset(); while ($("workGroups").children.length > 1) $("workGroups").lastElementChild.remove(); setupGroup($("workGroups").firstElementChild); setFormStatus(form, ""); openDialog($("newWorkDialog")); });
-    $("importButton").addEventListener("click", () => { const form = $("importForm"); form.reset(); resetImportProbe(); openDialog($("importDialog")); });
-    $("settingsButton").addEventListener("click", () => { openDialog($("settingsDialog")); loadPreferences(); });
+    $("newWorkButton").addEventListener("click", () => { if ($("newWorkDialog").closest("[data-motion-exit]")) { $("newWorkDialog").showModal(); return; } const form = $("newWorkForm"); form.reset(); while ($("workGroups").children.length > 1) $("workGroups").lastElementChild.remove(); setupGroup($("workGroups").firstElementChild); setFormStatus(form, ""); openDialog($("newWorkDialog")); });
+    $("importButton").addEventListener("click", () => { if ($("importDialog").closest("[data-motion-exit]")) { $("importDialog").showModal(); return; } const form = $("importForm"); form.reset(); resetImportProbe(); openDialog($("importDialog")); });
+    $("settingsButton").addEventListener("click", () => {
+      const dialog = $("settingsDialog");
+      const resuming = dialog.open || Boolean(dialog.closest('[data-motion-exit]'));
+      openDialog(dialog); if (!resuming) loadPreferences();
+    });
     $("centerAutoRefresh").addEventListener("change", event => {
       state.autoRefresh = event.target.checked; clearTimeout(state.timer);
       try { window.localStorage?.setItem("auto-company:center:auto-refresh", state.autoRefresh ? "on" : "off"); } catch (_) {}
@@ -1302,7 +1359,7 @@
     document.addEventListener("invalid", event => { if (event.target.closest("form")) markFieldError(event.target); }, true);
     document.addEventListener("input", event => { if (event.target.dataset.errorId && event.target.validity.valid) clearFieldError(event.target); });
     document.addEventListener("click", event => { if (event.target.closest('a[href^="/products/"]')) saveView(); });
-    window.addEventListener("pagehide", saveView);
+    view.listen(window, "pagehide", saveView);
 
     document.addEventListener("visibilitychange", () => { clearTimeout(state.timer); if (!document.hidden && state.autoRefresh) refresh(); });
     loadView();
@@ -1311,4 +1368,9 @@
   applyLanguage(); wire(); renderPage(); refresh();
   setTimeout(() => { if (state.loading) renderEntries(); }, 300);
   state.projectionTimer = setInterval(refreshRuntimeProjection, 1000);
-})();
+  return {
+    pause() { saveView(); ++state.refreshToken; clearTimeout(state.timer); clearInterval(state.projectionTimer); },
+    resume() { applyLanguage(); clearInterval(state.projectionTimer); state.projectionTimer = setInterval(refreshRuntimeProjection, 1000); if (state.autoRefresh) refresh(); },
+    dispose() { clearTimeout(state.timer); clearInterval(state.projectionTimer); },
+  };
+});

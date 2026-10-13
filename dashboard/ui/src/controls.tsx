@@ -19,6 +19,8 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Command, CommandInput, CommandList, CommandItem, CommandEmpty } from "./components/ui/command";
 import { AlertDescription } from "./components/ui/alert";
 import { toast } from "sonner";
+import { tween, timing, quiet } from "./motion";
+import { Selection } from "./selection";
 
 export const primitives: Record<string, React.ElementType> = {
   button: Button, input: Input, textarea: Textarea, select: NativeSelect,
@@ -63,7 +65,7 @@ function island(host: HTMLElement, render: () => React.ReactNode, dispose?: () =
 function sweep() {
   for (const entry of islands) {
     if (entry.host.isConnected) entry.attached = true;
-    else if (entry.attached) { entry.root.unmount(); entry.dispose?.(); islands.delete(entry); }
+    else if (entry.attached && !entry.host.closest(".workspace-view")) { entry.root.unmount(); entry.dispose?.(); islands.delete(entry); }
   }
 }
 function slot(nodes: Node[]) { return (node: HTMLElement | null) => { if (node) nodes.forEach(child => node.append(child)); }; }
@@ -135,14 +137,37 @@ function installDisclosure(container: HTMLElement) {
     "aria-label": trigger.getAttribute("aria-label") || undefined, "data-i18n-aria": trigger.dataset.i18nAria };
   const triggerRef = slot([...trigger.childNodes].map(node => node.cloneNode(true)));
   const contentNodes = [...container.childNodes].filter(node => node !== trigger);
-  const contentRef = slot(contentNodes);
+  let panel: HTMLDivElement | null = null;
+  const contentRef = (node: HTMLDivElement | null) => {
+    if (!node) return;
+    panel = node; contentNodes.forEach(child => node.append(child));
+    node.hidden = !open; node.inert = !open;
+  };
   container.replaceChildren(); container.dataset.uiDisclosure = "";
   const change = (value: boolean) => {
-    open = value; container.toggleAttribute("open", open); update(); container.dispatchEvent(new Event("toggle"));
+    if (value === open) return;
+    const from = panel?.hidden ? 0 : panel?.getBoundingClientRect().height || 0;
+    open = value; container.toggleAttribute("open", open); update();
+    if (panel) {
+      const node = panel;
+      if (!open && node.contains(document.activeElement)) container.querySelector<HTMLElement>('.disclosure-trigger')?.focus({ preventScroll: true });
+      node.hidden = false; node.inert = !open; node.setAttribute('aria-hidden', String(!open));
+      node.style.height = `${from}px`; node.style.overflow = 'hidden';
+      const full = node.scrollHeight;
+      // Very long reports use a short fade; avoid hundreds of layout frames.
+      const limited = full > innerHeight * 2;
+      if (limited) node.style.height = open ? 'auto' : `${from}px`;
+      if (limited && open && from === 0) node.style.opacity = '0';
+      tween(node, { ...(limited ? {} : { height: `${open ? full : 0}px` }), opacity: open ? '1' : '0' },
+        limited ? timing.micro : timing.layout * Math.min(1, Math.abs((open ? full : 0) - from) / Math.max(full, 1)), () => {
+          node.hidden = !open; node.style.removeProperty('height'); node.style.removeProperty('overflow'); node.style.removeProperty('opacity');
+        });
+    }
+    container.dispatchEvent(new Event("toggle"));
   };
   const update = island(container, () => <Collapsible open={open} onOpenChange={change}>
     <CollapsibleTrigger asChild><Button {...triggerProps} type="button" variant="ghost" ref={triggerRef} /></CollapsibleTrigger>
-    <CollapsibleContent forceMount hidden={!open} ref={contentRef} />
+    <CollapsibleContent forceMount ref={contentRef} />
   </Collapsible>);
   Object.defineProperty(container, "open", { configurable: true, get: () => open, set: change });
   container.toggleAttribute("open", open);
@@ -167,7 +192,7 @@ export function mountControls(scope: ParentNode = document) {
 }
 
 export function notifications() {
-  const host = document.createElement("div"); document.body.append(host);
+  const host = document.createElement("div"); host.dataset.persistentUi = ""; document.body.append(host);
   createRoot(host).render(<Toaster position="bottom-right" duration={4000} />);
 }
 export function notify(message: string) { toast.success(message); }
@@ -187,7 +212,7 @@ export function Hint({ label, children }: { label: string; children: React.React
 }
 
 type GroupOption = { id: string; title: string; detail: string };
-const groupRoots = new WeakMap<HTMLElement, Root>();
+const groupRoots = new Map<HTMLElement, Root>();
 function GroupTabs({ options, value, onChange }: { options: GroupOption[]; value: string; onChange: (id: string) => void }) {
   const [narrow, setNarrow] = React.useState(matchMedia("(max-width: 650px)").matches);
   React.useEffect(() => {
@@ -195,7 +220,8 @@ function GroupTabs({ options, value, onChange }: { options: GroupOption[]; value
     query.addEventListener("change", change); return () => query.removeEventListener("change", change);
   }, []);
   return <Tabs orientation={narrow ? "horizontal" : "vertical"} value={value} onValueChange={onChange}>
-    <TabsList variant="line" aria-label={document.documentElement.lang === "zh-CN" ? "配置组" : "Configuration groups"}>
+    <TabsList variant="line" className="motion-selection-list" aria-label={document.documentElement.lang === "zh-CN" ? "配置组" : "Configuration groups"}>
+      <Selection value={value} vertical={!narrow} />
       {options.map(option => <TabsTrigger key={option.id} value={option.id} id={`${option.id}-tab`} aria-controls={option.id} className="work-group-tab">
         <span><strong>{option.title}</strong><small>{option.detail}</small></span>
       </TabsTrigger>)}
@@ -210,11 +236,12 @@ export function groupTabs(container: HTMLElement, options: GroupOption[], value:
 
 type ProductOption = { entryId: string; displayName: string; description?: string; alias?: string };
 type ProductLabels = { search: string; empty: string; current: string };
-let switcherRoot: Root | undefined;
+const switcherRoots = new Map<HTMLElement, Root>();
 let switcherSession = 0;
-export function productSwitcher(entries: ProductOption[], current: string, labels: ProductLabels, reset = false) {
-  const host = document.getElementById("productSwitcherControls"); if (!host) return;
-  switcherRoot ||= createRoot(host); if (reset) switcherSession += 1;
+export function productSwitcher(entries: ProductOption[], current: string, labels: ProductLabels, reset = false, scope: ParentNode = document) {
+  const host = scope.querySelector<HTMLElement>("#productSwitcherControls"); if (!host) return;
+  let switcherRoot = switcherRoots.get(host);
+  if (!switcherRoot) { switcherRoot = createRoot(host); switcherRoots.set(host, switcherRoot); } if (reset) switcherSession += 1;
   flushSync(() => switcherRoot!.render(<Command key={switcherSession} label={labels.search} loop filter={(_value, search, keywords) => {
     const query = search.trim().toLocaleLowerCase(document.documentElement.lang);
     return (keywords || []).some(value => value.toLocaleLowerCase(document.documentElement.lang).includes(query)) ? 1 : 0;
@@ -223,10 +250,15 @@ export function productSwitcher(entries: ProductOption[], current: string, label
     <CommandList aria-label={labels.search}>
       <CommandEmpty>{labels.empty}</CommandEmpty>
       {entries.map(entry => <CommandItem key={entry.entryId} value={entry.entryId} keywords={[entry.displayName, entry.description || "", entry.alias || ""]}
-        onSelect={() => { window.location.href = `/products/${encodeURIComponent(entry.entryId)}`; }}>
+        onSelect={() => { (window as any).DashboardNavigation.navigate(`/products/${encodeURIComponent(entry.entryId)}`); }}>
         <span className="product-option-copy"><strong>{entry.displayName}</strong><small>{entry.description}</small></span>
         {entry.entryId === current && <span className="switcher-current">{labels.current}</span>}
       </CommandItem>)}
     </CommandList>
   </Command>));
+}
+
+export function disposeControls(scope: HTMLElement) {
+  for (const entry of islands) if (scope.contains(entry.host)) { entry.root.unmount(); entry.dispose?.(); islands.delete(entry); }
+  for (const map of [groupRoots, switcherRoots]) for (const [host, root] of map) if (scope.contains(host)) { root.unmount(); map.delete(host); }
 }

@@ -40,6 +40,7 @@ STATIC = {
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
     "/i18n.js": ("i18n.js", "application/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+    "/brand-logo.png": ("brand-logo.png", "image/png"),
 }
 LEGACY_ASSETS = {name: STATIC["/" + name][1] for name in ("app.js", "i18n.js", "styles.css", "favicon.svg")}
 

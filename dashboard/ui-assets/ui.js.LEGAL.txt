@@ -11,6 +11,17 @@ react/cjs/react.production.js:
    * LICENSE file in the root directory of this source tree.
    */
 
+react/cjs/react-jsx-runtime.production.js:
+  /**
+   * @license React
+   * react-jsx-runtime.production.js
+   *
+   * Copyright (c) Meta Platforms, Inc. and affiliates.
+   *
+   * This source code is licensed under the MIT license found in the
+   * LICENSE file in the root directory of this source tree.
+   */
+
 scheduler/cjs/scheduler.production.js:
   /**
    * @license React
@@ -37,17 +48,6 @@ react-dom/cjs/react-dom-client.production.js:
   /**
    * @license React
    * react-dom-client.production.js
-   *
-   * Copyright (c) Meta Platforms, Inc. and affiliates.
-   *
-   * This source code is licensed under the MIT license found in the
-   * LICENSE file in the root directory of this source tree.
-   */
-
-react/cjs/react-jsx-runtime.production.js:
-  /**
-   * @license React
-   * react-jsx-runtime.production.js
    *
    * Copyright (c) Meta Platforms, Inc. and affiliates.
    *
@@ -90,7 +90,6 @@ lucide-react/dist/esm/icons/info.js:
 lucide-react/dist/esm/icons/loader-circle.js:
 lucide-react/dist/esm/icons/octagon-x.js:
 lucide-react/dist/esm/icons/search.js:
-lucide-react/dist/esm/icons/settings.js:
 lucide-react/dist/esm/icons/triangle-alert.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/lucide-react.js:

@@ -14,15 +14,16 @@ const journalApp = fs.readFileSync(path.join(dashboard, "app.js"), "utf8");
 function helpers() {
   const context = vm.createContext({
     window: {}, location: { pathname: "/center", origin: "http://127.0.0.1:8842" },
-    document: {}, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
+    document: { documentElement: { lang: "en" } }, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
     crypto: { randomUUID: (() => { let value = 0; return () => `intent-${++value}`; })() },
   });
   vm.runInContext(i18n, context);
+  context.window.DashboardNavigation = { register(_kind, mount) { mount({ document: context.document, ui: (context.window.DashboardUI ||= {}), active: true, url: 'http://127.0.0.1:8842/center', request: () => ({ valid: () => true, done() {} }) }); } };
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.lastIndexOf("\n  applyLanguage(); wire(); renderPage(); refresh();");
   assert.ok(binding > 0, "Center event wiring must follow helper declarations");
-  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write };\n})();", context);
+  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write };\n});", context);
   context.center.state.language = "en";
   return { ...context.center, messages: context.window.CENTER_MESSAGES, context };
 }
@@ -30,14 +31,15 @@ function helpers() {
 function journalHelpers() {
   const context = vm.createContext({
     window: {}, location: { pathname: "/products/entry-a", origin: "http://127.0.0.1:8843" },
-    document: {}, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
+    document: { documentElement: { lang: "en" } }, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
   });
   vm.runInContext(fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8"), context);
+  context.window.DashboardNavigation = { register(_kind, mount) { mount({ document: context.document, ui: (context.window.DashboardUI ||= {}), active: true, url: 'http://127.0.0.1:8843/products/entry-a', request: () => ({ valid: () => true, done() {} }) }); } };
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = journalApp.indexOf("\n  document.querySelectorAll('[data-tab]')");
   assert.ok(binding > 0, "Journal event wiring must follow helper declarations");
-  vm.runInContext(journalApp.slice(0, binding) + "\n globalThis.journal = { state, scope, freshCenterRequest, centerRequestDisplayState, scopedCenterRuntimeState, scopedRecordedRuntimeState, runtimeStateValue, runtimeStatusLabel, runtimeLabel, requestContextLabel, centerRuntimeContextValue, historyGroups, fetchFullScopedJournal, journalPageMatches, safePreviewURL };\n})();", context);
+  vm.runInContext(journalApp.slice(0, binding) + "\n globalThis.journal = { state, scope, freshCenterRequest, centerRequestDisplayState, scopedCenterRuntimeState, scopedRecordedRuntimeState, runtimeStateValue, runtimeStatusLabel, runtimeLabel, requestContextLabel, centerRuntimeContextValue, historyGroups, fetchFullScopedJournal, journalPageMatches, safePreviewURL };\n});", context);
   context.journal.state.language = "en";
   return { ...context.journal, context };
 }
@@ -46,7 +48,7 @@ test("queue badge counts requests without treating read-only unknown products as
   const { state, context, renderCounts } = helpers();
   const elements = {};
   context.document.getElementById = id => elements[id] ||= { replaceChildren() { this.textContent = ""; }, append(node) { this.textContent += node.textContent; } };
-  context.window.DashboardUI = { element: (tag, className, text) => ({ textContent: text }) };
+  context.window.DashboardUI.element = (tag, className, text) => ({ textContent: text });
   state.entries = [1, 2, 3].map(id => ({ entryId: `archive-${id}`, kind: "product", executionSummary: { state: "unknown" } }));
   state.summary = { currentRequest: { requestId: "active", state: "running" }, queuedCount: 0, attentionCount: 0 };
   renderCounts();
@@ -134,7 +136,7 @@ test("parallel projects use their own live request and include active exploratio
   assert.equal(normalizeCounts().running, 2);
   const elements = {};
   context.document.getElementById = id => elements[id] ||= { replaceChildren() { this.textContent = ""; }, append(node) { this.textContent += node.textContent; } };
-  context.window.DashboardUI = { element: (tag, className, text) => ({ textContent: text }) };
+  context.window.DashboardUI.element = (tag, className, text) => ({ textContent: text });
   renderCounts();
   assert.equal(elements.queueNavCount.textContent, "4");
   requests[1].liveConfirmedAt = "2000-01-01T00:00:00Z";
