@@ -857,7 +857,7 @@ test('D reference keeps recent products independent of running state and uses co
   expect((await groups.nth(0).locator('.product-row').first().boundingBox()).height).toBeGreaterThanOrEqual(66);
   await expect(page.locator('.status-explanation')).toHaveCount(0);
   const fonts = await page.locator('.product-name').first().evaluate(node => ({ family: getComputedStyle(node).fontFamily, size: getComputedStyle(node).fontSize }));
-  expect(fonts.family).toContain('Arial'); expect(fonts.size).toBe('16px');
+  expect(fonts.family).toContain('Arial'); expect(fonts.size).toBe('18px');
   await page.locator('#productSearch').fill('Product 6');
   await expect(page.locator('.product-row')).toHaveCount(1);
   await expect(page.locator('.product-link')).toHaveText('Product 6');
