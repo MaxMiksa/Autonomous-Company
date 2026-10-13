@@ -1,19 +1,14 @@
 ---
 name: WowCar revenue vocabulary
 slug: wowcar-revenue-vocabulary
-type: system
+type: file
 sources:
   - path: scripts/ops/wowcar-revenue-vocabulary-acceptance.py
     hash: bc164912338c15636cc9183c9327a6f77fdab6aebc86e2747f197f01f824fab2
   - path: tests/test_wowcar_revenue_vocabulary_acceptance.sh
     hash: 2d2ccfe9406d4effbc4872168e5d1f2a48f41842d8ac28397be5a2809dd28083
 sources_digest: 4eb70e546cbb6fb7a1344012fe2a8672d9debb3e0ce1f627feeb641de13670bb
-links:
-  - to: outreach-and-send-gating
-    relation: uses
-    description: >-
-      The revenue vocabulary anchors firm-name matching used by send-gate and
-      g4-check.
+links: []
 generator:
   version: 1
 covers:
@@ -114,11 +109,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The WowCar revenue vocabulary acceptance logic (scripts/ops/wowcar-revenue-vocabulary-acceptance.py) checks that the candidate vocabulary in projects/wowcar/generator-source/kod either remains unchanged or contains exactly 14 anchor terms, with a thin bash harness standardizing invocation and requiring an absolute report path. The 14-anchor mode is a hard acceptance gate.
-
-## Related
-
-- uses [[outreach-and-send-gating]] — The revenue vocabulary anchors firm-name matching used by send-gate and g4-check.
+scripts/ops/wowcar-revenue-vocabulary-acceptance.py checks that the WowCar revenue vocabulary (projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, invoked via a thin bash harness that validates the mode string and requires an absolute report path.
 <!-- context:generated:end -->
 
 ## Notes

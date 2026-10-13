@@ -1,5 +1,5 @@
 ---
-name: Operator alerting watchers
+name: Operator Alerting Watchers
 slug: operator-alerting-watchers
 type: system
 sources:
@@ -11,12 +11,11 @@ sources:
     hash: a6ab97903f7cb5a67e749e16ded1a76ba0e022f2faf2e19ce7b0ad094ab441a7
 sources_digest: 5c3c228beb25ca54708c6ee339112c30711eb6f9e12a565531de8aa90bda240e
 links:
-  - to: rfq-send-pipeline
+  - to: airtable-read-write-wrappers
     relation: uses
     description: >-
-      rfq-reply-watch.py deliberately omits the delivery-failure branch because
-      rfq-send.py only marks successful sends; it watches the same Airtable
-      table rfq-send.py writes.
+      Watchers paginate Airtable tables via the REST API, filtered to
+      sent/non-TEST rows
 generator:
   version: 1
 covers:
@@ -75,11 +74,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A family of advisory, read-only watcher scripts that monitor Airtable queues and outreach rows to alert an operator via Telegram when human attention is warranted. They never write back to Airtable, only to small local JSON state files for escalation throttling (notify once at threshold, then at most once per repeat-hours), and shell out to scripts/core/telegram-notify.sh with secrets from logs/runtime.env. Distinct problems are deliberately separated in messages (e.g. 'operator is the bottleneck' vs 'we never asked'), and each row alerts at most once per outcome class via persistent state.
+A family of advisory, read-only watcher scripts that monitor Airtable queues and local state to alert an operator via Telegram when human attention is warranted. They never write back to Airtable, only to small local JSON state files for throttling (notify once per outcome class, then at most once per repeat window), and shell out to scripts/core/telegram-notify.sh with secrets from logs/runtime.env. Distinct problems are deliberately separated in messages (e.g. 'operator is the bottleneck' vs 'we never asked'), and EKAP/MERSİS pending rows are treated as one shared scarce resource.
 
 ## Related
 
-- uses [[rfq-send-pipeline]] — rfq-reply-watch.py deliberately omits the delivery-failure branch because rfq-send.py only marks successful sends; it watches the same Airtable table rfq-send.py writes.
+- uses [[airtable-read-write-wrappers]] — Watchers paginate Airtable tables via the REST API, filtered to sent/non-TEST rows
 <!-- context:generated:end -->
 
 ## Notes

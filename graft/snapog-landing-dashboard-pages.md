@@ -7,9 +7,9 @@ sources:
     hash: 6a33d1b6152ee8ea3ee6f5617105ce757c915627156072dd9cb1f3b78e32b4af
 sources_digest: aa49b78a6522f0383edeedf2bbb936457599ccfbd81b5ce65f2e99c6e243ad03
 links:
-  - to: snapog-og-image-service
+  - to: snapog-worker
     relation: part_of
-    description: Serves the landing page and dashboard routes of the same Worker
+    description: Renders the landing and dashboard HTML served by the worker.
 generator:
   version: 1
 covers:
@@ -41,11 +41,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Server-side HTML template module rendering the public landing page and dashboard with the 'Carbon Terminal' aesthetic (dark surfaces, amber accent, JetBrains Mono/DM Sans, dot-grid background). Uses template literals exclusively with no client-side framework; the host argument is threaded into code examples and meta tags to build absolute URLs. Lives under _archive, suggesting it may be superseded.
+Server-side HTML template module for SnapOG's public landing page and dashboard. landingPage(host) renders full marketing page (hero, API reference, features, pricing) with 'Carbon Terminal' aesthetic (dark surfaces, amber accent, JetBrains Mono/DM Sans, dot-grid background). Template literals only, no client-side framework. Embeds live OG image preview hitting actual /og endpoint; hardcoded pricing tiers (Free/Pro/Business). host argument threaded into code examples and meta tags to build absolute URLs. Lives under _archive suggesting superseded.
 
 ## Related
 
-- part of [[snapog-og-image-service]] — Serves the landing page and dashboard routes of the same Worker
+- part of [[snapog-worker]] — Renders the landing and dashboard HTML served by the worker.
 <!-- context:generated:end -->
 
 ## Notes

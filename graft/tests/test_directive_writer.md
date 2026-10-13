@@ -1,4 +1,4 @@
-# tests/test_directive_writer.py · [[directive-writer]]
+# tests/test_directive_writer.py · [[directive-writer-lifecycle]]
 
 Integration test suite that runs the real directive_writer.py script as a subprocess against a temp AC_APP_DIR to verify write/append/archive/status/show behaviors.
 

@@ -23,7 +23,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A value-sensitive session-leak scanner for EKAP Bridge records that flags only key-plus-value adjacencies (Set-Cookie, Authorization: Bearer, named credential keys, populated localStorage dumps) while passing assurance sentences and public evidence fields. Encodes a hardening from 2026-07-29: authorization headers are matched only when followed by a known scheme or opaque token of credential length, never by bare prose. Has an embedded selftest with 2 negative and 6 positive fixtures that exits 3 on any misbehavior — a canary gate preventing the scanner from being trusted after a regression, mirroring directive-rule-sweep's trust-gating pattern.
+Value-sensitive session-leak scanner for EKAP Bridge records, flagging only key-plus-value adjacencies (Set-Cookie: name=value, Authorization: Bearer <token>, named credential keys assigned values, populated localStorage dumps) while passing assurance sentences and public evidence fields like KararId and content_hash. Five compiled regex rules; selftest() runs two negative and six positive fixtures and exits 3 if any misbehave — a canary gate preventing the scanner from being trusted after a regression. Hardened 2026-07-29: authorization headers matched only when followed by known scheme or opaque token of credential length, never by bare prose like 'authorization: granted'. Refuses to report CLEAN if any fixture fails, mirroring directive-rule-sweep's trust-gating pattern.
 <!-- context:generated:end -->
 
 ## Notes

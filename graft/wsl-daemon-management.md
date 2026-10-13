@@ -1,5 +1,5 @@
 ---
-name: WSL daemon management
+name: WSL Daemon Management
 slug: wsl-daemon-management
 type: system
 sources:
@@ -13,7 +13,7 @@ sources_digest: 9492ae8c037a012dbfdfbe959108c9028822a628598cab08029dd84ec43e3b99
 links:
   - to: auto-loop-harness
     relation: configures
-    description: Runs scripts/core/auto-loop.sh as a persistent systemd user service.
+    description: Runs scripts/core/auto-loop.sh as a persistent systemd user service
 generator:
   version: 1
 covers: []
@@ -21,11 +21,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-Install/uninstall/status scripts for a per-user systemd service running auto-loop.sh in WSL. The install writes a unit file with Restart=always and 10s delay, optionally loading .auto-loop.env, and advises on loginctl linger for background persistence. The uninstall treats file removal as the authoritative action (disable wrapped in || true so a missing service doesn't abort). The status script reports MainPID/ActiveState/SubState with 'unknown' fallbacks and || true guards for unresponsive systemd.
+Bash scripts to install, uninstall, and report on a per-user systemd service running scripts/core/auto-loop.sh in WSL. The install script writes a unit file with Restart=always and 10s delay, optionally loading .auto-loop.env, and advises on linger for background persistence. The uninstall script treats file removal as the authoritative action (disable is wrapped in || true so a missing service doesn't abort), and the status script reports MainPID/ActiveState/SubState with 'unknown' fallbacks. All use set -euo pipefail and guard systemctl calls for environments without user-level systemd.
 
 ## Related
 
-- configures [[auto-loop-harness]] — Runs scripts/core/auto-loop.sh as a persistent systemd user service.
+- configures [[auto-loop-harness]] — Runs scripts/core/auto-loop.sh as a persistent systemd user service
 <!-- context:generated:end -->
 
 ## Notes

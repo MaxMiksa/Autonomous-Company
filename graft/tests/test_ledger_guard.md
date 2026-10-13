@@ -1,4 +1,4 @@
-# tests/test_ledger_guard.py · [[ledger-guard]]
+# tests/test_ledger_guard.py · [[ledger-guard-audit]]
 
 Test suite for the ledger-guard script, exercising alarm, exemption, backup-rotation, and kill-switch behaviors across scenarios.
 

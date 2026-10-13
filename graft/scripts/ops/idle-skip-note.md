@@ -1,4 +1,4 @@
-# scripts/ops/idle-skip-note.py · [[consensus-memory-state-files]]
+# scripts/ops/idle-skip-note.py · [[consensus-memory-state-files]] [[idle-skip-work-window-brakes]]
 
 Records a model-free idle-skip as one line per UTC day in consensus.md, updated in place and written atomically, so the loop leaves auditable 'checked, nothing moved' evidence without bloating the prompt.
 

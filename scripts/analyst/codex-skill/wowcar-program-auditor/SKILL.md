@@ -105,6 +105,17 @@ and name exactly which directive requirement they leave unsatisfied.
 6. **Cost and efficiency** — read `memories/cost-audit.md`: real vs phantom spend,
    wasted cycles (timeouts, CHATTY verdicts), structural overhead. Quote, never
    recompute.
+6b. **Staleness ("bayatlık") — read `memories/staleness-report.md`** (written by
+   `scripts/ops/staleness-report.py` right before this run; if missing or older
+   than this run, say NOT MEASURED). It flags: directive sections older than 21
+   days still written in standing-queue/BOŞ-CYCLE language, RESOLVED OPREQ text
+   still inline, pre-recharter decisions, stale ledger header, oversized PROMPT /
+   consensus sections, weekly-report gaps, backup piles. For EACH flagged row give
+   one verdict — **ARŞİVLE** (closed, summary suffices), **BIRAK** (still load-
+   bearing, say why), or **SOR** (needs the sponsor) — and name the one line of
+   evidence (a consensus/receipt path or a grep) that shows the item is closed.
+   Interpret only; never recompute, never propose that the company archive its
+   own directive (archiving is the liaison's `directive_writer.py archive`).
 7. **Route what you found — the routing is not optional:**
    - **Company-fixable** (an artifact to produce, a ledger entry to add, a claim to
      re-derive, memory hygiene) → a "Önerilen sonraki adımlar" list the company can
@@ -123,6 +134,7 @@ and name exactly which directive requirement they leave unsatisfied.
 4. Invariant re-derivations (what was checked, what could not be reached).
 5. Company's reading vs yours, disagreement by disagreement.
 6. Cost and efficiency (quoted from the audit) + what it means.
+6b. Bayatlık (staleness) — one verdict per flagged row: ARŞİVLE / BIRAK / SOR + evidence.
 7. Önerilen sonraki adımlar (company-fixable, finish states).
 8. OPREQ önerileri (operator/sponsor decisions), or "none".
 9. Confidence, open questions, and the single artifact that would most change this

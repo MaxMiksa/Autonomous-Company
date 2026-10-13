@@ -1,12 +1,15 @@
 ---
-name: Wowcar revenue relabel acceptance
+name: Wowcar Revenue Relabel Acceptance
 slug: wowcar-revenue-relabel-acceptance
 type: file
 sources:
   - path: scripts/ops/wowcar-revenue-vocabulary-acceptance.py
     hash: bc164912338c15636cc9183c9327a6f77fdab6aebc86e2747f197f01f824fab2
 sources_digest: 4ac41bf99d27b7821e402c8d05774f95ac477ff958d361739e49e65a248d1add
-links: []
+links:
+  - to: state-snapshot-staleness
+    relation: uses
+    description: Hashes the Wowcar source directory that state-snapshot.py also tracks
 generator:
   version: 1
 covers:
@@ -107,7 +110,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A fail-closed acceptance harness pinning the live Wowcar repository as an immutable baseline and proving a candidate copy with eight approved vocabulary edits (replacing 'Faiz geliri' with 'Vade farkı geliri') plus six column-width adjustments produces byte-identical outputs. Hard-pins CPython 3.13.5, LibreOffice 25.2.3.2, and exact numpy/numpy-financial/openpyxl/et-xmlfile versions; verifies the whole tree against a pinned SHA-256 manifest; reverses edits deterministically to prove byte-equality; runs the full build chain and a numeric probe that canonicalizes all numeric leaves. Deterministic env (PYTHONHASHSEED=0, PYTHONDONTWRITEBYTECODE=1).
+A fail-closed acceptance harness for a temporary Wowcar revenue relabel, pinning the live repository as an immutable baseline and proving a candidate copy with eight approved vocabulary edits (replacing 'Faiz geliri' with 'Vade farkı geliri') plus six column-width adjustments produces byte-identical outputs. It hard-pins exact runtime versions (CPython 3.13.5, LibreOffice 25.2.3.2, numpy, openpyxl), compares the tree against a pinned SHA-256 manifest, reverses edits deterministically to prove byte-equality, and runs the full build chain (build_xlsx, recalc, test, capraz) plus a numeric probe. Fail-closed via AcceptanceFailure/ConfigurationFailure exceptions with deterministic environment settings.
+
+## Related
+
+- uses [[state-snapshot-staleness]] — Hashes the Wowcar source directory that state-snapshot.py also tracks
 <!-- context:generated:end -->
 
 ## Notes

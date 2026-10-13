@@ -1,4 +1,4 @@
-# projects/headinspect/src/index.ts · [[headinspect-header-inspector]]
+# projects/headinspect/src/index.ts · [[headinspect-worker]]
 
 Cloudflare Worker entrypoint that routes requests to health, badge, and inspect endpoints, validates URLs against an SSRF blocklist, follows redirects with a cap, and returns JSON/HTML/SVG responses.
 

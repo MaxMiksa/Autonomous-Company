@@ -1,4 +1,4 @@
-# scripts/ops/registry-queue-watch.py · [[operator-alerting-watchers]] [[registry-queue-watch]]
+# scripts/ops/registry-queue-watch.py · [[operator-alerting-watchers]] [[registry-tooling]]
 
 Advisory watcher that tells the operator when Registry/EKAP bridge queues have resolvable PENDING requests or when firms are Held on attribution with no bridge request ever queued, throttling notifications via a state file.
 

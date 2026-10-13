@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/alerts/index.ts · [[snapog-cost-alerting]]
+# projects/_archive/snapog/src/alerts/index.ts · [[snapog-cost-alerts]]
 
 Entry point for the SnapOG cost-alerting cron job, orchestrating checks and webhook delivery.
 

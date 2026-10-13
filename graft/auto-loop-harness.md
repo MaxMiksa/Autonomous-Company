@@ -1,7 +1,7 @@
 ---
-name: Auto-loop harness
+name: Auto-Loop Harness
 slug: auto-loop-harness
-type: system
+type: concept
 sources:
   - path: tests/test_active_window.sh
     hash: fcd17dad9794b155cb623d85a88dd74bf10c12961df71a37f446f030958135fd
@@ -19,22 +19,17 @@ sources:
     hash: 38e285a908cfdba71566f50ec2429fed8dc40ccdaaf68886e24e27399bba5bef
 sources_digest: 2dd78516d34c5ab8431049466cf3e95e0cc7bbbae578d6701eee302cba740f09
 links:
-  - to: cycle-cost-risk-audit
-    relation: produces
-    description: The loop writes cycle NDJSON files that the audit scripts parse.
-  - to: prod-mechanism-guard
+  - to: cycle-escalation-brakes
+    relation: uses
+    description: >-
+      Wires work-window.py, turn-bloat-brake.py, and ledger-guard.py into the
+      cycle flow
+  - to: production-surface-guard
     relation: validates
-    description: >-
-      auto-loop.sh is a protected surface that the prod-mechanism guard blocks
-      unplanned edits to.
-  - to: turn-bloat-brake-py-escalation
-    relation: uses
-    description: The loop invokes the bloat brake's --record and --feedback modes.
-  - to: work-window-brake-watchdog
-    relation: uses
-    description: >-
-      The loop gates idle-skip on _workwin_open and wires the watchdog alarm
-      post-cycle.
+    description: auto-loop.sh is the primary protected surface the guard defends
+  - to: wsl-daemon-management
+    relation: implements
+    description: The daemon runs this loop persistently
 generator:
   version: 1
 covers: []
@@ -42,14 +37,13 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) and its operational guards, which the many ops scripts plug into. It runs budget gates (15 behaviors from APP-263), a work-window brake, ledger-guard, consensus-prune hook, and turn-bloat brake, with ccusage spend measurement that is fail-closed (degraded reads never lower a same-period prior observation) and summed from two disjoint sources (ccusage figure + TOTAL_SPEND_LEDGER rows) rather than maxed. The business-hours gate _window_active() must run before select_cycle_engine and before the loop_count increment so off-hours ticks don't burn cycle numbers. This node is grounded in the many test scripts that pin its wiring and contracts.
+The central autonomous loop (scripts/core/auto-loop.sh) that drives cycles, selects engines, enforces budget gates, and wires all the operational guards. It is the protected surface that prod-mechanism-guard.py defends and the WSL daemon runs. Budget gates (APP-263) are fail-closed: ccusage measurement latches a hold on first-ever failure and returns NA not 0, degraded reads never lower a same-period prior observation, and Codex spend is summed from two disjoint sources (ccusage + TOTAL_SPEND_LEDGER) rather than maxed, which previously caused real spend to vanish. The business-hours gate _window_active() must run before select_cycle_engine and before the loop_count increment so off-hours ticks don't burn cycle numbers.
 
 ## Related
 
-- produces [[cycle-cost-risk-audit]] — The loop writes cycle NDJSON files that the audit scripts parse.
-- validates [[prod-mechanism-guard]] — auto-loop.sh is a protected surface that the prod-mechanism guard blocks unplanned edits to.
-- uses [[turn-bloat-brake-py-escalation]] — The loop invokes the bloat brake's --record and --feedback modes.
-- uses [[work-window-brake-watchdog]] — The loop gates idle-skip on _workwin_open and wires the watchdog alarm post-cycle.
+- uses [[cycle-escalation-brakes]] — Wires work-window.py, turn-bloat-brake.py, and ledger-guard.py into the cycle flow
+- validates [[production-surface-guard]] — auto-loop.sh is the primary protected surface the guard defends
+- implements [[wsl-daemon-management]] — The daemon runs this loop persistently
 <!-- context:generated:end -->
 
 ## Notes

@@ -1,4 +1,4 @@
-# projects/auto-company-site/functions/listeden-cik.js · [[auto-company-site-pages-functions]]
+# projects/auto-company-site/functions/listeden-cik.js · [[auto-company-site-functions]]
 
 Presentation-layer Cloudflare Worker that proxies the branded opt-out URL to the comms service's /unsubscribe endpoint, preserving the existing signature scheme so in-the-wild links keep working.
 

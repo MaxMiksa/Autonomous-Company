@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/og/templates.ts · [[snapog-og-image-service]]
+# projects/_archive/snapog/src/og/templates.ts · [[snapog-og-rendering]]
 
 Module defining satori-compatible VNode templates for rendering SnapOG open-graph images, including three visual themes and a dispatcher.
 

@@ -1,4 +1,4 @@
-# scripts/session-brief.py · [[session-brief-hook]]
+# scripts/session-brief.py · [[session-brief-compact-ritual]]
 
 SessionStart hook'u: oturum başlarken ölçülen git/repo durumunu ve resume/preflight bilgisini doğrudan bağlama enjekte eden, bayatlayamayan brifing betiği.
 

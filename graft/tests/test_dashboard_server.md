@@ -1,4 +1,4 @@
-# tests/test_dashboard_server.py · [[dashboard-server]] [[spending-control-and-budget-gates]]
+# tests/test_dashboard_server.py · [[dashboard-server]]
 
 Test suite for the dashboard server module, covering status parsing, action dispatch, engine runtime parsing, settings resolution, window cutoff, and graft freshness.
 

@@ -15,6 +15,8 @@ sources:
     hash: 51d700c7d869599d1a6d48913b0097143e7b0c93a520123dd7cf3bb5c8c874fc
   - path: tests/test_idle_skip.sh
     hash: 13ce9f0b8801b94a1bc896bd2db53f2fc68c2984b45db8372050ca760e1edb53
+  - path: tests/test_mcp_config_manifest_sync.sh
+    hash: 372a198973bc97e73dd00c1acafe2fe458887504be2f5ef9849242d6549c1112
   - path: tests/test_mixed_harness.sh
     hash: bd8a1f81df957e0bfdfacf44982a2274a58809d5f9bd8618c64c3efeecb868cc
   - path: tests/test_prompt_assembly.sh
@@ -25,28 +27,23 @@ sources:
     hash: c75dd121edbe7aed5432f718bdfff952149464b77f9ab22baced3682261ebc98
   - path: tests/test_tier_ladder_daily.sh
     hash: d0bfb4ace48e1fa9665e17059be3f618b46fda0dcf432544a6bb16c07a3ed8db
-sources_digest: 6ffdf9f47fdad10a02bd1da96f7bc19ec08a7dfc09cb1a3a2214e4af1870209b
+sources_digest: b70fd453b8a462028d0f7423bebc729570ef2ccaac738d640080c6a475fc4487
 links:
-  - to: cycle-metadata-extraction
+  - to: cycle-metadata-prompt-transport-contract
     relation: implements
     description: >-
-      extract_cycle_metadata() must not kill the loop when Codex is routed
-      through alternation or fallback (APP-240).
-  - to: mcp-configuration-system
+      extract_cycle_metadata() and prompt transport rules are pinned by
+      dedicated regression tests.
+  - to: engine-usage-cost-adapter
     relation: uses
     description: >-
-      auto-loop.sh's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync
-      with the manifest and generated config, or boot crash-loops.
-  - to: operator-request-notification
-    relation: uses
+      auto-loop calls the cost adapter to price cycles; the model-hint mechanism
+      handles watchdog-killed cycles with no done event.
+  - to: mcp-config-manifest-sync
+    relation: depends_on
     description: >-
-      The idle-skip branch always runs operator_request_notify.py's OPREQ ledger
-      step before sleeping.
-  - to: prompt-transport-contract
-    relation: implements
-    description: >-
-      run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN;
-      run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE.
+      auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync
+      with the manifest or boot crash-loops.
 generator:
   version: 1
 covers:
@@ -69,14 +66,13 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, idle detection, discretionary spend caps, tier-ladder budget selection, one-shot operator escalation, and mixed-harness attribution. It is the highest-risk production surface: a stray quote, a set -e shape, or a counter reset can crash the whole loop, which is why an unusually large test suite extracts its function bodies verbatim via awk/sed and runs them under the same set -euo pipefail options as boot. Key invariants: the cycle counter must be monotonic across redeploys (never reset to 1), prompts are transported via STDIN (never argv, to avoid E2BIG), the idle-skip branch never calls a model, and the mixed-harness per-cycle variables override any global LOOP_HARNESS.
+The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, tier selection, escalation, idle-skip, and discretionary budget gating. It is the most safety-critical surface in the repo: a single stray quote or a `[ test ] && action` list as a function's last command can kill the whole loop (APP-240), so its internals are heavily regression-tested by extracting real function bodies via awk/sed rather than reimplementing them. Key invariants: cycle counter must be monotonic across redeploys (persisted + self-healed from cycle-NNNN logs), prompts are transported via STDIN (never argv, to avoid E2BIG), and per-cycle harness/provider variables override any global LOOP_HARNESS.
 
 ## Related
 
-- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation or fallback (APP-240).
-- uses [[mcp-configuration-system]] — auto-loop.sh's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync with the manifest and generated config, or boot crash-loops.
-- uses [[operator-request-notification]] — The idle-skip branch always runs operator_request_notify.py's OPREQ ledger step before sleeping.
-- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE.
+- implements [[cycle-metadata-prompt-transport-contract]] — extract_cycle_metadata() and prompt transport rules are pinned by dedicated regression tests.
+- uses [[engine-usage-cost-adapter]] — auto-loop calls the cost adapter to price cycles; the model-hint mechanism handles watchdog-killed cycles with no done event.
+- depends on [[mcp-config-manifest-sync]] — auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync with the manifest or boot crash-loops.
 <!-- context:generated:end -->
 
 ## Notes

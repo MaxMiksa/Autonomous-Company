@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/alerts/webhook.ts · [[snapog-cost-alerting]]
+# projects/_archive/snapog/src/alerts/webhook.ts · [[snapog-cost-alerts]]
 
 Module that posts fired alerts to a configured webhook URL as generic JSON, compatible with Slack/Discord incoming webhooks.
 

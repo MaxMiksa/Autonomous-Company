@@ -1,4 +1,4 @@
-# projects/headinspect/src/inspect.ts · [[headinspect-header-inspector]]
+# projects/headinspect/src/inspect.ts · [[headinspect-inspection-logic]]
 
 Pure functions module that categorizes HTTP response headers, generates per-header commentary and sanity flags, summarizes Set-Cookie without exposing raw values, and grades overall header security with a letter score.
 

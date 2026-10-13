@@ -153,6 +153,15 @@ if [ -f "$APP/scripts/ops/cost-audit.py" ]; then
     log "[$STAMP] NOTE: cost audit failed — the report's cost section will say NOT MEASURED"
   fi
 fi
+# Staleness measurements (2026-10-13): deterministic, read-only; the skill's step 6b
+# interprets them. Failure is logged, never fatal — the report then says NOT MEASURED.
+if [ -f "$APP/scripts/ops/staleness-report.py" ]; then
+  if python3 "$APP/scripts/ops/staleness-report.py" --app "$APP" >>"$PROGRESS" 2>&1; then
+    log "[$STAMP] staleness report refreshed (memories/staleness-report.md)"
+  else
+    log "[$STAMP] NOTE: staleness report failed — the report's staleness section will say NOT MEASURED"
+  fi
+fi
 
 read -r -d '' PROMPT <<EOF
 FIRST, read $SKILL_MD in full and adopt it as your operating skill for this task —
@@ -168,6 +177,7 @@ Inputs are in this workspace ($APP) — find them with rg:
 - memories/operator-decisions.md               (resolved operator/OPREQ decisions; same supersession rule)
 - docs/operations/              (receipts, ledgers, weekly reports, gate artifacts)
 - memories/cost-audit.md        (TODAY's deterministic cost measurements — interpret, never recompute; if missing or stale, say so)
+- memories/staleness-report.md  (TODAY's deterministic staleness flags — skill step 6b: ARŞİVLE / BIRAK / SOR per flagged row; interpret, never recompute)
 
 STANDING SCOPE (operator re-charter, 2026-08-24): the company's ONLY mission is the
 Wowcar 2.0 program. The Tender Track and the candidate registry are FROZEN HISTORICAL
