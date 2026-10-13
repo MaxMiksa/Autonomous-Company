@@ -1,22 +1,23 @@
 ---
 name: Operator Escalation Gate
 slug: operator-escalation-gate
-type: system
+type: file
 sources:
   - path: scripts/core/operator_request_notify.py
     hash: 153aaa73966afd59b8ac7d1a58c29a7279df6297d84743b2375cedd2135ceb18
-  - path: scripts/ops/operator-action-router.py
-    hash: 25fd8206f44d0baa7b87a910d0d1846fe5ef1b155289d1a769994aff6817587e
-sources_digest: 6c8d18f6224d1df4ab45e31477738e93e5d6410d2dfccd2d50861da92cfff638
+sources_digest: 08e270506033e760552382aabd9d83029cb15360041cab348a97e0080bea68bf
 links:
-  - to: human-directive-lifecycle
+  - to: consensus-memory-state-files
     relation: uses
     description: >-
-      Resolves requests via explicit directives in human-directive.md; router
-      reports PENDING directive status
-  - to: operator-notification-channel
+      Reads memories/operator-requests.md and writes the Awaiting Operator
+      projection into consensus.md
+  - to: human-directive-write-path
     relation: uses
-    description: Both send Telegram notifications via telegram-notify.sh
+    description: Reads explicit directives in human-directive.md as resolution evidence
+  - to: telegram-notification-channel
+    relation: uses
+    description: Sends operator alerts via the Telegram Bot API
 generator:
   version: 1
 covers:
@@ -119,55 +120,17 @@ covers:
   - symbol: main
     kind: function
     at: 'scripts/core/operator_request_notify.py:L982-L994'
-  - symbol: _now
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L78-L79'
-  - symbol: read_hold
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L82-L102'
-  - symbol: read_opreqs
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L105-L118'
-  - symbol: read_directive
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L121-L134'
-  - symbol: collect_items
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L137-L174'
-  - symbol: render
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L177-L183'
-  - symbol: set_hash
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L186-L189'
-  - symbol: should_notify
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L192-L207'
-  - symbol: load_state
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L210-L214'
-  - symbol: write_state
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L217-L225'
-  - symbol: clear_state
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L228-L232'
-  - symbol: notify
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L235-L251'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/operator-action-router.py:L254-L296'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-The sole authority deciding when human operator input is genuinely needed and managing the notification lifecycle. Reads operator requests from memories/operator-requests.md, deduplicates via content fingerprints, validates that only seven escalation-worthy types trigger notifications, and requires deterministic verification (checksum-matched evidence, structured verification logs, or explicit directives) for resolution. Also projects the 'Awaiting Operator' section of consensus.md and consolidates actionable items into a single Telegram digest.
+operator_request_notify.py is the sole authority for deciding when human operator input is genuinely needed and managing the notification lifecycle. It reads operator-requests.md, deduplicates via content fingerprints, sends Telegram notifications only for seven escalation-worthy types, and requires deterministic verification (checksum-matched evidence, structured verification logs, or explicit directives) for resolution. It regenerates the Awaiting Operator projection in consensus.md and deliberately refuses to invent requests.
 
 ## Related
 
-- uses [[human-directive-lifecycle]] — Resolves requests via explicit directives in human-directive.md; router reports PENDING directive status
-- uses [[operator-notification-channel]] — Both send Telegram notifications via telegram-notify.sh
+- uses [[consensus-memory-state-files]] — Reads memories/operator-requests.md and writes the Awaiting Operator projection into consensus.md
+- uses [[human-directive-write-path]] — Reads explicit directives in human-directive.md as resolution evidence
+- uses [[telegram-notification-channel]] — Sends operator alerts via the Telegram Bot API
 <!-- context:generated:end -->
 
 ## Notes

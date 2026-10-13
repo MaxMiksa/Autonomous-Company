@@ -1,4 +1,4 @@
-# scripts/core/operator_request_notify.py · [[operator-escalation-gate]] [[operator-request-notification-system]]
+# scripts/core/operator_request_notify.py · [[consensus-memory-state-files]] [[operator-escalation-gate]] [[operator-request-notification]]
 
 Deterministic operator-escalation gate that decides which operator requests are genuinely new/changed (dedup on content fingerprint), sends Telegram notifications only for escalation-worthy types, marks delivery only on Telegram API ok:true, and flips OPEN to RESOLVED only with a directive reference plus type-specific deterministic verification.
 

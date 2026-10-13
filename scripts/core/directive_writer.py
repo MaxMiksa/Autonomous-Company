@@ -26,12 +26,30 @@ Two rules the pipeline exists to enforce, both of them fail-closed:
 
 Subcommands
   write   --body-file F [--allow-pending] [--actor NAME]
+  append  --section-file F [--allow-pending] [--force-size]
+  archive --drop-prefix P [--drop-prefix P ...] --summary-file S [--allow-pending]
   status  --expect-status S --to S2 --expect-body-sha256 H [--receipt F]
   restore --from-file SNAP --expect-sha256 H [--actor NAME]
-  show
+  show    [--sections]
 
-Exit codes: 0 ok · 2 refused by a gate (in-flight, hash mismatch) · 3 I/O or
-verification failure. A refusal is a normal outcome and says why on stderr.
+`append` / `archive` (2026-10-13). `write` REPLACES the whole body, so for two
+months every operator addendum re-sent the entire live body with a section
+glued on; closed sections never left, the body reached 166 KB (10-11) and 82 KB
+again (10-13), and the loop — which reads this file every cycle — kept treating
+stale "standing queues" as binding. `append` adds ONE `## ` section to the live
+body through the same lock → gate → backup → atomic → verify → audit pipeline
+(so the loop's directive_unaudited check stays green) and sets Status PENDING.
+`archive` moves closed sections VERBATIM into `memories/human-directive-archive.md`
+and puts a short summary in their place; the first chunk (everything before the
+first `## ` heading after `## Directive` — the ANA DİREKTİF) is never touched,
+and a section carrying `Resolves:` / `Decision for …:` lines (OPREQ resolver
+input) can only go if the summary carries the same lines. Status is NOT changed
+by `archive`. Size brake: a body over DIRECTIVE_BODY_WARN_BYTES (50000) warns
+on stderr + Telegram; over DIRECTIVE_BODY_MAX_BYTES (90000) `append` refuses
+unless --force-size. `show --sections` prints heading + bytes.
+
+Exit codes: 0 ok · 2 refused by a gate (in-flight, hash mismatch, size) · 3 I/O
+or verification failure. A refusal is a normal outcome and says why on stderr.
 """
 from __future__ import annotations
 
@@ -54,8 +72,16 @@ RECOVERY = APP / "memories" / "human-directive-recovery"
 AUDIT = APP / "memories" / "directive-audit.log"
 LOCK = APP / "memories" / ".human-directive.lock"
 NOTIFY = APP / "scripts" / "core" / "telegram-notify.sh"
+ARCHIVE = APP / "memories" / "human-directive-archive.md"
 
 STATUS_RE = re.compile(r"^## Status\s*\n(\S+)\s*$", re.MULTILINE)
+DIRECTIVE_MARK = "\n## Directive\n"
+RESOLVER_LINE_RE = re.compile(r"^(Resolves:|Decision for )", re.MULTILINE)
+
+# Size brake (2026-10-13). The loop reads the whole file every cycle; measured
+# 2026-10-11: 166 KB body → prompt over the 120 KB argv cap for 11 cycles.
+WARN_BYTES = int(os.environ.get("DIRECTIVE_BODY_WARN_BYTES", "50000"))
+MAX_BYTES = int(os.environ.get("DIRECTIVE_BODY_MAX_BYTES", "90000"))
 
 # OPREQ-GOV-DIRECTIVE-BODY-001 (operator-authorized 2026-08-11 via the cockpit
 # operator-decision panel — memories/operator-decisions.md). Two consecutive
@@ -281,6 +307,92 @@ class Refused(Exception):
     """A gate said no. Not an error — the point of the gate."""
 
 
+# ---- body structure helpers (append / archive / show --sections) ------------
+
+def live_body(text: str) -> str:
+    """The directive body: everything after the '## Directive' line. '' if absent."""
+    i = text.find(DIRECTIVE_MARK)
+    return "" if i < 0 else text[i + len(DIRECTIVE_MARK):]
+
+
+def split_body(body: str) -> tuple[str, list[tuple[str, str]]]:
+    """(first_chunk, [(heading_line, section_text), ...]) split on '^## '.
+
+    The first chunk is everything before the first '## ' line that follows the
+    ANA DİREKTİF block. The directive's own preamble starts with '## Kaynak
+    belgeler' and the main text with '# ANA DİREKTİF' / '## WOWCAR …' /
+    '## Operatör açıklaması'; those three headings are treated as part of the
+    first chunk so the main directive is never split or archived.
+    """
+    protected = ("## Kaynak belgeler", "## WOWCAR 2.0", "## Operatör açıklaması")
+    first: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+    for line in body.splitlines(keepends=True):
+        if line.startswith("## ") and not line.startswith(protected):
+            sections.append((line.rstrip("\n"), [line]))
+        elif sections:
+            sections[-1][1].append(line)
+        else:
+            first.append(line)
+    return "".join(first), [(h, "".join(ls)) for h, ls in sections]
+
+
+def section_sizes(body: str) -> list[tuple[int, str]]:
+    first, secs = split_body(body)
+    out = [(len(first.encode("utf-8")), "(ANA DİREKTİF + önsöz)")]
+    out += [(len(t.encode("utf-8")), h) for h, t in secs]
+    return out
+
+
+def size_brake(body: str, actor: str, cmd: str, force: bool) -> None:
+    """Warn above WARN_BYTES; refuse `append` above MAX_BYTES unless forced."""
+    n = len(body.encode("utf-8"))
+    if n <= WARN_BYTES:
+        return
+    top = sorted(section_sizes(body), reverse=True)[:5]
+    top_s = "; ".join(f"{h[:60]} {b // 1024} KB" for b, h in top)
+    if n > MAX_BYTES and cmd == "append" and not force:
+        raise Refused(
+            f"directive body would be {n // 1024} KB > DIRECTIVE_BODY_MAX_BYTES "
+            f"{MAX_BYTES // 1024} KB. Archive closed sections first "
+            f"(directive_writer.py archive) or pass --force-size. Largest: {top_s}")
+    print(f"warn: directive body is {n // 1024} KB (> {WARN_BYTES // 1024} KB). "
+          f"Largest sections: {top_s}. Use `archive` to collapse closed sections.",
+          file=sys.stderr)
+    notify(f"⚠️ Direktif gövdesi {n // 1024} KB ({cmd}, {actor}) — eşik {WARN_BYTES // 1024} KB. "
+           f"En büyük bölümler: {top_s}. `directive_writer.py archive` ile küçült.")
+
+
+def _pending_gate(args, live: str, live_sha: str, what: str) -> bool:
+    """True when the write may proceed; prints/audits/notifies the refusal otherwise."""
+    _, _, live_status = read_live()
+    if live_status == "PENDING" and not args.allow_pending:
+        print(f"refused: the live directive is PENDING — that is in-flight work.\n"
+              f"         Pass --allow-pending to {what} it deliberately.", file=sys.stderr)
+        audit(f"{what}-refused", args.actor, live_sha, "", "reason=in-flight-pending")
+        _age, _completion = _why_pending(live)
+        _msg = (f"🚧 Directive {what} NOT applied ({args.actor}).\n\n"
+                f"REFUSED, nothing written — the live directive has been PENDING{_age}. "
+                "This is the in-flight gate, not an error.\n\n")
+        if _completion:
+            _msg += f"WHY IT IS STILL PENDING — its own Completion clause:\n{_completion}\n\n"
+        _msg += "To proceed deliberately: AC_ALLOW_PENDING=1 (apply-directive.sh) / --allow-pending."
+        notify(_msg)
+        return False
+    return True
+
+
+def _refuse_section_refs(body: str) -> bool:
+    missing = undefined_section_refs(body)
+    if not missing:
+        return False
+    refs = ", ".join(f"§{n}" for n in missing)
+    print(f"refused: merged directive body references {refs} with no matching "
+          f"'## §N' header (OPREQ-GOV-DIRECTIVE-BODY-001). Nothing was written.",
+          file=sys.stderr)
+    return True
+
+
 def with_lock(fn):
     def wrapper(*a, **kw):
         LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -348,6 +460,7 @@ def cmd_write(args) -> int:
         notify(_msg)
         return 2
 
+    size_brake(body, args.actor, "write", True)
     bk = backup(live, "preoverwrite")
     new = f"{HEADER}## Status\nPENDING\n\n## Updated\n{now()}\n\n## Directive\n{body}"
     atomic_write(new)
@@ -356,6 +469,106 @@ def cmd_write(args) -> int:
           f"backup={bk.name if bk else '-'} allow_pending={args.allow_pending}")
     print(f"ok: directive written, status=PENDING sha256={new_sha[:16]} "
           f"backup={bk.name if bk else '(none — no previous file)'}")
+    return 0
+
+
+@with_lock
+def cmd_append(args) -> int:
+    """Add ONE '## ' section to the live body; Status becomes PENDING."""
+    section = Path(args.section_file).read_text(encoding="utf-8").strip("\n") + "\n"
+    if not section.startswith("## "):
+        print("error: section file must start with a '## ' heading (one section per append)",
+              file=sys.stderr)
+        return 3
+    live, live_sha, live_status = read_live()
+    if not live or DIRECTIVE_MARK not in live:
+        print("refused: no live directive to append to — use `write` first", file=sys.stderr)
+        return 2
+    body = live_body(live).rstrip("\n") + "\n\n" + section
+    if _refuse_section_refs(body):
+        return 2
+    if not _pending_gate(args, live, live_sha, "append"):
+        return 2
+    size_brake(body, args.actor, "append", args.force_size)
+    bk = backup(live, "preappend")
+    new = f"{HEADER}## Status\nPENDING\n\n## Updated\n{now()}\n\n## Directive\n{body}"
+    atomic_write(new)
+    new_sha = verify_written(new)
+    heading = section.splitlines()[0][:80]
+    audit("append", args.actor, live_sha, new_sha,
+          f"backup={bk.name if bk else '-'} section={heading!r} "
+          f"body_bytes={len(body.encode('utf-8'))} allow_pending={args.allow_pending}")
+    print(f"ok: section appended, status=PENDING sha256={new_sha[:16]} "
+          f"body_sha256={sha(body_of(new))} body_bytes={len(body.encode('utf-8'))} "
+          f"backup={bk.name if bk else '-'}")
+    return 0
+
+
+@with_lock
+def cmd_archive(args) -> int:
+    """Move closed sections verbatim to the archive file; summary takes their place.
+
+    Status is untouched (archiving is not work for the loop). The first chunk is
+    never dropped; sections carrying OPREQ resolver lines only go when the
+    summary repeats those lines.
+    """
+    summary = Path(args.summary_file).read_text(encoding="utf-8").strip("\n") + "\n"
+    if not summary.startswith("## "):
+        print("error: summary file must start with a '## ' heading", file=sys.stderr)
+        return 3
+    live, live_sha, live_status = read_live()
+    if not live or DIRECTIVE_MARK not in live:
+        print("refused: no live directive", file=sys.stderr)
+        return 2
+    first, secs = split_body(live_body(live))
+    prefixes = tuple(args.drop_prefix)
+    drop = [(h, t) for h, t in secs if h.startswith(prefixes)]
+    if not drop:
+        print("error: no section matches the given --drop-prefix values", file=sys.stderr)
+        return 3
+    summary_resolvers = set(l.strip() for l in summary.splitlines() if RESOLVER_LINE_RE.match(l))
+    for h, t in drop:
+        needed = [l.strip() for l in t.splitlines() if RESOLVER_LINE_RE.match(l)]
+        missing = [l for l in needed if l not in summary_resolvers]
+        if missing:
+            print(f"refused: section {h[:70]!r} carries OPREQ resolver lines the summary "
+                  f"does not repeat: {missing[0][:90]!r}. Dropping it would re-open the "
+                  "OPREQ. Add the lines to the summary. Nothing written.", file=sys.stderr)
+            return 2
+    if not _pending_gate(args, live, live_sha, "archive"):
+        return 2
+    kept: list[str] = [first]
+    inserted = False
+    for h, t in secs:
+        if (h, t) in drop:
+            if not inserted:
+                kept.append(summary.rstrip("\n") + "\n\n")
+                inserted = True
+            continue
+        kept.append(t if t.endswith("\n") else t + "\n")
+    body = "".join(kept).rstrip("\n") + "\n"
+    if _refuse_section_refs(body):
+        return 2
+    bk = backup(live, "prearchive")
+    stamp = now()
+    ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHIVE.open("a", encoding="utf-8") as fh:
+        for h, t in drop:
+            fh.write(f"\n<!-- archived {stamp} from {live_sha[:16]} section_sha16={sha(t)[:16]} -->\n")
+            fh.write(t.rstrip("\n") + "\n")
+    normalize_ownership(ARCHIVE)
+    status_line = STATUS_RE.search(live)
+    status = status_line.group(1) if status_line else "PENDING"
+    new = f"{HEADER}## Status\n{status}\n\n## Updated\n{stamp}\n\n## Directive\n{body}"
+    atomic_write(new)
+    new_sha = verify_written(new)
+    before_b, after_b = len(live_body(live).encode("utf-8")), len(body.encode("utf-8"))
+    audit("archive", args.actor, live_sha, new_sha,
+          f"backup={bk.name if bk else '-'} dropped={len(drop)} bytes={before_b}->{after_b} "
+          f"status={status} headings={'|'.join(h[:40] for h, _ in drop)!r}")
+    size_brake(body, args.actor, "archive", True)
+    print(f"ok: {len(drop)} section(s) archived to {ARCHIVE.name}, body {before_b}->{after_b} bytes, "
+          f"status={status} sha256={new_sha[:16]} body_sha256={sha(body_of(new))}")
     return 0
 
 
@@ -442,6 +655,12 @@ def cmd_show(args) -> int:
     print(f"status={live_status or '(none)'}")
     print(f"file_sha256={live_sha or '(none)'}")
     print(f"body_sha256={sha(body_of(live)) if live else '(none)'}")
+    if live:
+        body = live_body(live)
+        print(f"body_bytes={len(body.encode('utf-8'))}")
+        if getattr(args, "sections", False):
+            for b, h in section_sizes(body):
+                print(f"{b:7d}  {h}")
     return 0
 
 
@@ -454,6 +673,16 @@ def main(argv: list[str]) -> int:
     w.add_argument("--body-file", required=True)
     w.add_argument("--allow-pending", action="store_true")
 
+    a = sub.add_parser("append"); a.set_defaults(fn=cmd_append)
+    a.add_argument("--section-file", required=True)
+    a.add_argument("--allow-pending", action="store_true")
+    a.add_argument("--force-size", action="store_true")
+
+    ar = sub.add_parser("archive"); ar.set_defaults(fn=cmd_archive)
+    ar.add_argument("--drop-prefix", action="append", required=True)
+    ar.add_argument("--summary-file", required=True)
+    ar.add_argument("--allow-pending", action="store_true")
+
     s = sub.add_parser("status"); s.set_defaults(fn=cmd_status)
     s.add_argument("--expect-status", required=True)
     s.add_argument("--to", required=True)
@@ -464,7 +693,8 @@ def main(argv: list[str]) -> int:
     r.add_argument("--from-file", required=True)
     r.add_argument("--expect-sha256", required=True)
 
-    sub.add_parser("show").set_defaults(fn=cmd_show)
+    sh = sub.add_parser("show"); sh.set_defaults(fn=cmd_show)
+    sh.add_argument("--sections", action="store_true", help="heading + byte table of the body")
 
     # baseline / reconcile are NOT operations of this protocol, by design
     # (operator mandate, 2026-07-29): the agent must never be able to bless a

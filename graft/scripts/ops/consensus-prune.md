@@ -1,4 +1,4 @@
-# scripts/ops/consensus-prune.py · [[consensus-memory-management]]
+# scripts/ops/consensus-prune.py · [[consensus-memory-state-files]] [[consensus-pruning-archival]]
 
 Harness mechanism that mechanically archives stale per-cycle narrative from consensus.md into docs/operations when the file exceeds a size threshold, with per-section byte caps, data-safety rebuild/sha verification, and env-tunable kill switches.
 

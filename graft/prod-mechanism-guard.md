@@ -5,24 +5,13 @@ type: file
 sources:
   - path: scripts/prod-mechanism-guard.py
     hash: e3d5c01038affa27aaed85106b6b8ff0705c6be14fa3b2caa1c21144fde5acee
-  - path: tests/test_prod_mechanism_guard.sh
-    hash: 1c8df67eca679e21cbbe4ea2daac7f761fc952f17b25f99d2673a4782ffa6824
-sources_digest: 85f0fc7428c6e4e3dfe8a3574ea24ed99ff361f071029bc7d1a9cbef79456bc1
+sources_digest: a8778c76c2d84b2d7e9fe72981362b4bad9b3fde2625b2005cf87674c41bea8c
 links:
-  - to: auto-loop-core-engine
-    relation: validates
-    description: protects auto-loop.sh from unapproved edits
   - to: auto-loop-harness
     relation: validates
     description: >-
       Protects scripts/core/auto-loop.sh and other protected surfaces from
       unplanned edits.
-  - to: outreach-send-gate
-    relation: validates
-    description: protects send-gate.py from unapproved edits
-  - to: rfq-sender
-    relation: validates
-    description: rfq-send.py is registered as a protected surface
 generator:
   version: 1
 covers:
@@ -43,10 +32,7 @@ A PreToolUse tripwire hook for Claude Code that mechanically blocks unplanned wr
 
 ## Related
 
-- validates [[auto-loop-core-engine]] — protects auto-loop.sh from unapproved edits
 - validates [[auto-loop-harness]] — Protects scripts/core/auto-loop.sh and other protected surfaces from unplanned edits.
-- validates [[outreach-send-gate]] — protects send-gate.py from unapproved edits
-- validates [[rfq-sender]] — rfq-send.py is registered as a protected surface
 <!-- context:generated:end -->
 
 ## Notes

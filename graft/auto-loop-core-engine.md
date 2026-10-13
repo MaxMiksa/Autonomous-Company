@@ -5,43 +5,78 @@ type: system
 sources:
   - path: scripts/core/auto-loop.sh
     hash: 9463a6ec8a9dd69c2b44cb0018168d752dd43e537e5c952f7b949e542d8b2901
-sources_digest: 5d1a44e9153a8e6e17b6bed2b5ec2c61057b12b9050bab1c1441797cb182daa4
+  - path: tests/test_cycle_counter.sh
+    hash: ab58cfed1b942c55ff2422535c8904c0292904f40786afc3cb7a66774d635065
+  - path: tests/test_cycle_metadata.sh
+    hash: ed0597fda8cb7dd8c8f45b5dea353e18374e12a7f4b247afab630f455e708c2e
+  - path: tests/test_discretionary_budget.sh
+    hash: 32b2f12385f1bf8cc0984fc89d1181074406a1726028d2705d2224759cf6de7e
+  - path: tests/test_escalation.sh
+    hash: 51d700c7d869599d1a6d48913b0097143e7b0c93a520123dd7cf3bb5c8c874fc
+  - path: tests/test_idle_skip.sh
+    hash: 13ce9f0b8801b94a1bc896bd2db53f2fc68c2984b45db8372050ca760e1edb53
+  - path: tests/test_mixed_harness.sh
+    hash: bd8a1f81df957e0bfdfacf44982a2274a58809d5f9bd8618c64c3efeecb868cc
+  - path: tests/test_prompt_assembly.sh
+    hash: 0cd8e397ee0db20d70eac066f7542b6dbabfec6bdd6d031cdc0e378da04876d6
+  - path: tests/test_prompt_transport.sh
+    hash: c5df34a0acc0d09b63a231df392960370ab146ceea135b5bcace427223300501
+  - path: tests/test_seteshape_lint.py
+    hash: c75dd121edbe7aed5432f718bdfff952149464b77f9ab22baced3682261ebc98
+  - path: tests/test_tier_ladder_daily.sh
+    hash: d0bfb4ace48e1fa9665e17059be3f618b46fda0dcf432544a6bb16c07a3ed8db
+sources_digest: 6ffdf9f47fdad10a02bd1da96f7bc19ec08a7dfc09cb1a3a2214e4af1870209b
 links:
   - to: cycle-metadata-extraction
     relation: implements
     description: >-
       extract_cycle_metadata() must not kill the loop when Codex is routed
-      through alternation/fallback (APP-240)
-  - to: mcp-config-probe-system
+      through alternation or fallback (APP-240).
+  - to: mcp-configuration-system
     relation: uses
     description: >-
-      auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync
-      with the manifest and generated config, else boot crash-loops
+      auto-loop.sh's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync
+      with the manifest and generated config, or boot crash-loops.
+  - to: operator-request-notification
+    relation: uses
+    description: >-
+      The idle-skip branch always runs operator_request_notify.py's OPREQ ledger
+      step before sleeping.
   - to: prompt-transport-contract
     relation: implements
     description: >-
-      run_claude_cycle_cli/run_codex_cycle_cli/run_jcode_cycle must honor the
-      STDIN/argv transport and size-limit contract
-  - to: set-e-lint-invariant
-    relation: validates
-    description: >-
-      auto-loop.sh must never contain a [ test ] && action list as a function's
-      last command or before bare return, which kills unguarded callers
+      run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN;
+      run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE.
 generator:
   version: 1
-covers: []
+covers:
+  - symbol: _is_fatal_shape
+    kind: function
+    at: 'tests/test_seteshape_lint.py:L42-L43'
+  - symbol: _executable_lines
+    kind: function
+    at: 'tests/test_seteshape_lint.py:L46-L52'
+  - symbol: find_violations
+    kind: function
+    at: 'tests/test_seteshape_lint.py:L55-L84'
+  - symbol: SetEShapeLint
+    kind: class
+    at: 'tests/test_seteshape_lint.py:L87-L99'
+  - symbol: test_no_fatal_test_and_shapes
+    kind: method
+    at: 'tests/test_seteshape_lint.py:L88-L99'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop in scripts/core/auto-loop.sh: cycle counter persistence, engine routing (claude/jcode/codex), prompt assembly, escalation, tier ladder, idle-skip, discretionary budget, and MCP preflight. Many invariants are pinned by tests: the cycle counter must be monotonic across redeploys (never reset to 1), prompts are transported via STDIN (codex uses '-' sentinel) to avoid E2BIG, prompts ≥126000 bytes are refused with PROMPT-TOO-LARGE, escalation is consumed exactly once and a refusal leaves it ARMED, and the mixed-harness must attribute per-cycle metadata/cost overriding any global LOOP_HARNESS. The script is the primary protected surface guarded by prod-mechanism-guard.
+The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, idle detection, discretionary spend caps, tier-ladder budget selection, one-shot operator escalation, and mixed-harness attribution. It is the highest-risk production surface: a stray quote, a set -e shape, or a counter reset can crash the whole loop, which is why an unusually large test suite extracts its function bodies verbatim via awk/sed and runs them under the same set -euo pipefail options as boot. Key invariants: the cycle counter must be monotonic across redeploys (never reset to 1), prompts are transported via STDIN (never argv, to avoid E2BIG), the idle-skip branch never calls a model, and the mixed-harness per-cycle variables override any global LOOP_HARNESS.
 
 ## Related
 
-- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240)
-- uses [[mcp-config-probe-system]] — auto-loop's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync with the manifest and generated config, else boot crash-loops
-- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli/run_jcode_cycle must honor the STDIN/argv transport and size-limit contract
-- validates [[set-e-lint-invariant]] — auto-loop.sh must never contain a [ test ] && action list as a function's last command or before bare return, which kills unguarded callers
+- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation or fallback (APP-240).
+- uses [[mcp-configuration-system]] — auto-loop.sh's JCODE_MCP_CONFIG_REQUIRED preflight list must stay in sync with the manifest and generated config, or boot crash-loops.
+- uses [[operator-request-notification]] — The idle-skip branch always runs operator_request_notify.py's OPREQ ledger step before sleeping.
+- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE.
 <!-- context:generated:end -->
 
 ## Notes

@@ -9,11 +9,15 @@ sources:
     hash: 3bc904db8c553fb60846f122faadf8447d3fe045c99b4d47c906c67567c264e4
   - path: tests/test_cycle_metadata.sh
     hash: ed0597fda8cb7dd8c8f45b5dea353e18374e12a7f4b247afab630f455e708c2e
-sources_digest: cf149c4008337ecead8ddfe321efdf4f3f7689539c7d47a6746acb772bf80fdc
+  - path: tests/test_mixed_harness.sh
+    hash: bd8a1f81df957e0bfdfacf44982a2274a58809d5f9bd8618c64c3efeecb868cc
+sources_digest: 1d3ea068ed0fd08af5c30459f48a3c186ebd8e91055aa598a9e0dd0f46cfc867
 links:
   - to: auto-loop-core-engine
     relation: part_of
-    description: extract_cycle_metadata lives in auto-loop.sh and is called per cycle
+    description: >-
+      extract_cycle_metadata() lives in auto-loop.sh and feeds per-cycle
+      attribution.
 generator:
   version: 1
 covers:
@@ -27,11 +31,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-extract_cycle_metadata() parses engine output (Codex plain-prose, Claude JSON, no-JSON edge) into CYCLE_TYPE/CYCLE_SUBTYPE/RESULT_TEXT, and codex-final-text.py converts the Codex CLI JSONL event stream into clean summary text without leaking reasoning/thread metadata. The critical invariant (APP-240) is that metadata extraction must never kill the loop or container when Codex is routed through alternation or fallback; non-JSON extractor input is a fallback trigger (exit 1).
+extract_cycle_metadata() parses per-cycle engine output (Codex plain-prose, Claude JSON, no-JSON edge) into CYCLE_TYPE/CYCLE_SUBTYPE/RESULT_TEXT, and codex-final-text.py converts the Codex CLI JSONL event stream into clean summary text without leaking reasoning or thread metadata. The critical invariant (APP-240) is that this parsing must never kill the loop or container when Codex is routed through alternation or fallback; non-JSON extractor input is a fallback trigger (exit 1).
 
 ## Related
 
-- part of [[auto-loop-core-engine]] — extract_cycle_metadata lives in auto-loop.sh and is called per cycle
+- part of [[auto-loop-core-engine]] — extract_cycle_metadata() lives in auto-loop.sh and feeds per-cycle attribution.
 <!-- context:generated:end -->
 
 ## Notes

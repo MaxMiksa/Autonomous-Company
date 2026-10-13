@@ -1,4 +1,4 @@
-# scripts/ops/directive-rule-sweep.py · [[evidence-extraction-validation]] [[human-directive-lifecycle]]
+# scripts/ops/directive-rule-sweep.py · [[directive-staleness-coverage-watchers]]
 
 Scans directive bodies for rule-shaped lines and flags any whose distinctive tokens do not survive in standing files, reporting candidates for human review while failing loudly when coverage cannot be measured.
 

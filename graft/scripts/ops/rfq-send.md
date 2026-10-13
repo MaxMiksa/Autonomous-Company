@@ -1,4 +1,4 @@
-# scripts/ops/rfq-send.py · [[rfq-send-pipeline]] [[rfq-sender]]
+# scripts/ops/rfq-send.py · [[outreach-and-send-gating]] [[rfq-send-pipeline]]
 
 CLI that sends anonymous OPEX RFQ emails to vendors, fail-closed on §15 sponsor approval, daily/total caps, and anonymity scan.
 

@@ -1,4 +1,4 @@
-# scripts/ops/operator-action-router.py · [[operator-escalation-gate]] [[operator-request-notification-system]]
+# scripts/ops/operator-action-router.py · [[operator-action-router]] [[telegram-notification-channel]]
 
 Consolidated operator digest that reads local company state (LOOP_HOLD, open OPREQs, PENDING directive) and notifies the operator via Telegram only when there are actionable items and either the open set changed or the repeat window elapsed, staying silent and fail-soft otherwise.
 

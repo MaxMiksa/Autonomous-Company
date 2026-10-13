@@ -11,7 +11,7 @@ sources_digest: 870b6c17e5ffbd5be63c54b60c9ac12ff9bd3cdbf84fb5299b5ffbc032d0e090
 links:
   - to: auto-loop-core-engine
     relation: part_of
-    description: transport functions live in auto-loop.sh
+    description: The transport functions live in auto-loop.sh.
 generator:
   version: 1
 covers: []
@@ -19,11 +19,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-Cycle prompts are transported to engine CLIs via STDIN (codex uses the '-' sentinel) rather than argv, preventing E2BIG from Linux's 131072-byte per-argument cap. run_jcode_cycle refuses prompts ≥126000 bytes with a named PROMPT-TOO-LARGE reason before spawning, while normal-size prompts pass as the run subcommand's argv. This is a hard contract pinned by test_prompt_transport.sh.
+Cycle prompts are transported to engine CLIs via STDIN (codex uses the '-' sentinel) rather than as argv arguments, preventing E2BIG failures from Linux's 131072-byte per-argument cap. run_jcode_cycle refuses prompts >=126000 bytes with a named PROMPT-TOO-LARGE reason before spawning, while normal-size prompts go as the run subcommand's argv. This is a hard contract pinned by regression test.
 
 ## Related
 
-- part of [[auto-loop-core-engine]] — transport functions live in auto-loop.sh
+- part of [[auto-loop-core-engine]] — The transport functions live in auto-loop.sh.
 <!-- context:generated:end -->
 
 ## Notes

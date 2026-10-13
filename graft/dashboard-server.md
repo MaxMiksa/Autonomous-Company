@@ -7,11 +7,15 @@ sources:
     hash: 999b44bc7671293e78906611b1dfd46bcf6efcc520ed92623a17281766a7fc85
   - path: tests/test_dashboard_server.py
     hash: 56e9073d5a9447df622cb3e0873d553053a3b16089534d427c177db772b933dd
-sources_digest: a00d09651be48cf7015196cad5672555ff241c03a2b27887a7ef361af457aa42
+  - path: tests/test_refusal_format.sh
+    hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
+sources_digest: b345d383ecc504e4dc9ae899649f4c78d13f54490aec22ca11dbdb4bb80e8732
 links:
-  - to: operator-request-notification-system
+  - to: operator-request-notification
     relation: produces
-    description: produces the refusal format consumed by operator_request_notify.py
+    description: >-
+      The refusal format written by the cockpit's operator-decision panel is
+      consumed by operator_request_notify.py.
 generator:
   version: 1
 covers:
@@ -388,11 +392,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-dashboard/server.py serves the cockpit: status parsing, action dispatch, engine runtime state (parsing persistent auto-loop.log to reflect latest boot including escalated cycles and legacy tier lines), spend window anchoring on ccusage blockStart with rolling fallback, weekly cost split (Monday-UTC), log tailing with multibyte safety, and live budget gate display. It imports a sibling sentry_client, which tests must account for via sys.path insertion.
+dashboard/server.py is the cockpit status/action server: parses the persistent auto-loop.log to reflect the latest boot (including escalated cycles and legacy tier lines), resolves settings, computes cost summaries with spend-window anchoring on ccusage blockStart and rolling fallback, splits weekly cost on Monday-UTC, tails log files with multibyte safety and banner recovery, and renders the operator-decision panel (including the refusal format). It imports a sibling sentry_client, which tests must account for via sys.path insertion.
 
 ## Related
 
-- produces [[operator-request-notification-system]] — produces the refusal format consumed by operator_request_notify.py
+- produces [[operator-request-notification]] — The refusal format written by the cockpit's operator-decision panel is consumed by operator_request_notify.py.
 <!-- context:generated:end -->
 
 ## Notes

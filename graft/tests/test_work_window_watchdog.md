@@ -1,4 +1,4 @@
-# tests/test_work_window_watchdog.py · [[work-window-watchdog]]
+# tests/test_work_window_watchdog.py · [[work-window-brake]]
 
 Integration test suite for the work-window watchdog script, verifying alarm behavior across real work, empty cycles, failed cycles, thresholds, and escape clauses.
 

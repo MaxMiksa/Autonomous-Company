@@ -1,4 +1,4 @@
-# scripts/prod-mechanism-guard.py · [[prod-mechanism-guard]]
+# scripts/prod-mechanism-guard.py · [[prod-mechanism-guard]] [[production-mechanism-guard]]
 
 PreToolUse tripwire that mechanically blocks unplanned edits/writes to protected prod surfaces unless a fresh operator-approval marker exists, and can verify the rule section in CLAUDE.md stays in sync with the protected list.
 

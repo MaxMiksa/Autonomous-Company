@@ -1,4 +1,4 @@
-# tests/test_work_window.py · [[work-window-watchdog]]
+# tests/test_work_window.py · [[work-window-brake]]
 
 Test suite for the work-window brake script, exercising open/closed window behavior across changed/none deltas, TTL expiry, restart, corrupt state, kill switch, and env TTL.
 
