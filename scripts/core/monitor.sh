@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Live Monitor
+# Autonomous Company — Live Monitor
 # ============================================================
 # Watch the auto-loop output in real-time.
 #
@@ -18,7 +18,7 @@ LOG_DIR="$PROJECT_DIR/logs"
 STATE_FILE="$PROJECT_DIR/.auto-loop-state"
 PID_FILE="$PROJECT_DIR/.auto-loop.pid"
 PAUSE_FLAG="$PROJECT_DIR/.auto-loop-paused"
-LABEL="com.autocompany.loop"
+LABEL="com.autonomouscompany.loop"
 OS_NAME="$(uname -s)"
 HAS_LAUNCHCTL=0
 HAS_SYSTEMD_USER=0
@@ -32,7 +32,7 @@ fi
 
 case "${1:-}" in
     --status)
-        echo "=== Auto Company Status ==="
+        echo "=== Autonomous Company Status ==="
         if [ -f "$PID_FILE" ]; then
             pid=$(cat "$PID_FILE")
             if kill -0 "$pid" 2>/dev/null; then
@@ -45,16 +45,16 @@ case "${1:-}" in
         fi
 
         if [ "$HAS_SYSTEMD_USER" -eq 1 ]; then
-            daemon_active="$(systemctl --user is-active auto-company.service 2>/dev/null || true)"
-            daemon_enabled="$(systemctl --user is-enabled auto-company.service 2>/dev/null || true)"
+            daemon_active="$(systemctl --user is-active autonomous-company.service 2>/dev/null || true)"
+            daemon_enabled="$(systemctl --user is-enabled autonomous-company.service 2>/dev/null || true)"
             if [ "$daemon_active" = "active" ]; then
-                echo "Daemon: ACTIVE (systemd --user auto-company.service)"
+                echo "Daemon: ACTIVE (systemd --user autonomous-company.service)"
             elif [ "$daemon_enabled" = "enabled" ]; then
-                echo "Daemon: ENABLED but $daemon_active (systemd --user auto-company.service)"
+                echo "Daemon: ENABLED but $daemon_active (systemd --user autonomous-company.service)"
             elif [ "$daemon_enabled" = "disabled" ] || [ "$daemon_enabled" = "masked" ]; then
-                echo "Daemon: $daemon_enabled (systemd --user auto-company.service)"
+                echo "Daemon: $daemon_enabled (systemd --user autonomous-company.service)"
             else
-                echo "Daemon: NOT INSTALLED (systemd --user auto-company.service)"
+                echo "Daemon: NOT INSTALLED (systemd --user autonomous-company.service)"
             fi
         elif [ "$HAS_LAUNCHCTL" -eq 0 ]; then
             if [ -f "$PAUSE_FLAG" ]; then

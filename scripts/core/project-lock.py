@@ -20,8 +20,8 @@ def rollback_row(root, row):
     name, project, _, _ = row.split("\t")
     if project_value(name) != project:
         raise ValueError("Invalid project rollback row")
-    if (safe_path(root, project + "/.auto-company/identity.json").exists()
-            or safe_path(root, ".auto-company/product-state.transaction.json").exists()):
+    if (safe_path(root, project + "/.autonomous-company/identity.json").exists()
+            or safe_path(root, ".autonomous-company/product-state.transaction.json").exists()):
         raise ValueError("Registration may be committed or recoverable; retain its source and registry for review")
     registry = safe_path(root, "projects/registry.tsv")
     lines = registry.read_bytes().splitlines(keepends=True)
@@ -47,9 +47,9 @@ def main():
         return 0
     if mode != "run":
         raise ValueError("Unknown project lock operation")
-    folder = safe_path(root, ".auto-company")
+    folder = safe_path(root, ".autonomous-company")
     folder.mkdir(exist_ok=True)
-    lock = safe_path(root, ".auto-company/project-registry.lock")
+    lock = safe_path(root, ".autonomous-company/project-registry.lock")
     descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     deadline = time.monotonic() + 5
     while True:
@@ -61,7 +61,7 @@ def main():
                 raise ValueError("Another project operation is still running; retry after it completes")
             time.sleep(0.025)
     os.set_inheritable(descriptor, True)
-    os.environ["AUTO_COMPANY_PROJECT_LOCK_PID"] = str(os.getpid())
+    os.environ["AUTONOMOUS_COMPANY_PROJECT_LOCK_PID"] = str(os.getpid())
     script, *arguments = args
     os.execv("/bin/bash", ["/bin/bash", str(Path(script).resolve()), *arguments])
     return 1

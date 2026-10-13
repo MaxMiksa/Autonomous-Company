@@ -50,7 +50,7 @@ class RoutePolicyTests(unittest.TestCase):
                 self.assertEqual(self.selected(path), {"browser"})
 
     def test_ci_policy_and_workflow_changes_select_everything(self):
-        for path in (".github/workflows/auto-company-runtime-ci.yml", ".github/workflows/new.yml", ".github/actions/shared/action.yml", "scripts/ci/changes.py", "tests/test_ci_policy.py"):
+        for path in (".github/workflows/autonomous-company-runtime-ci.yml", ".github/workflows/new.yml", ".github/actions/shared/action.yml", "scripts/ci/changes.py", "tests/test_ci_policy.py"):
             with self.subTest(path=path):
                 self.assertEqual(self.selected(path), set(CHANGES.ROUTES))
 

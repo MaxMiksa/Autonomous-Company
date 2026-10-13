@@ -32,7 +32,7 @@ Awake guardian: STOPPED
 Autostart: NOT CONFIGURED
 === WSL Daemon (systemd --user) ===
 inactive
-=== Auto Company Status ===
+=== Autonomous Company Status ===
 Loop: NOT RUNNING
 """
 
@@ -43,14 +43,14 @@ def main():
                                               "action-success", "running-cycle"),
                         default="default")
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="auto-company-browser-") as directory, ExitStack() as stack:
+    with tempfile.TemporaryDirectory(prefix="autonomous-company-browser-") as directory, ExitStack() as stack:
         root = Path(directory)
         # Import a copy so every path, including default arguments, stays in the
         # temporary checkout. No local logs, configuration or services are read.
         shutil.copytree(REPO_ROOT / "dashboard", root / "dashboard", ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
         core = root / "scripts/core"
         core.mkdir(parents=True)
-        for name in ("localization.py", "usage_lib.py", "cycle_reports.py", "project_metadata.py", "product_identity.py", "product_media.py", "product_media_process.py", "product_icon_html.py"):
+        for name in ("localization.py", "namespace_guard.py", "usage_lib.py", "cycle_reports.py", "project_metadata.py", "product_identity.py", "product_media.py", "product_media_process.py", "product_icon_html.py"):
             shutil.copy2(REPO_ROOT / "scripts/core" / name, core / name)
         (root / "memories").mkdir()
         (root / "memories/consensus.md").write_text(
@@ -58,12 +58,12 @@ def main():
             "## Company State\n- Product: Browser Fixture, local test\n"
             "## Next Action\nReview the next cycle.\n", encoding="utf-8")
         (root / "projects/browser-fixture").mkdir(parents=True)
-        (root / "projects/browser-fixture/.auto-company-project.json").write_text(json.dumps({
+        (root / "projects/browser-fixture/.autonomous-company-project.json").write_text(json.dumps({
             "version": 1, "project": "projects/browser-fixture", "displayName": "Browser Fixture",
             "description": "Local browser fixture", "recordedAt": datetime.now(timezone.utc).isoformat(),
             "source": "project_metadata",
         }), encoding="utf-8")
-        (root / ".auto-company.local").write_text("ACTIVE_PROJECT=projects/browser-fixture\n", encoding="utf-8")
+        (root / ".autonomous-company.local").write_text("ACTIVE_PROJECT=projects/browser-fixture\n", encoding="utf-8")
         (root / "logs").mkdir()
         (root / "DELIVERY.md").write_text("# Browser Fixture\nLocal browser test artifact.\n", encoding="utf-8")
         (root / "logs/auto-loop.log").write_text("Browser fixture runtime log\n", encoding="utf-8")

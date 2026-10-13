@@ -9,7 +9,7 @@ const { createRequire } = require("node:module");
 
 // The Python entry owns isolation. A direct host invocation is unsupported.
 try {
-  const boundary = JSON.parse(fs.readFileSync("/run/auto-company/command.json", "utf8"));
+  const boundary = JSON.parse(fs.readFileSync("/run/autonomous-company/command.json", "utf8"));
   const status = fs.readFileSync("/proc/self/status", "utf8");
   if (fs.readlinkSync("/proc/self/ns/net") === boundary.hostNetworkNamespace ||
       !/^NoNewPrivs:\s+1$/m.test(status) || !/^Seccomp:\s+2$/m.test(status) ||
@@ -25,8 +25,8 @@ let stopping = false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fail = code => Object.assign(new Error(code), { code });
 const identityHeaders = {
-  "X-Auto-Company-Media": request.token,
-  "X-Auto-Company-Version": request.version,
+  "X-Autonomous-Company-Media": request.token,
+  "X-Autonomous-Company-Version": request.version,
   "Cache-Control": "no-store",
 };
 // Also bound lifetime if the Python owner crashes without running its finally.
@@ -95,7 +95,7 @@ async function staticPreview() {
 }
 
 function verifyHeaders(headers) {
-  return headers["x-auto-company-media"] === request.token && headers["x-auto-company-version"] === request.version;
+  return headers["x-autonomous-company-media"] === request.token && headers["x-autonomous-company-version"] === request.version;
 }
 
 function health(url) {
@@ -120,8 +120,8 @@ async function nodePreview() {
   const args = request.profile.command.slice(1).map(value => value.replace("{port}", String(port)));
   child = spawn(process.execPath, args, {
     cwd: request.project, shell: false, windowsHide: true, stdio: "ignore", detached: false,
-    env: { ...process.env, AUTO_COMPANY_MEDIA_TOKEN: request.token, AUTO_COMPANY_MEDIA_VERSION: request.version,
-      AUTO_COMPANY_MEDIA_PORT: String(port), HOST: "127.0.0.1" },
+    env: { ...process.env, AUTONOMOUS_COMPANY_MEDIA_TOKEN: request.token, AUTONOMOUS_COMPANY_MEDIA_VERSION: request.version,
+      AUTONOMOUS_COMPANY_MEDIA_PORT: String(port), HOST: "127.0.0.1" },
   });
   let launchError;
   child.on("error", error => { launchError = error; });

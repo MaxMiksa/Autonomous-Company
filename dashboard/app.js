@@ -1015,7 +1015,7 @@ window.DashboardNavigation.register('journal', (view) => {
   function applyLanguage() {
     if (!view.active) return;
     document.documentElement.lang = state.language;
-    document.title = `${state.data?.project?.name || 'Auto Company'} · ${message('work')}`;
+    document.title = `${state.data?.project?.name || 'Autonomous Company'} · ${message('work')}`;
     document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = message(node.dataset.i18n); });
     document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = message(node.dataset.i18nPlaceholder); });
     $('centerContextNav').hidden = !scope.center;

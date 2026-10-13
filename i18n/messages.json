@@ -4,8 +4,8 @@
     "zh-CN": "已保存语言偏好：{0}。当前产品继续使用原语言，新偏好从下一个产品周期生效。"
   },
   "language.invalid": {
-    "en": "Check AUTO_COMPANY_LANGUAGE and .auto-company.local: use zh-CN or en, with plain KEY=value lines and no duplicate language entry. No cycle was started by this check.",
-    "zh-CN": "请检查 AUTO_COMPANY_LANGUAGE 和 .auto-company.local：语言仅支持 zh-CN 或 en，配置使用 KEY=value，语言项不可重复。本次检查未启动任何循环。"
+    "en": "Check AUTONOMOUS_COMPANY_LANGUAGE and .autonomous-company.local: use zh-CN or en, with plain KEY=value lines and no duplicate language entry. No cycle was started by this check.",
+    "zh-CN": "请检查 AUTONOMOUS_COMPANY_LANGUAGE 和 .autonomous-company.local：语言仅支持 zh-CN 或 en，配置使用 KEY=value，语言项不可重复。本次检查未启动任何循环。"
   },
   "language.running": {
     "en": "Before starting the next product, stop the foreground loop with make stop or pause the background service with make pause. Recover any interrupted iteration first. Saving the next language preference does not require stopping.",
@@ -76,12 +76,12 @@
     "zh-CN": "此命令需要 macOS launchd（当前系统：{0}）。前台运行请使用 make start。"
   },
   "mac.installing": {
-    "en": "Installing Auto Company daemon...",
-    "zh-CN": "正在安装 Auto Company 后台服务……"
+    "en": "Installing Autonomous Company daemon...",
+    "zh-CN": "正在安装 Autonomous Company 后台服务……"
   },
   "mac.uninstalling": {
-    "en": "Uninstalling Auto Company daemon...",
-    "zh-CN": "正在卸载 Auto Company 后台服务……"
+    "en": "Uninstalling Autonomous Company daemon...",
+    "zh-CN": "正在卸载 Autonomous Company 后台服务……"
   },
   "mac.unloaded": {
     "en": "Service unloaded.",
@@ -168,12 +168,12 @@
     "zh-CN": "卸载完成。"
   },
   "systemd.not_installed": {
-    "en": "auto-company.service is not installed. Install it first with: make install",
-    "zh-CN": "尚未安装 auto-company.service。请先运行 make install。"
+    "en": "autonomous-company.service is not installed. Install it first with: make install",
+    "zh-CN": "尚未安装 autonomous-company.service。请先运行 make install。"
   },
   "systemd.mismatch": {
-    "en": "auto-company.service WorkingDirectory does not match this checkout; refusing to control another project. Open the installed checkout's dashboard or deliberately reinstall with make install.",
-    "zh-CN": "auto-company.service 的 WorkingDirectory 不属于当前项目目录，已拒绝控制其他项目。请打开已安装目录中的 Dashboard，或确认目录后用 make install 重新安装。"
+    "en": "autonomous-company.service WorkingDirectory does not match this checkout; refusing to control another project. Open the installed checkout's dashboard or deliberately reinstall with make install.",
+    "zh-CN": "autonomous-company.service 的 WorkingDirectory 不属于当前项目目录，已拒绝控制其他项目。请打开已安装目录中的 Dashboard，或确认目录后用 make install 重新安装。"
   },
   "systemd.start_failed": {
     "en": "Failed to start {0} with systemd --user. Check systemctl --user status {0} --no-pager.",
@@ -220,8 +220,8 @@
     "zh-CN": "没有找到日志。"
   },
   "monitor.live": {
-    "en": "=== Auto Company Live Monitor (Ctrl+C to stop) ===\nWatching: {0}",
-    "zh-CN": "=== Auto Company 实时日志（Ctrl+C 退出查看）===\n正在查看：{0}"
+    "en": "=== Autonomous Company Live Monitor (Ctrl+C to stop) ===\nWatching: {0}",
+    "zh-CN": "=== Autonomous Company 实时日志（Ctrl+C 退出查看）===\n正在查看：{0}"
   },
   "monitor.start_first": {
     "en": "No log file yet. Start the loop first: make start",
@@ -232,12 +232,12 @@
     "zh-CN": "此运行目录由产品中心管理，请在产品中心操作。"
   },
   "make.paused": {
-    "en": "auto-company.service paused (stopped).",
-    "zh-CN": "auto-company.service 已暂停（已停止）。"
+    "en": "autonomous-company.service paused (stopped).",
+    "zh-CN": "autonomous-company.service 已暂停（已停止）。"
   },
   "make.resumed": {
-    "en": "auto-company.service resumed (started).",
-    "zh-CN": "auto-company.service 已恢复（已启动）。"
+    "en": "autonomous-company.service resumed (started).",
+    "zh-CN": "autonomous-company.service 已恢复（已启动）。"
   },
   "help.start": {
     "en": "Start the auto-loop in foreground",

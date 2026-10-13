@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(os.environ.get("AUTO_COMPANY_TEST_SOURCE", Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get("AUTONOMOUS_COMPANY_TEST_SOURCE", Path(__file__).resolve().parents[1]))
 sys.path[:0] = [str(ROOT / "scripts/core"), str(ROOT / "dashboard")]
 import product_identity as products
 from journal_data import JournalSource
@@ -34,7 +34,7 @@ class IdentityProjectionTests(unittest.TestCase):
         return path
 
     def select(self, project):
-        self.write(".auto-company.local", f"ACTIVE_PROJECT={project}\n")
+        self.write(".autonomous-company.local", f"ACTIVE_PROJECT={project}\n")
 
     def cycle(self, attempt="original", project=None):
         project = self.project if project is None else project
@@ -65,7 +65,7 @@ class IdentityProjectionTests(unittest.TestCase):
         self.select("projects/moved")
 
     def replace(self):
-        (self.root / "projects/probe/.auto-company/identity.json").unlink()
+        (self.root / "projects/probe/.autonomous-company/identity.json").unlink()
         return products.register_project(self.root, self.project)
 
     def test_relocation_preserves_historical_path_and_current_cycle(self):
@@ -144,9 +144,9 @@ class IdentityProjectionTests(unittest.TestCase):
     def test_missing_marker_and_corrupt_ledger_fail_closed(self):
         row = self.cycle()
         self.artifact(row["cycleId"])
-        (self.root / "projects/probe/.auto-company/identity.json").unlink()
+        (self.root / "projects/probe/.autonomous-company/identity.json").unlink()
         self.assertFalse(any(item["available"] for item in self.source.snapshot()["artifacts"]))
-        self.write(".auto-company/product-state.json", "{broken")
+        self.write(".autonomous-company/product-state.json", "{broken")
         self.assertFalse(any(item["available"] for item in self.source.snapshot()["artifacts"]))
 
     def test_unassociated_newer_record_does_not_hide_verified_current_document(self):
@@ -250,8 +250,8 @@ class IdentityProjectionTests(unittest.TestCase):
 
     def test_runner_records_operator_product_identity_and_replacement_does_not_inherit(self):
         row = self.cycle()
-        environment = dict(os.environ, AUTO_COMPANY_CYCLE_ID="")
-        environment.pop("AUTO_COMPANY_CYCLE_ID")
+        environment = dict(os.environ, AUTONOMOUS_COMPANY_CYCLE_ID="")
+        environment.pop("AUTONOMOUS_COMPANY_CYCLE_ID")
         result = subprocess.run([sys.executable, str(ROOT / "scripts/core/runtime_artifacts.py"),
                                  "--root", str(self.root), "--project", self.project, "document", "DELIVERY.md"],
                                 capture_output=True, env=environment, timeout=10)

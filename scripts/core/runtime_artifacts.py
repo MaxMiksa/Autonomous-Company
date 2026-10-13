@@ -76,7 +76,7 @@ def now():
 
 def base_record(project, kind, root=None):
     record = {"version": 1, "id": uuid.uuid4().hex, "project": project,
-            "kind": kind, "cycleId": os.environ.get("AUTO_COMPANY_CYCLE_ID"),
+            "kind": kind, "cycleId": os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID"),
             "recordedAt": now(), "source": "runner"}
     if root is not None:
         from product_identity import get_identity
@@ -162,7 +162,7 @@ def run_check(root, project, record, args):
     relative = args.report
     if adapter in {"python-unittest", "node-test", "playwright"}:
         suffix = "xml" if adapter == "node-test" else "json"
-        relative = f".auto-company/checks/{record['id']}.{suffix}"
+        relative = f".autonomous-company/checks/{record['id']}.{suffix}"
     path = safe_path(project, relative) if relative else None
     before = None
     if path:
@@ -196,7 +196,7 @@ def run_check(root, project, record, args):
         if not inside_boundary():
             # Checks execute product-authored code, even when triggered by a
             # human or the dashboard. Give them the same mandatory boundary.
-            descriptor, launch_status = tempfile.mkstemp(prefix="auto-company-check-launch-")
+            descriptor, launch_status = tempfile.mkstemp(prefix="autonomous-company-check-launch-")
             os.close(descriptor)
             Path(launch_status).write_text('{"started": false}')
             command = [sys.executable, str(Path(__file__).with_name("project_isolation.py")),
@@ -254,10 +254,10 @@ def preview_request(record, stop=False):
             return False
         connection = http.client.HTTPConnection("127.0.0.1", parsed.port, timeout=0.3)
         try:
-            connection.request("POST" if stop else "GET", "/.auto-company-stop" if stop else "/.auto-company-health",
-                               headers={"X-Auto-Company-Preview": token})
+            connection.request("POST" if stop else "GET", "/.autonomous-company-stop" if stop else "/.autonomous-company-health",
+                               headers={"X-Autonomous-Company-Preview": token})
             response = connection.getresponse()
-            return response.status == 204 and response.getheader("X-Auto-Company-Preview") == token
+            return response.status == 204 and response.getheader("X-Autonomous-Company-Preview") == token
         finally:
             connection.close()
     except (ValueError, OSError, http.client.HTTPException):
@@ -310,11 +310,11 @@ def write_context(root, cycle, project):
         row = state["cycles"].get(cycle)
         identity = state["identities"].get(row["identityId"]) if row else None
         language = language_state(root)
-        actual = os.environ.get("AUTO_COMPANY_LANGUAGE")
+        actual = os.environ.get("AUTONOMOUS_COMPANY_LANGUAGE")
         if (row and identity and row["state"] == "reserved" and identity["kind"] == "product"
                 and row["project"] == project == identity["project"]
-                and os.environ.get("AUTO_COMPANY_CYCLE") == "1" and os.environ.get("AUTO_COMPANY_CYCLE_ID") == cycle
-                and os.environ.get("AUTO_COMPANY_STABLE_PRODUCT_ID") == identity["id"]
+                and os.environ.get("AUTONOMOUS_COMPANY_CYCLE") == "1" and os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID") == cycle
+                and os.environ.get("AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID") == identity["id"]
                 and language["locked"] and actual == language["language"] and actual in {"en", "zh-CN"}
                 and re.fullmatch(r"[0-9a-f]{32}", language.get("productId") or "")):
             value["languageEvidence"] = {"schemaVersion": 1, "productId": identity["id"], "cycleId": cycle,
@@ -413,13 +413,13 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self):
         if self.control_response:
-            self.send_header("X-Auto-Company-Preview", self.token)
+            self.send_header("X-Autonomous-Company-Preview", self.token)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def control(self, stop=False):
-        if self.headers.get_all("X-Auto-Company-Preview", []) != [self.token]:
+        if self.headers.get_all("X-Autonomous-Company-Preview", []) != [self.token]:
             self.send_error(403)
             return
         self.control_response = True
@@ -431,7 +431,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if not self.request_allowed():
             return
-        if self.path == "/.auto-company-health":
+        if self.path == "/.autonomous-company-health":
             self.control()
         else:
             super().do_GET()
@@ -443,7 +443,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.request_allowed():
             return
-        if self.path != "/.auto-company-stop":
+        if self.path != "/.autonomous-company-stop":
             self.send_error(403)
             return
         self.control(stop=True)
@@ -454,7 +454,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=os.environ.get("AUTO_COMPANY_ROOT") or Path(__file__).resolve().parents[2])
+    parser.add_argument("--root", type=Path, default=os.environ.get("AUTONOMOUS_COMPANY_ROOT") or Path(__file__).resolve().parents[2])
     parser.add_argument("--project", default=os.environ.get("ACTIVE_PROJECT"))
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("prompt")
@@ -479,7 +479,7 @@ def main():
     sub.add_parser("preview-stop")
     args = parser.parse_args()
     root = args.root.resolve()
-    if args.action != "prompt" and ((root / ".auto-company-center.json").exists() or (root / ".auto-company-center.json").is_symlink()):
+    if args.action != "prompt" and ((root / ".autonomous-company-center.json").exists() or (root / ".autonomous-company-center.json").is_symlink()):
         from center_runner import artifact_admission
         artifact_admission(root, cleanup=args.action == "finalize" and args.cleanup_only)
     if args.action == "prompt":
@@ -564,7 +564,7 @@ def main():
     record.update(url=f"http://127.0.0.1:{server.server_port}/", token=token, state="running", pid=os.getpid(),
                   lifetime="cycle" if record["cycleId"] else "operator", directory=directory.relative_to(root).as_posix(),
                   startedAt=now(), endedAt=None)
-    if (root / ".auto-company-center.json").exists():
+    if (root / ".autonomous-company-center.json").exists():
         from center_runner import identity
         record["processIdentity"] = identity(os.getpid())
     if not observe(root, record):

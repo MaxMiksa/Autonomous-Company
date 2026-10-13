@@ -27,7 +27,7 @@ def read_config(root):
 
 
 def _read_config(root):
-    config = root / ".auto-company.local"
+    config = root / ".autonomous-company.local"
     if config.is_symlink():
         raise ValueError("local project configuration must not be a symlink")
     if not config.exists():
@@ -109,11 +109,11 @@ def _select_project(root, name):
         if data and not data.endswith((b"\n", b"\r")):
             lines.append(b"\n")
         lines.append(replacement + b"\n")
-    atomic_write(root / ".auto-company.local", b"".join(lines))
+    atomic_write(root / ".autonomous-company.local", b"".join(lines))
 
 
 def atomic_write(path, data):
-    descriptor, temporary = tempfile.mkstemp(prefix=".auto-company.local.", dir=path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=".autonomous-company.local.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
@@ -127,8 +127,8 @@ def capture_selection(root):
     with configuration_lock(root):
         recover_language_update(root)
         data, _ = _read_config(root)
-        baseline = {"present": (root / ".auto-company.local").exists(), "data": data.hex()}
-        atomic_write(root / ".auto-company.local.cycle-backup", json.dumps(baseline).encode())
+        baseline = {"present": (root / ".autonomous-company.local").exists(), "data": data.hex()}
+        atomic_write(root / ".autonomous-company.local.cycle-backup", json.dumps(baseline).encode())
 
 
 def verify_selection(root):
@@ -138,8 +138,8 @@ def verify_selection(root):
 
 
 def _verify_selection(root):
-    baseline = json.loads((root / ".auto-company.local.cycle-backup").read_text())
-    config = root / ".auto-company.local"
+    baseline = json.loads((root / ".autonomous-company.local.cycle-backup").read_text())
+    config = root / ".autonomous-company.local"
     original = bytes.fromhex(baseline["data"])
     present = config.exists() or config.is_symlink()
     if not config.is_symlink() and present == baseline["present"]:
@@ -173,7 +173,7 @@ def main():
             if name is None:
                 if args.optional:
                     return 0
-                raise ValueError("no ACTIVE_PROJECT selected; use project-select or edit .auto-company.local")
+                raise ValueError("no ACTIVE_PROJECT selected; use project-select or edit .autonomous-company.local")
             if args.command == "name":
                 print(name)
             else:

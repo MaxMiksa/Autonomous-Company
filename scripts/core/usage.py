@@ -45,7 +45,7 @@ def _add_budget_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Auto Company structured usage ledger")
+    parser = argparse.ArgumentParser(description="Autonomous Company structured usage ledger")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     record = subparsers.add_parser("record", help="append one completed Cycle record")

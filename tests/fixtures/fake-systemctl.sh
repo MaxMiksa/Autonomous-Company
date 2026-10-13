@@ -2,7 +2,7 @@
 # Isolated dashboard adapter fixture: never forwards to real systemctl.
 case "$*" in
     *--version*|*show-environment*) exit 0 ;;
-    *'cat auto-company.service'*) [ "${FAKE_SERVICE_MISSING:-0}" != 1 ]; exit $? ;;
+    *'cat autonomous-company.service'*) [ "${FAKE_SERVICE_MISSING:-0}" != 1 ]; exit $? ;;
     *WorkingDirectory*) printf '%s\n' "$FAKE_SERVICE_ROOT" ;;
     *MainPID*) printf '0\n' ;;
     *ControlGroup*) printf '\n' ;;
@@ -15,7 +15,7 @@ case "$*" in
         fi
         ;;
     *is-enabled*) printf '%s\n' "$FAKE_SERVICE_ENABLED" ;;
-    *'start auto-company.service'*) printf 'start\n' >> "$FAKE_SERVICE_LOG" ;;
-    *'stop auto-company.service'*) printf 'stop\n' >> "$FAKE_SERVICE_LOG" ;;
+    *'start autonomous-company.service'*) printf 'start\n' >> "$FAKE_SERVICE_LOG" ;;
+    *'stop autonomous-company.service'*) printf 'stop\n' >> "$FAKE_SERVICE_LOG" ;;
     *) printf 'Unexpected systemctl fixture arguments: %s\n' "$*" >&2; exit 1 ;;
 esac

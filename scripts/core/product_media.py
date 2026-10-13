@@ -29,10 +29,10 @@ SCHEMA = 1
 MAX_BYTES = 24 * 1024 * 1024
 MAX_FILES = 2048
 MAX_IMAGE = 12 * 1024 * 1024
-PROFILE = ".auto-company/media.json"
+PROFILE = ".autonomous-company/media.json"
 VIEWPORTS = [{"name": "desktop", "width": 1440, "height": 1000},
              {"name": "mobile", "width": 390, "height": 844}]
-IGNORED = {".git", ".auto-company", "node_modules", "__pycache__", ".venv", "venv",
+IGNORED = {".git", ".autonomous-company", "node_modules", "__pycache__", ".venv", "venv",
            "test-results", "playwright-report", "coverage"}
 WEB_SUFFIXES = {".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".json", ".svg", ".png",
                 ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".txt", ".wasm"}
@@ -262,7 +262,7 @@ def register_icon(root, project, product_id, profile, previous=None):
     record = {"name": name, "sha256": checksum, "source": source, "reason": reason, "recordedAt": now(),
               "publicationStatus": "not_applicable"}
     if profile.get("type") in {"static", "node"}:
-        relative = (PurePosixPath(profile.get("webRoot", ".")) / "auto-company-icon.svg").as_posix()
+        relative = (PurePosixPath(profile.get("webRoot", ".")) / "autonomous-company-icon.svg").as_posix()
         try:
             published = safe_path(project, relative)
             previous = previous or {}

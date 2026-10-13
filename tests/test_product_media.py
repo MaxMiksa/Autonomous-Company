@@ -26,7 +26,7 @@ from product_media_process import ProcessScope, proc_identity
 from product_icon_html import inspect_reference
 
 HEAD_REVIEW_CASES = {
-    "title_pseudo_link": '<!doctype html><html><head><title>Example <link rel="icon" href="/auto-company-icon.svg"></title></head><body><main>Business</main></body></html>',
+    "title_pseudo_link": '<!doctype html><html><head><title>Example <link rel="icon" href="/autonomous-company-icon.svg"></title></head><body><main>Business</main></body></html>',
     "self_closing_title": '<!doctype html><html><head><title/>Product</head><body><main>Business</main></body></html>',
     "leading_business_text": '<!doctype html>Business prefix<html><head><title>Product</title></head><body><main>Business</main></body></html>',
     "stray_end_br": '<!doctype html><html><head><title>Product</title></br></head><body><main>Business</main></body></html>',
@@ -49,7 +49,7 @@ class MediaFixture(unittest.TestCase):
         (self.project / "index.html").write_text("<!doctype html><title>Example</title><main><h1>Real product page</h1></main>", encoding="utf-8")
 
     def write_profile(self, profile):
-        atomic_json(self.project / ".auto-company/media.json", {"version": 1, **profile})
+        atomic_json(self.project / ".autonomous-company/media.json", {"version": 1, **profile})
 
     def unit_worker(self, project, profile, version, staging):
         # Unit-only solid PNG fixtures exercise storage transactions. Real
@@ -87,16 +87,16 @@ class MediaTests(MediaFixture):
             self.assertEqual(worker.call_count, 1)
         self.assertEqual(first["latestSuccess"], second["latestSuccess"])
         after = {str(path.relative_to(self.project)): path.read_bytes() for path in self.project.rglob("*") if path.is_file()}
-        self.assertEqual(set(after) - set(before), {"auto-company-icon.svg"})
+        self.assertEqual(set(after) - set(before), {"autonomous-company-icon.svg"})
         self.assertEqual(before, {name: raw for name, raw in after.items() if name in before})
         value = media_projection(self.root, self.name)
         self.assertEqual(value["screenshot"]["state"], "success")
         self.assertEqual(value["icon"]["source"], "default")
         self.assertEqual(value["icon"]["publicationStatus"], "published")
-        self.assertEqual(digest(after["auto-company-icon.svg"]), value["icon"]["sha256"])
+        self.assertEqual(digest(after["autonomous-company-icon.svg"]), value["icon"]["sha256"])
 
     def test_icon_publication_preserves_conflicts_and_updates_only_owned_bytes(self):
-        canonical = self.project / "auto-company-icon.svg"
+        canonical = self.project / "autonomous-company-icon.svg"
         canonical.write_text("user-owned file")
         record = self.capture()
         self.assertEqual(canonical.read_text(), "user-owned file")
@@ -270,7 +270,7 @@ class MediaTests(MediaFixture):
         with patch("product_media.run_worker") as worker:
             self.assertEqual(capture_product(self.root, self.name)["attempt"]["state"], "not_applicable")
             worker.assert_not_called()
-        (self.project / ".auto-company/media.json").unlink()
+        (self.project / ".autonomous-company/media.json").unlink()
         (self.project / "index.html").unlink()
         self.assertEqual(capture_product(self.root, self.name)["attempt"]["state"], "unsupported")
 
@@ -332,7 +332,7 @@ class MediaIconReferenceTests(MediaFixture):
             updated = (self.project / "index.html").read_bytes()
             second = capture_product(self.root, self.name, "cycle-2")
             self.assertEqual(worker.call_count, 1)
-        inserted = b'\r\n<link rel="icon" type="image/svg+xml" href="auto-company-icon.svg" data-auto-company-icon="v1">\r\n'
+        inserted = b'\r\n<link rel="icon" type="image/svg+xml" href="autonomous-company-icon.svg" data-autonomous-company-icon="v1">\r\n'
         self.assertEqual(updated.replace(inserted, b""), original)
         self.assertEqual(updated.count(inserted), 1)
         self.assertEqual((self.project / "index.html").read_bytes(), updated)
@@ -342,7 +342,7 @@ class MediaIconReferenceTests(MediaFixture):
         self.assertTrue(media_projection(self.root, self.name)["icon"]["reference"]["unified"])
 
     def test_existing_correct_reference_is_not_reformatted_or_duplicated(self):
-        original = self.html("<link type='image/svg+xml' href='./auto-company-icon.svg' rel='shortcut icon'>")
+        original = self.html("<link type='image/svg+xml' href='./autonomous-company-icon.svg' rel='shortcut icon'>")
         record = self.capture()
         self.assertEqual((self.project / "index.html").read_bytes(), original)
         self.assertEqual(record["icon"]["reference"]["state"], "linked")
@@ -354,7 +354,7 @@ class MediaIconReferenceTests(MediaFixture):
             (self.project / "index.html").write_bytes(original)
             record = self.capture()
             self.assertEqual(record["icon"]["reference"]["state"], "inserted")
-            inserted = b'\n<link rel="icon" type="image/svg+xml" href="auto-company-icon.svg" data-auto-company-icon="v1">\n'
+            inserted = b'\n<link rel="icon" type="image/svg+xml" href="autonomous-company-icon.svg" data-autonomous-company-icon="v1">\n'
             self.assertEqual((self.project / "index.html").read_bytes().replace(inserted, b""), original)
         for original in [b"<html><head/><body>Business</body></html>",
                          b"<html><body>Business<head></head></body></html>",
@@ -373,9 +373,9 @@ class MediaIconReferenceTests(MediaFixture):
         self.assertFalse(record["icon"]["reference"]["unified"])
 
     def test_title_script_and_style_text_never_count_as_dom_icon_references(self):
-        for head in ['<title>Example <link rel="icon" href="auto-company-icon.svg"></title>',
+        for head in ['<title>Example <link rel="icon" href="autonomous-company-icon.svg"></title>',
                      '<script src="app.js"></script>',
-                     '<style>/* <link rel="icon" href="auto-company-icon.svg"> */</style>']:
+                     '<style>/* <link rel="icon" href="autonomous-company-icon.svg"> */</style>']:
             original = self.html(head)
             record = self.capture()
             self.assertEqual(record["icon"]["reference"]["state"], "inserted")
@@ -390,7 +390,7 @@ class MediaIconReferenceTests(MediaFixture):
         originals += [f'<html><head><title>Product</title></{tag}></head><body>Business</body></html>' for tag in ["body", "html"]]
         originals += ['<!doctype html>\u00a0<html><head><title>Product</title></head><body>Business</body></html>']
         originals += [f'<html><head><{tag}>Text</ {tag}></head><body>Business</body></html>' for tag in ["title", "style"]]
-        originals += ['<html><head><script>const apparent = \'<link rel="icon" href="auto-company-icon.svg">\';</script></head><body>Business</body></html>']
+        originals += ['<html><head><script>const apparent = \'<link rel="icon" href="autonomous-company-icon.svg">\';</script></head><body>Business</body></html>']
         for original in originals:
             raw = original.encode()
             (self.project / "index.html").write_bytes(raw)
@@ -405,7 +405,7 @@ class MediaIconReferenceTests(MediaFixture):
 
     def test_canonical_conflict_does_not_insert_an_invalid_favicon(self):
         original = self.html()
-        (self.project / "auto-company-icon.svg").write_text("user-owned conflicting bytes")
+        (self.project / "autonomous-company-icon.svg").write_text("user-owned conflicting bytes")
         record = self.capture()
         self.assertEqual(record["icon"]["publicationStatus"], "conflict")
         self.assertEqual(record["icon"]["reference"]["state"], "conflict")
@@ -455,7 +455,7 @@ class MediaIconReferenceTests(MediaFixture):
         self.assertEqual(inspect_reference(self.project, {"type": "none"}, {}, write=True)["state"], "not_applicable")
 
     def test_modified_owned_reference_is_preserved_and_flagged(self):
-        original = self.html('<link rel="stylesheet" href="custom.css" data-auto-company-icon="v1">')
+        original = self.html('<link rel="stylesheet" href="custom.css" data-autonomous-company-icon="v1">')
         record = self.capture()
         self.assertEqual(record["icon"]["reference"]["state"], "conflict")
         self.assertEqual(record["icon"]["reference"]["reason"], "owned_reference_modified")
@@ -466,7 +466,7 @@ class MediaIconReferenceTests(MediaFixture):
         record = self.capture()
         updated = (self.project / "index.html").read_text()
         self.assertIn('<link rel="icon" href="missing.svg">', updated)
-        self.assertIn('data-auto-company-icon="v1"', updated)
+        self.assertIn('data-autonomous-company-icon="v1"', updated)
         self.assertEqual(record["icon"]["reference"]["state"], "inserted")
 
     def test_nested_entry_uses_the_web_root_canonical_icon(self):
@@ -476,12 +476,12 @@ class MediaIconReferenceTests(MediaFixture):
         self.write_profile({"type": "static", "webRoot": "public", "entry": "/nested/index.html"})
         record = self.capture()
         self.assertEqual(record["icon"]["reference"]["entryPath"], "public/nested/index.html")
-        self.assertTrue((self.project / "public/auto-company-icon.svg").is_file())
-        self.assertIn('href="../auto-company-icon.svg"', (nested / "index.html").read_text())
-        self.assertEqual(record["icon"]["reference"]["href"], "../auto-company-icon.svg")
+        self.assertTrue((self.project / "public/autonomous-company-icon.svg").is_file())
+        self.assertIn('href="../autonomous-company-icon.svg"', (nested / "index.html").read_text())
+        self.assertEqual(record["icon"]["reference"]["href"], "../autonomous-company-icon.svg")
 
 
-@unittest.skipUnless(os.environ.get("AUTO_COMPANY_TEST_PRODUCT_MEDIA_BROWSER") == "1", "Set AUTO_COMPANY_TEST_PRODUCT_MEDIA_BROWSER=1 for real Chromium acceptance")
+@unittest.skipUnless(os.environ.get("AUTONOMOUS_COMPANY_TEST_PRODUCT_MEDIA_BROWSER") == "1", "Set AUTONOMOUS_COMPANY_TEST_PRODUCT_MEDIA_BROWSER=1 for real Chromium acceptance")
 class BrowserMediaTests(MediaFixture):
     def test_supported_head_boundaries_match_chromium_and_relative_icons_are_portable(self):
         rows = []
@@ -495,7 +495,7 @@ class BrowserMediaTests(MediaFixture):
                 record = capture_product(self.root, project_name)
             rows.append({"name": name, "before": before, "after": (project / "index.html").read_text(encoding="utf-8"),
                          "reference": record["icon"]["reference"], "fileUrl": (project / "index.html").as_uri(),
-                         "canonicalUrl": (project / "auto-company-icon.svg").as_uri(), "deploymentUrl": "https://example.invalid/products/demo/index.html"})
+                         "canonicalUrl": (project / "autonomous-company-icon.svg").as_uri(), "deploymentUrl": "https://example.invalid/products/demo/index.html"})
         nested = self.project / "public/nested"
         nested.mkdir(parents=True)
         before = "<!doctype html><html><head><title>Nested</title></head><body><main>Business</main></body></html>"
@@ -504,7 +504,7 @@ class BrowserMediaTests(MediaFixture):
         record = self.capture()
         rows.append({"name": "nested_relative", "before": before, "after": (nested / "index.html").read_text(),
                      "reference": record["icon"]["reference"], "fileUrl": (nested / "index.html").as_uri(),
-                     "canonicalUrl": (self.project / "public/auto-company-icon.svg").as_uri(), "deploymentUrl": "https://example.invalid/products/demo/nested/index.html"})
+                     "canonicalUrl": (self.project / "public/autonomous-company-icon.svg").as_uri(), "deploymentUrl": "https://example.invalid/products/demo/nested/index.html"})
         request = self.root / "head-browser-cases.json"
         request.write_text(json.dumps(rows), encoding="utf-8")
         result = subprocess.run(["node", str(ROOT / "tests/browser/media-reference-probe.cjs"), str(request)], capture_output=True,
@@ -521,7 +521,7 @@ class BrowserMediaTests(MediaFixture):
                     self.assertEqual(row["after"]["bodyIcons"], 0)
                     self.assertEqual(row["resolvedFile"], row["canonicalUrl"])
                     self.assertEqual(row["after"]["absoluteHref"], row["canonicalUrl"])
-                    self.assertEqual(row["resolvedDeployment"], "https://example.invalid/products/demo/auto-company-icon.svg")
+                    self.assertEqual(row["resolvedDeployment"], "https://example.invalid/products/demo/autonomous-company-icon.svg")
                 else:
                     self.assertEqual(row["reference"]["state"], "unsupported")
                     self.assertEqual(row["before"], row["after"])
@@ -540,7 +540,7 @@ class BrowserMediaTests(MediaFixture):
         self.assertFalse(list(self.folder.glob(".capture-*")))
 
     def node_server(self, headers=True, spawn_descendant=False):
-        header_source = '"X-Auto-Company-Media": process.env.AUTO_COMPANY_MEDIA_TOKEN, "X-Auto-Company-Version": process.env.AUTO_COMPANY_MEDIA_VERSION' if headers else '"X-Auto-Company-Media": "another-product"'
+        header_source = '"X-Autonomous-Company-Media": process.env.AUTONOMOUS_COMPANY_MEDIA_TOKEN, "X-Autonomous-Company-Version": process.env.AUTONOMOUS_COMPANY_MEDIA_VERSION' if headers else '"X-Autonomous-Company-Media": "another-product"'
         script = 'const http=require("node:http"),fs=require("node:fs");'
         if spawn_descendant:
             script += 'const child=require("node:child_process").spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"}); fs.writeFileSync(".child-pid",String(child.pid));'
@@ -581,7 +581,7 @@ class BrowserMediaTests(MediaFixture):
         class OtherProduct(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(204)
-                self.send_header("X-Auto-Company-Media", "another-product")
+                self.send_header("X-Autonomous-Company-Media", "another-product")
                 self.end_headers()
 
             def log_message(self, *args):
@@ -613,7 +613,7 @@ class BrowserMediaTests(MediaFixture):
                 connection.request("GET", "/")
                 response = connection.getresponse()
                 self.assertEqual(response.status, 204)
-                self.assertEqual(response.getheader("X-Auto-Company-Media"), "another-product")
+                self.assertEqual(response.getheader("X-Autonomous-Company-Media"), "another-product")
             finally:
                 connection.close()
         finally:

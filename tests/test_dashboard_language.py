@@ -62,7 +62,7 @@ class DashboardLanguageTests(unittest.TestCase):
         code, state = self.select("zh-CN")
         self.assertEqual((code, state["language"], state["nextLanguage"], state["source"]),
                          (200, "zh-CN", "zh-CN", "saved"))
-        self.assertEqual((self.root / ".auto-company.local").read_text(), "AUTO_COMPANY_LANGUAGE=zh-CN\n")
+        self.assertEqual((self.root / ".autonomous-company.local").read_text(), "AUTONOMOUS_COMPANY_LANGUAGE=zh-CN\n")
         self.assertEqual(json.loads(self.request()[1])["language"], "zh-CN")
 
     def test_mid_product_save_changes_only_next_product_and_survives_reload(self):
@@ -98,15 +98,15 @@ class DashboardLanguageTests(unittest.TestCase):
                 with self.subTest(headers=headers, body=body[:80]):
                     self.assertEqual(self.request(method="POST", body=body, headers=headers)[0], expected)
             setter.assert_not_called()
-        self.assertFalse((self.root / ".auto-company.local").exists())
+        self.assertFalse((self.root / ".autonomous-company.local").exists())
         headers = {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{self.port}"}
         self.assertEqual(self.request(method="POST", body=valid, headers=headers)[0], 200)
         for path in ("/api/language", "/docs/readme"):
             self.assertEqual(self.request(path, headers={"Origin": "https://attacker.example"})[0], 403)
 
     def test_invalid_configuration_returns_safe_error_without_rewriting_it(self):
-        config = self.root / ".auto-company.local"
-        original = "AUTO_COMPANY_LANGUAGE=secret-invalid-value\n"
+        config = self.root / ".autonomous-company.local"
+        original = "AUTONOMOUS_COMPANY_LANGUAGE=secret-invalid-value\n"
         config.write_text(original, encoding="utf-8")
         code, body = self.request()
         self.assertEqual(code, 400)

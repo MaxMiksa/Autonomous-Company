@@ -1,6 +1,6 @@
 # Continuous integration
 
-Every pull request and push to `main` starts **Auto Company Runtime CI**. The
+Every pull request and push to `main` starts **Autonomous Company Runtime CI**. The
 `CI gate` job reports whether all checks selected for that change succeeded.
 Only this aggregate job should be a required status check on `main`.
 

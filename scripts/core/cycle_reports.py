@@ -84,7 +84,7 @@ def linked(path):
 
 def write_report(root, cycle, fields, project=""):
     if not isinstance(cycle, str) or not IDENTITY.fullmatch(cycle):
-        raise ValueError("A valid AUTO_COMPANY_CYCLE_ID is required")
+        raise ValueError("A valid AUTONOMOUS_COMPANY_CYCLE_ID is required")
     root = Path(root).resolve(strict=True)
     value = {"version": 2, "cycle_id": cycle, "project": project,
              "recorded_at": datetime.now(timezone.utc).isoformat(), "source": "model_report", **fields}
@@ -133,8 +133,8 @@ def main():
         print(PROMPT)
         return 0
     try:
-        root = os.environ.get("AUTO_COMPANY_ROOT") or str(Path(__file__).resolve().parents[2])
-        value = write_report(root, os.environ.get("AUTO_COMPANY_CYCLE_ID", ""),
+        root = os.environ.get("AUTONOMOUS_COMPANY_ROOT") or str(Path(__file__).resolve().parents[2])
+        value = write_report(root, os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID", ""),
             {"title": args.title, "summary": args.summary, "phase": args.phase,
              "blocker": args.blocker, "final": args.final}, os.environ.get("ACTIVE_PROJECT", ""))
         print(json.dumps({"ok": True, "cycle_id": value["cycle_id"], "recorded_at": value["recorded_at"]}))

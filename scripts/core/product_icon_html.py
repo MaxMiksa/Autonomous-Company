@@ -56,7 +56,7 @@ class HeadReferences(HTMLParser):
             if tag == "base" and attributes.get("href") is not None:
                 self.base = True
             if tag == "link":
-                if attributes.get("data-auto-company-icon") is not None:
+                if attributes.get("data-autonomous-company-icon") is not None:
                     self.owned.append(attributes)
                 if "icon" in (attributes.get("rel") or "").lower().split():
                     self.links.append(attributes)
@@ -156,7 +156,7 @@ def inspect_reference(project, profile, icon, *, write=False):
         if parser.ambiguous:
             result.update(state="unconfirmed", reason="ambiguous_head_attributes")
             return result
-        canonical_path = safe_path(web_root, "auto-company-icon.svg")
+        canonical_path = safe_path(web_root, "autonomous-company-icon.svg")
         canonical_valid = False
         try:
             canonical_valid = digest(validate_icon(read_bytes(canonical_path, 32 * 1024))) == icon.get("sha256")
@@ -187,7 +187,7 @@ def inspect_reference(project, profile, icon, *, write=False):
                     unconfirmed = True
                 if valid:
                     usable.append({"href": href, "unified": digest(value) == icon.get("sha256"),
-                                   "managed": link.get("data-auto-company-icon") == "v1", "conditional": bool(link.get("media"))})
+                                   "managed": link.get("data-autonomous-company-icon") == "v1", "conditional": bool(link.get("media"))})
             except (OSError, ValueError):
                 continue
         if usable:
@@ -215,8 +215,8 @@ def inspect_reference(project, profile, icon, *, write=False):
         # Insert one metadata link at a parsed head boundary, preserving every
         # original byte and all existing user-authored references/content.
         newline = "\r\n" if "\r\n" in text else "\n"
-        href = "../" * (len(PurePosixPath(relative).parts) - 1) + "auto-company-icon.svg"
-        link = f'<link rel="icon" type="image/svg+xml" href="{href}" data-auto-company-icon="v1">'
+        href = "../" * (len(PurePosixPath(relative).parts) - 1) + "autonomous-company-icon.svg"
+        link = f'<link rel="icon" type="image/svg+xml" href="{href}" data-autonomous-company-icon="v1">'
         offset = parser.close_offset
         updated = (text[:offset] + newline + link + newline + text[offset:]).encode("utf-8")
         if read_bytes(target, 2 * 1024 * 1024) != raw:

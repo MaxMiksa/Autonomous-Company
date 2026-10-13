@@ -50,7 +50,7 @@ class ParallelTests(unittest.TestCase):
         self.runtime.adapter = self.adapter
         self.sources = [self.a, self.b] + [self.source(letter) for letter in 'cdef']
         for source in self.sources:
-            marker = Path(source['root']) / '.auto-company-center.json'
+            marker = Path(source['root']) / '.autonomous-company-center.json'
             value = json.loads(marker.read_text())
             value['protocolVersion'] = 2
             atomic_json(marker, value)
@@ -226,7 +226,7 @@ class ParallelRunnerTests(unittest.TestCase):
         for case in cases:
             case.setUp()
             self.addCleanup(case.doCleanups)
-            marker = json.loads((case.root / '.auto-company-center.json').read_text())
+            marker = json.loads((case.root / '.autonomous-company-center.json').read_text())
             marker['protocolVersion'] = 2
             if case is cases[1]:
                 for field in ('runtimeId', 'entryId', 'sourceId', 'requestId', 'dispatchId', 'nonce'):
@@ -234,7 +234,7 @@ class ParallelRunnerTests(unittest.TestCase):
                     if field in marker:
                         marker[field] = case.manifest[field]
                 atomic_json(case.manifest_path, case.manifest)
-            atomic_json(case.root / '.auto-company-center.json', marker)
+            atomic_json(case.root / '.autonomous-company-center.json', marker)
             case.env['XDG_STATE_HOME'] = cases[0].env['XDG_STATE_HOME']
         processes = [case.launch(SLOW_ENGINE='1') for case in cases]
         deadline = time.monotonic() + 20

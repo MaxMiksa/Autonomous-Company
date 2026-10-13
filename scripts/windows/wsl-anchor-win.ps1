@@ -9,10 +9,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "messages-win.ps1")
-if ($PSBoundParameters.ContainsKey("Language")) { Initialize-AutoCompanyMessages -Language $Language }
+if ($PSBoundParameters.ContainsKey("Language")) { Initialize-AutonomousCompanyMessages -Language $Language }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
-    throw (Get-AutoCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
+    throw (Get-AutonomousCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
 }
 
 $repoWin = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
@@ -30,11 +30,11 @@ function Resolve-RepoWslPath {
     $repoWinForWsl = $repoWin -replace "\\", "/"
     $repoWslRaw = & wsl.exe -d $Distro wslpath -a "$repoWinForWsl"
     if (-not $repoWslRaw) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     $repoWsl = $repoWslRaw.Trim()
     if (-not $repoWsl) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     return $repoWsl
 }
@@ -109,7 +109,7 @@ switch ($Action) {
             Start-Sleep -Milliseconds 200
             $running = Get-RunningAnchorProcess
             if ($running -and ((Invoke-LinuxAnchor -Operation status) -match "Linux: RUNNING")) {
-                Write-Output (Get-AutoCompanyMessage -Key 'WSL anchor started (PID {0}).' -Values @($running.Id))
+                Write-Output (Get-AutonomousCompanyMessage -Key 'WSL anchor started (PID {0}).' -Values @($running.Id))
                 exit 0
             }
         }
@@ -118,7 +118,7 @@ switch ($Action) {
         if ($proc -and -not $proc.HasExited) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         }
-        Write-Error (Get-AutoCompanyMessage -Key 'Failed to start WSL anchor.')
+        Write-Error (Get-AutonomousCompanyMessage -Key 'Failed to start WSL anchor.')
         exit 1
     }
 
@@ -152,7 +152,7 @@ switch ($Action) {
         }
         if (Get-RunningAnchorProcess) { throw "WSL anchor wrapper is still running." }
         Clear-StateFiles
-        Write-Output (Get-AutoCompanyMessage -Key 'WSL anchor stopped.')
+        Write-Output (Get-AutonomousCompanyMessage -Key 'WSL anchor stopped.')
         exit 0
     }
 

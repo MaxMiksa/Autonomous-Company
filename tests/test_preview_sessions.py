@@ -21,7 +21,7 @@ class PreviewSessionTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         (self.root / "projects/probe").mkdir(parents=True)
-        self.env = dict(os.environ, AUTO_COMPANY_ROOT=str(self.root), ACTIVE_PROJECT="projects/probe", AUTO_COMPANY_CYCLE_ID="cycle-session")
+        self.env = dict(os.environ, AUTONOMOUS_COMPANY_ROOT=str(self.root), ACTIVE_PROJECT="projects/probe", AUTONOMOUS_COMPANY_CYCLE_ID="cycle-session")
         self.command = [sys.executable, str(ROOT / "scripts/core/runtime_artifacts.py"), "preview"]
 
     def record(self):

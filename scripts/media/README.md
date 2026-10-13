@@ -23,7 +23,7 @@ image. Linux may require Playwright's documented browser system dependencies
 ## Normal product contract
 
 A root `index.html` automatically uses the bounded static profile. Other static
-web roots may declare `.auto-company/media.json`:
+web roots may declare `.autonomous-company/media.json`:
 
 ```json
 {
@@ -71,8 +71,8 @@ on both its health and entry responses:
 
 ```js
 {
-  "X-Auto-Company-Media": process.env.AUTO_COMPANY_MEDIA_TOKEN,
-  "X-Auto-Company-Version": process.env.AUTO_COMPANY_MEDIA_VERSION
+  "X-Autonomous-Company-Media": process.env.AUTONOMOUS_COMPANY_MEDIA_TOKEN,
+  "X-Autonomous-Company-Version": process.env.AUTONOMOUS_COMPANY_MEDIA_VERSION
 }
 ```
 
@@ -96,8 +96,8 @@ and check results remain recorded, and stop cleanup never starts a new capture.
 Use `icon.svg`, or set the profile's product-relative `icon` path. Existing
 `favicon.svg`, `public/icon.svg` and `public/favicon.svg` are also considered.
 The normal frontend workflow should author the input `icon.svg` and reference the
-program-owned **output** `auto-company-icon.svg` for its visible product icon and
-favicon, for example `<link rel="icon" href="auto-company-icon.svg"
+program-owned **output** `autonomous-company-icon.svg` for its visible product icon and
+favicon, for example `<link rel="icon" href="autonomous-company-icon.svg"
 type="image/svg+xml">`. During delivery/capture the collector writes the validated
 or default bytes to that canonical file in the declared `webRoot`, matching the
 Dashboard asset. For Node profiles, declare the actual public asset root (for
@@ -106,8 +106,8 @@ the program. This narrowly scoped generated-icon write happens before version
 hashing. For supported static `.html`/`.htm` entries with one explicit `<head>`,
 the collector also checks the favicon reference. If no usable favicon exists,
 it inserts one `<link rel="icon">` before `</head>`, marked
-`data-auto-company-icon="v1"`. Its href is relative to the HTML entry:
-`auto-company-icon.svg` at the Web root or `../auto-company-icon.svg` for a
+`data-autonomous-company-icon="v1"`. Its href is relative to the HTML entry:
+`autonomous-company-icon.svg` at the Web root or `../autonomous-company-icon.svg` for a
 one-level nested entry, preserving file previews and deployment subpaths. It preserves
 all original bytes and business DOM; correct references are left unchanged.
 Existing validated user SVG favicons are preserved and reported as not unified

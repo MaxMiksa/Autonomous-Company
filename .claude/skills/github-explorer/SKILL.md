@@ -184,7 +184,7 @@ Before sending a report, you **must check every item below**, and send it only w
 
 ## Dependencies
 
-These names describe required capabilities and optional enhancements; they do not mean Auto-Company has installed or configured these tools:
+These names describe required capabilities and optional enhancements; they do not mean Autonomous-Company has installed or configured these tools:
 
 | Dependency | Type | Purpose |
 |------|------|------|

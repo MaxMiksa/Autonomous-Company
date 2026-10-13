@@ -27,9 +27,9 @@
     "en": "Wrote env file: {0}",
     "zh-CN": "已写入环境配置文件：{0}"
   },
-  "auto-company.service not installed; running make install...": {
-    "en": "auto-company.service not installed; running make install...",
-    "zh-CN": "尚未安装 auto-company.service；正在运行 make install..."
+  "autonomous-company.service not installed; running make install...": {
+    "en": "autonomous-company.service not installed; running make install...",
+    "zh-CN": "尚未安装 autonomous-company.service；正在运行 make install..."
   },
   "Unsupported Engine '{0}'. Use claude, codex, cursor, or openai-compatible.": {
     "en": "Unsupported Engine '{0}'. Use claude, codex, cursor, or openai-compatible.",
@@ -59,9 +59,9 @@
     "en": "CycleTimeoutSeconds={0} is very low for real cycles and may cause frequent timeouts. Recommended: 900-1800.",
     "zh-CN": "CycleTimeoutSeconds={0} 对实际工作周期而言过短，可能导致频繁超时。建议设置为 900-1800。"
   },
-  "WSL daemon started: auto-company.service": {
-    "en": "WSL daemon started: auto-company.service",
-    "zh-CN": "WSL 后台服务已启动：auto-company.service"
+  "WSL daemon started: autonomous-company.service": {
+    "en": "WSL daemon started: autonomous-company.service",
+    "zh-CN": "WSL 后台服务已启动：autonomous-company.service"
   },
   "Missing awake guardian script: {0}": {
     "en": "Missing awake guardian script: {0}",
@@ -83,17 +83,17 @@
     "en": "Use .\\scripts\\windows\\status-win.ps1 to inspect daemon and loop status.",
     "zh-CN": "运行 .\\scripts\\windows\\status-win.ps1 查看后台服务和循环状态。"
   },
-  "auto-company.service is installed but was not running/loaded.": {
-    "en": "auto-company.service is installed but was not running/loaded.",
-    "zh-CN": "auto-company.service 已安装，但未运行或未加载。"
+  "autonomous-company.service is installed but was not running/loaded.": {
+    "en": "autonomous-company.service is installed but was not running/loaded.",
+    "zh-CN": "autonomous-company.service 已安装，但未运行或未加载。"
   },
-  "WSL daemon stopped: auto-company.service": {
-    "en": "WSL daemon stopped: auto-company.service",
-    "zh-CN": "WSL 后台服务已停止：auto-company.service"
+  "WSL daemon stopped: autonomous-company.service": {
+    "en": "WSL daemon stopped: autonomous-company.service",
+    "zh-CN": "WSL 后台服务已停止：autonomous-company.service"
   },
-  "auto-company.service is not installed. Falling back to foreground stop.": {
-    "en": "auto-company.service is not installed. Falling back to foreground stop.",
-    "zh-CN": "尚未安装 auto-company.service，将改为停止前台循环。"
+  "autonomous-company.service is not installed. Falling back to foreground stop.": {
+    "en": "autonomous-company.service is not installed. Falling back to foreground stop.",
+    "zh-CN": "尚未安装 autonomous-company.service，将改为停止前台循环。"
   },
   "Awake guardian reported a non-zero exit while stopping.": {
     "en": "Awake guardian reported a non-zero exit while stopping.",

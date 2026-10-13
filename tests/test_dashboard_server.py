@@ -133,7 +133,7 @@ class DashboardServerTests(unittest.TestCase):
             adapter.parent.mkdir(parents=True)
             shutil.copy2(source, adapter)
             (root / "scripts/core").mkdir()
-            for name in ("ui-messages.sh", "localization.py", "stop-loop.sh", "loop-lock.py"):
+            for name in ("ui-messages.sh", "localization.py", "namespace_guard.py", "stop-loop.sh", "loop-lock.py"):
                 shutil.copy2(SERVER_PATH.parents[1] / "scripts/core" / name, root / "scripts/core" / name)
             shutil.copytree(SERVER_PATH.parents[1] / "i18n", root / "i18n")
             fake_bin = root / "bin"
@@ -214,9 +214,9 @@ MainPID=321
 ActiveState=active
 SubState=running
 
-=== Auto Company Status ===
+=== Autonomous Company Status ===
 Loop: NOT RUNNING
-Daemon: ACTIVE (systemd --user auto-company.service)
+Daemon: ACTIVE (systemd --user autonomous-company.service)
 ENGINE=claude
 MODEL=sonnet
 """
@@ -232,14 +232,14 @@ MODEL=sonnet
 Awake guardian: RUNNING (PID 45)
 
 === Windows Autostart Task ===
-Autostart: CONFIGURED (AutoCompany-WSL-Start)
+Autostart: CONFIGURED (AutonomousCompany-WSL-Start)
 
 === WSL Daemon (systemd --user) ===
-auto-company.service: not installed
+autonomous-company.service: not installed
 
-=== Auto Company Status ===
+=== Autonomous Company Status ===
 Loop: RUNNING (PID 77)
-Daemon: NOT INSTALLED (systemd --user auto-company.service)
+Daemon: NOT INSTALLED (systemd --user autonomous-company.service)
 """
         parsed = dashboard_server.parse_status_output(raw, system_name="Windows")
         self.assertEqual(parsed["guardian"]["state"], "running")
@@ -270,17 +270,17 @@ State=active
 ActiveState=active
 SubState=running
 MainPID=222
-Raw=systemd --user auto-company.service: active/running
+Raw=systemd --user autonomous-company.service: active/running
 
 === Autostart ===
 State=configured
 EnabledState=enabled
-Raw=systemd --user auto-company.service is enabled
+Raw=systemd --user autonomous-company.service is enabled
 
 === Loop ===
 State=running
 Pid=222
-DaemonSummary=active (systemd --user auto-company.service)
+DaemonSummary=active (systemd --user autonomous-company.service)
 Raw=Loop running
 
 === State File ===
@@ -308,16 +308,16 @@ State=unsupported
 State=inactive
 ActiveState=inactive
 SubState=dead
-Raw=systemd --user auto-company.service: inactive/dead
+Raw=systemd --user autonomous-company.service: inactive/dead
 
 === Autostart ===
 State=not_configured
 EnabledState=disabled
-Raw=systemd --user auto-company.service is disabled
+Raw=systemd --user autonomous-company.service is disabled
 
 === Loop ===
 State=stopped
-DaemonSummary=inactive (systemd --user auto-company.service)
+DaemonSummary=inactive (systemd --user autonomous-company.service)
 Raw=Loop not running
 """
         parsed = dashboard_server.parse_status_output(raw, system_name="Linux")
@@ -333,7 +333,7 @@ Raw=Loop not running
 State=failed
 ActiveState=failed
 SubState=failed
-Raw=systemd --user auto-company.service: failed/failed
+Raw=systemd --user autonomous-company.service: failed/failed
 
 === Autostart ===
 State=configured
@@ -351,16 +351,16 @@ State=stopped
 State=not_installed
 ActiveState=unknown
 SubState=unknown
-Raw=auto-company.service is not installed; run make install
+Raw=autonomous-company.service is not installed; run make install
 
 === Autostart ===
 State=not_configured
 EnabledState=not-found
-Raw=auto-company.service is not installed; run make install
+Raw=autonomous-company.service is not installed; run make install
 
 === Loop ===
 State=stopped
-DaemonSummary=NOT INSTALLED (systemd --user auto-company.service)
+DaemonSummary=NOT INSTALLED (systemd --user autonomous-company.service)
 Raw=Loop not running
 """
         parsed = dashboard_server.parse_status_output(raw, system_name="Linux")
@@ -605,6 +605,23 @@ Raw=Loop not running
             handler.do_GET()
             handler._serve_file.assert_called_once_with(dashboard_server.DASHBOARD_DIR / "ui-assets" / filename, mime)
             handler._serve_file.reset_mock()
+
+    def test_brand_logo_is_served_as_unchanged_binary_png(self) -> None:
+        server = dashboard_server.ThreadingHTTPServer(('127.0.0.1', 0), dashboard_server.DashboardHandler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1], timeout=5)
+            connection.request('GET', '/brand-logo.png?v=rename')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader('Content-Type'), 'image/png')
+            self.assertEqual(response.read(), (dashboard_server.DASHBOARD_DIR / 'brand-logo.png').read_bytes())
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(5)
 
     def test_frontend_translation_asset_uses_explicit_static_route(self) -> None:
         handler = dashboard_server.DashboardHandler.__new__(

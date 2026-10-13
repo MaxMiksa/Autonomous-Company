@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Uninstall WSL/Linux systemd user daemon
+# Autonomous Company — Uninstall WSL/Linux systemd user daemon
 # ============================================================
 
 set -euo pipefail
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_DIR/scripts/core/ui-messages.sh"
 
-SERVICE_NAME="auto-company.service"
+SERVICE_NAME="autonomous-company.service"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 SERVICE_PATH="$SYSTEMD_USER_DIR/$SERVICE_NAME"
 

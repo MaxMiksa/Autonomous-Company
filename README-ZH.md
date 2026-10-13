@@ -1,6 +1,8 @@
 <div align="center">
 
-# Auto Company
+# Autonomous Company
+
+Autonomous Company（自主公司）原名 Auto-Company。已有安装请先完成 [v3 一次性迁移](docs/rename-migration.md)，再启动。
 
 **支持持续自主工作的 AI 公司框架**
 
@@ -160,8 +162,8 @@ make center
 # - 可用模型配额
 
 # 克隆
-git clone https://github.com/MaxMiksa/Auto-Company.git
-cd Auto-Company
+git clone https://github.com/MaxMiksa/Autonomous-Company.git
+cd Autonomous-Company
 
 # 使用 Claude Code 前台运行（默认引擎，直接看输出）
 make start
@@ -187,8 +189,8 @@ ENGINE=codex make install
 # - 可用模型配额
 
 # 克隆
-git clone https://github.com/MaxMiksa/Auto-Company.git
-cd Auto-Company
+git clone https://github.com/MaxMiksa/Autonomous-Company.git
+cd Autonomous-Company
 
 # 在 PowerShell 启动（守护模式，默认引擎为 claude）
 .\scripts\windows\start-win.ps1
@@ -249,7 +251,7 @@ make awake         # 读取 .auto-loop.pid 并对该 PID 挂 caffeinate
 
 ## 🏗️ 架构技术介绍详单 (5-Layer Architecture)
 
-Auto-Company 并非简单调用 LLM API，而是一个高度解耦的 **多智能体系统 (Multi-Agent System, MAS)**。其技术架构分为 5 个清晰的层级：
+Autonomous-Company 并非简单调用 LLM API，而是一个高度解耦的 **多智能体系统 (Multi-Agent System, MAS)**。其技术架构分为 5 个清晰的层级：
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
@@ -286,7 +288,7 @@ Auto-Company 并非简单调用 LLM API，而是一个高度解耦的 **多智�
 ### 第 2 层：编排与状态控制层 (Orchestration & State Machine)
 *   **持续主循环 (The Auto-Loop)**：`scripts/core/auto-loop.sh` 调度重复的 CLI 调用、等待和失败处理；服务、模型访问、预算及运行检查允许时可以持续执行。
 *   **共识记忆 (Consensus Memory)**：`memories/consensus.md` 在调用之间传递自然语言工作摘要。结构化产品身份、用量、配置和恢复记录另行保存，摘要不等于整个运行状态。
-*   **容错与恢复机制 (Resilience & Recovery)**：内置熔断器（连续错误触发冷却）、限流退避（429 报错自动休眠），并在周期失败后恢复共识。Human Overrides、`.auto-company.local` 和框架根目录的 `.gitignore` 有定向保护。产品代码修改和外部副作用不会自动回滚。
+*   **容错与恢复机制 (Resilience & Recovery)**：内置熔断器（连续错误触发冷却）、限流退避（429 报错自动休眠），并在周期失败后恢复共识。Human Overrides、`.autonomous-company.local` 和框架根目录的 `.gitignore` 有定向保护。产品代码修改和外部副作用不会自动回滚。
 
 ### 第 1 层：基础设施与执行引擎层 (Execution Engine & Infrastructure)
 *   **引擎适配器 (Engine Adapters)**：主要入口使用 **Claude Code**（默认）或 **Codex CLI**。另有需显式启用和配置的 **Cursor** 与 **OpenAI-compatible** 适配器，各引擎的工具与组队能力有所不同，详见[引擎适配说明](i18n/zh-CN/ENGINE_ADAPTERS.md)。
@@ -382,7 +384,7 @@ Windows `start-win.ps1` 会把同名配置写入 `.auto-loop.env`：
 ## 📁 项目结构
 
 ```
-auto-company/
+autonomous-company/
 ├── CLAUDE.md              # 公司章程（使命 + 安全红线 + 团队 + 流程）
 ├── PROMPT.md              # 每轮工作指令（收敛规则）
 ├── Makefile               # 常用命令
@@ -477,19 +479,19 @@ auto-company/
 <a id="致谢"></a>
 ## 🙏 致谢
 
-感谢以下贡献者，他们的问题反馈、修复和方案推动了 Auto Company 的发展：
+感谢以下贡献者，他们的问题反馈、修复和方案推动了 Autonomous Company 的发展：
 
 | 贡献者 | 具体贡献 | 来源 |
 |---|---|---|
-| [@JasonQWJ](https://github.com/JasonQWJ) | 早期 macOS Dashboard 提案与实现尝试，为 `v1.1.0` 方案提供参考 | [#1](https://github.com/MaxMiksa/Auto-Company/pull/1) |
-| [@cnwillz](https://github.com/cnwillz) | 推动 macOS Dashboard 支持，为跨平台实现提供参考 | [#2](https://github.com/MaxMiksa/Auto-Company/pull/2) |
-| [@chbndrhnns](https://github.com/chbndrhnns) | 报告脚本缺少执行位导致的首次启动失败 | [#5](https://github.com/MaxMiksa/Auto-Company/issues/5) |
-| [@Sittichai9680](https://github.com/Sittichai9680) | 推动 Linux/WSL Dashboard 支持方向 | [#9](https://github.com/MaxMiksa/Auto-Company/pull/9) |
-| [@allenter](https://github.com/allenter) | 推动成本监控、预算告警及脚本入口执行位修复 | [#13](https://github.com/MaxMiksa/Auto-Company/pull/13)、[#14](https://github.com/MaxMiksa/Auto-Company/pull/14) |
+| [@JasonQWJ](https://github.com/JasonQWJ) | 早期 macOS Dashboard 提案与实现尝试，为 `v1.1.0` 方案提供参考 | [#1](https://github.com/MaxMiksa/Autonomous-Company/pull/1) |
+| [@cnwillz](https://github.com/cnwillz) | 推动 macOS Dashboard 支持，为跨平台实现提供参考 | [#2](https://github.com/MaxMiksa/Autonomous-Company/pull/2) |
+| [@chbndrhnns](https://github.com/chbndrhnns) | 报告脚本缺少执行位导致的首次启动失败 | [#5](https://github.com/MaxMiksa/Autonomous-Company/issues/5) |
+| [@Sittichai9680](https://github.com/Sittichai9680) | 推动 Linux/WSL Dashboard 支持方向 | [#9](https://github.com/MaxMiksa/Autonomous-Company/pull/9) |
+| [@allenter](https://github.com/allenter) | 推动成本监控、预算告警及脚本入口执行位修复 | [#13](https://github.com/MaxMiksa/Autonomous-Company/pull/13)、[#14](https://github.com/MaxMiksa/Autonomous-Company/pull/14) |
 | [@maxgoff](https://github.com/maxgoff) | 记录 Cycle 超时后引擎残留的实际问题，提出完整进程树清理方向 | [Fork 贡献](https://github.com/maxgoff/Auto-Company/commit/861d678fc3070d385e3771591cb6468f2857aa05) |
 | [@omergeiger](https://github.com/omergeiger) | 为 Human Overrides 原样保护和 P1 问题阻断提供方向 | [Human Overrides](https://github.com/omergeiger/Auto-Company/commit/cb1dba1b687eaf700258411f562fd2986586c82d)、[P1 问题](https://github.com/omergeiger/Auto-Company/commit/4730a7d03c25e49035be95e48bda428f983e176e) |
-| [@NicklasSandin](https://github.com/NicklasSandin) | 推动英文文档和英文使用体验 | [#21](https://github.com/MaxMiksa/Auto-Company/pull/21) |
-| [@mdoganexe](https://github.com/mdoganexe) | 报告并贡献 systemd 安装、WSL 发行版选择及区域设置相关配置处理的修复 | [#27](https://github.com/MaxMiksa/Auto-Company/pull/27)、[#28](https://github.com/MaxMiksa/Auto-Company/pull/28) |
+| [@NicklasSandin](https://github.com/NicklasSandin) | 推动英文文档和英文使用体验 | [#21](https://github.com/MaxMiksa/Autonomous-Company/pull/21) |
+| [@mdoganexe](https://github.com/mdoganexe) | 报告并贡献 systemd 安装、WSL 发行版选择及区域设置相关配置处理的修复 | [#27](https://github.com/MaxMiksa/Autonomous-Company/pull/27)、[#28](https://github.com/MaxMiksa/Autonomous-Company/pull/28) |
 
 - [nicepkg/auto-company](https://github.com/nicepkg/auto-company) — macOS初版
 - [shadcn/ui](https://github.com/shadcn-ui/ui) — Dashboard 共用组件；[许可与集成说明](dashboard/ui/README.md)
@@ -508,4 +510,4 @@ auto-company/
 如有任何问题或建议，请联系 Zheyuan (Max) Kong (卡内基梅隆大学，宾夕法尼亚州)。
 
 Zheyuan (Max) Kong: kongzheyuan@outlook.com | zheyuank@tepper.cmu.edu
-本项目 GitHub 链接：https://github.com/MaxMiksa/Auto-Company
+本项目 GitHub 链接：https://github.com/MaxMiksa/Autonomous-Company

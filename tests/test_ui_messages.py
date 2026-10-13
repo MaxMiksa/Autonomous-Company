@@ -27,7 +27,7 @@ class OperatorMessageTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.env = dict(os.environ)
-        self.env.pop("AUTO_COMPANY_LANGUAGE", None)
+        self.env.pop("AUTONOMOUS_COMPANY_LANGUAGE", None)
 
     def run_language(self, *args, **env):
         return subprocess.run([sys.executable, str(ROOT / "scripts/core/localization.py"),
@@ -36,15 +36,15 @@ class OperatorMessageTests(unittest.TestCase):
                               encoding="utf-8", timeout=10)
 
     def test_language_selection_and_invalid_config_diagnostic_fallback(self):
-        local = self.root / ".auto-company.local"
+        local = self.root / ".autonomous-company.local"
         with mock.patch.dict(os.environ, self.env, clear=True):
             with mock.patch.object(LOCALIZATION, "system_language", return_value="zh-CN"):
                 self.assertIn("当前没有", LOCALIZATION.message(self.root, "budget.not_paused"))
-            local.write_text("AUTO_COMPANY_LANGUAGE=en\n", encoding="utf-8")
+            local.write_text("AUTONOMOUS_COMPANY_LANGUAGE=en\n", encoding="utf-8")
             self.assertEqual(LOCALIZATION.message(self.root, "budget.not_paused"), "Budget pause was not active.")
-            with mock.patch.dict(os.environ, AUTO_COMPANY_LANGUAGE="zh-CN"):
+            with mock.patch.dict(os.environ, AUTONOMOUS_COMPANY_LANGUAGE="zh-CN"):
                 self.assertEqual(LOCALIZATION.message(self.root, "budget.not_paused"), "Budget pause was not active.")
-            with mock.patch.dict(os.environ, AUTO_COMPANY_LANGUAGE="invalid"):
+            with mock.patch.dict(os.environ, AUTONOMOUS_COMPANY_LANGUAGE="invalid"):
                 self.assertEqual(LOCALIZATION.diagnostic_language(self.root), "en")
             local.write_text("$(touch sentinel)\n", encoding="utf-8")
             self.assertEqual(LOCALIZATION.diagnostic_language(self.root), "en")
@@ -84,30 +84,30 @@ class OperatorMessageTests(unittest.TestCase):
         for language, saved, running in (("zh-CN", "已保存", "请用 make stop"),
                                          ("en", "Saved", "stop the foreground loop with make stop")):
             with self.subTest(language=language):
-                result = self.run_language("set", "--language", language, AUTO_COMPANY_LANGUAGE=language)
+                result = self.run_language("set", "--language", language, AUTONOMOUS_COMPANY_LANGUAGE=language)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(saved, result.stdout)
-                result = self.run_language("set", "--language", "invalid", AUTO_COMPANY_LANGUAGE=language)
+                result = self.run_language("set", "--language", "invalid", AUTONOMOUS_COMPANY_LANGUAGE=language)
                 self.assertEqual(result.returncode, 78)
                 self.assertIn("Error: language must be zh-CN or en", result.stderr)
                 pid = self.root / ".auto-loop.pid"
                 pid.write_text("1234", encoding="utf-8")
-                before = (self.root / ".auto-company.local").read_bytes()
-                result = self.run_language("next-product", "--confirm", "NEXT", AUTO_COMPANY_LANGUAGE=language)
+                before = (self.root / ".autonomous-company.local").read_bytes()
+                result = self.run_language("next-product", "--confirm", "NEXT", AUTONOMOUS_COMPANY_LANGUAGE=language)
                 self.assertEqual(result.returncode, 78)
                 self.assertIn(running, result.stderr)
                 self.assertIn("make pause", result.stderr)
-                self.assertEqual((self.root / ".auto-company.local").read_bytes(), before)
+                self.assertEqual((self.root / ".autonomous-company.local").read_bytes(), before)
                 pid.unlink()
 
     def test_check_keeps_exact_machine_language_output(self):
         for language in ("zh-CN", "en"):
-            result = self.run_language("check", AUTO_COMPANY_LANGUAGE=language)
+            result = self.run_language("check", AUTONOMOUS_COMPANY_LANGUAGE=language)
             self.assertEqual((result.returncode, result.stdout, result.stderr), (0, language + "\n", ""))
-        result = self.run_language("check", AUTO_COMPANY_LANGUAGE="invalid")
+        result = self.run_language("check", AUTONOMOUS_COMPANY_LANGUAGE="invalid")
         self.assertEqual(result.returncode, 78)
         self.assertEqual(result.stdout, "")
-        self.assertIn("Check AUTO_COMPANY_LANGUAGE", result.stderr)
+        self.assertIn("Check AUTONOMOUS_COMPANY_LANGUAGE", result.stderr)
 
     @unittest.skipUnless(os.name == "posix" and Path("/bin/bash").exists(), "Native POSIX Bash")
     def test_native_bash_nounset_handles_messages_with_and_without_parameters(self):
@@ -118,7 +118,7 @@ class OperatorMessageTests(unittest.TestCase):
                    "message-test", str(ROOT)]
         for language, saved in (("en", "Saved language preference: en"),
                                 ("zh-CN", "已保存语言偏好：en")):
-            result = subprocess.run(command, env=dict(self.env, AUTO_COMPANY_LANGUAGE=language),
+            result = subprocess.run(command, env=dict(self.env, AUTONOMOUS_COMPANY_LANGUAGE=language),
                                     capture_output=True, text=True, encoding="utf-8", timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(result.stdout.splitlines()), 2)
@@ -129,7 +129,7 @@ class OperatorMessageTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "posix" and sys.platform == "linux", "Linux/WSL entrypoint fixtures")
 class ShellOperatorMessageTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="auto-company-ui-")
+        self.temp = tempfile.TemporaryDirectory(prefix="autonomous-company-ui-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'repo {1} & test'
         self.root.mkdir()
@@ -143,7 +143,7 @@ class ShellOperatorMessageTests(unittest.TestCase):
         self.home.mkdir()
         self.env = dict(os.environ, HOME=str(self.home), PATH=f"{self.bin}:{os.environ['PATH']}",
                         ENGINE="claude", CLAUDE_PERMISSION_MODE="default")
-        self.env.pop("AUTO_COMPANY_LANGUAGE", None)
+        self.env.pop("AUTONOMOUS_COMPANY_LANGUAGE", None)
         self.fake("systemctl", "exit 1")
         self.fake("loginctl", "exit 0")
 
@@ -154,7 +154,7 @@ class ShellOperatorMessageTests(unittest.TestCase):
 
     def run_script(self, relative, *args, language="zh-CN"):
         return subprocess.run(["/bin/bash", str(self.root / relative), *args],
-                              env=dict(self.env, AUTO_COMPANY_LANGUAGE=language), cwd=self.root,
+                              env=dict(self.env, AUTONOMOUS_COMPANY_LANGUAGE=language), cwd=self.root,
                               capture_output=True, text=True, encoding="utf-8", timeout=20)
 
     def test_shell_values_are_literal_and_do_not_execute(self):
@@ -165,19 +165,19 @@ class ShellOperatorMessageTests(unittest.TestCase):
         self.assertFalse((self.root / "injected").exists())
 
     def test_make_help_default_and_language_precedence(self):
-        (self.root / ".auto-company.local").write_text("AUTO_COMPANY_LANGUAGE=en\n", encoding="utf-8")
+        (self.root / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=en\n", encoding="utf-8")
         result = subprocess.run(["make"], cwd=self.root, env=self.env, capture_output=True,
                                 text=True, encoding="utf-8", timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Start the auto-loop", result.stdout)
         result = subprocess.run(["make", "help"], cwd=self.root,
-                                env=dict(self.env, AUTO_COMPANY_LANGUAGE="zh-CN"),
+                                env=dict(self.env, AUTONOMOUS_COMPANY_LANGUAGE="zh-CN"),
                                 capture_output=True, text=True, encoding="utf-8", timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Start the auto-loop", result.stdout)
-        (self.root / ".auto-company.local").unlink()
+        (self.root / ".autonomous-company.local").unlink()
         result = subprocess.run(["make", "help"], cwd=self.root,
-                                env=dict(self.env, AUTO_COMPANY_LANGUAGE="zh-CN"),
+                                env=dict(self.env, AUTONOMOUS_COMPANY_LANGUAGE="zh-CN"),
                                 capture_output=True, text=True, encoding="utf-8", timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("在前台启动自动循环", result.stdout)
@@ -205,7 +205,7 @@ class ShellOperatorMessageTests(unittest.TestCase):
             result = self.run_script("scripts/wsl/install-wsl-daemon.sh", language=language)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(installed, result.stdout)
-            unit = self.home / ".config/systemd/user/auto-company.service"
+            unit = self.home / ".config/systemd/user/autonomous-company.service"
             units.append(unit.read_bytes())
             result = self.run_script("scripts/wsl/uninstall-wsl-daemon.sh", language=language)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -241,7 +241,7 @@ class ShellOperatorMessageTests(unittest.TestCase):
         outputs = []
         for language, expected in (("en", "Review usage and limits"), ("zh-CN", "请先检查用量和限额")):
             command = [sys.executable, str(self.root / "scripts/core/usage.py"), "status"]
-            env = dict(self.env, AUTO_COMPANY_LANGUAGE=language)
+            env = dict(self.env, AUTONOMOUS_COMPANY_LANGUAGE=language)
             result = subprocess.run(command + ["--format", "json"], env=env, capture_output=True,
                                     text=True, encoding="utf-8", timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)

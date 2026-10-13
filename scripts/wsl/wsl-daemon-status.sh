@@ -1,11 +1,11 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — WSL daemon status helper
+# Autonomous Company — WSL daemon status helper
 # ============================================================
 
 set -euo pipefail
 
-SERVICE_NAME="auto-company.service"
+SERVICE_NAME="autonomous-company.service"
 SERVICE_PATH="$HOME/.config/systemd/user/$SERVICE_NAME"
 
 if ! command -v systemctl >/dev/null 2>&1; then

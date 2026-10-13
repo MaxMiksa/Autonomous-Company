@@ -8,7 +8,7 @@ $script:LastWslExitCode = 0
 
 function Assert-WslAvailable {
     if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
-        throw (Get-AutoCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
+        throw (Get-AutonomousCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
     }
 }
 
@@ -17,11 +17,11 @@ function Get-RepoPaths {
     $repoWinForWsl = $repoWin -replace "\\", "/"
     $repoWslRaw = & wsl.exe -d $Distro wslpath -a "$repoWinForWsl"
     if (-not $repoWslRaw) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     $repoWsl = $repoWslRaw.Trim()
     if (-not $repoWsl) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     return @{
         RepoWin = $repoWin
@@ -45,7 +45,7 @@ function Invoke-WslCommand {
         }
     }
     if (-not $IgnoreExitCode -and $code -ne 0) {
-        throw (Get-AutoCompanyMessage -Key 'WSL command failed ({0}): {1}' -Values @($code, $Command))
+        throw (Get-AutonomousCompanyMessage -Key 'WSL command failed ({0}): {1}' -Values @($code, $Command))
     }
 }
 
@@ -54,7 +54,7 @@ function Get-AutostartTaskState {
         return "unavailable"
     }
 
-    & cmd.exe /c "schtasks /Query /TN ""AutoCompany-WSL-Start"" /FO LIST >nul 2>&1"
+    & cmd.exe /c "schtasks /Query /TN ""AutonomousCompany-WSL-Start"" /FO LIST >nul 2>&1"
     $code = $LASTEXITCODE
     if ($code -eq 0) {
         return "configured"
@@ -96,7 +96,7 @@ if (Test-Path $anchorScript) {
 Write-Output ""
 Write-Output "=== Windows Autostart Task ==="
 switch (Get-AutostartTaskState) {
-    "configured" { Write-Output "Autostart: CONFIGURED (AutoCompany-WSL-Start)" }
+    "configured" { Write-Output "Autostart: CONFIGURED (AutonomousCompany-WSL-Start)" }
     "not_configured" { Write-Output "Autostart: NOT CONFIGURED" }
     "unavailable" { Write-Output "Autostart: schtasks unavailable" }
     default { Write-Output "Autostart: UNKNOWN (query failed)" }
@@ -104,12 +104,12 @@ switch (Get-AutostartTaskState) {
 
 Write-Output ""
 Write-Output "=== WSL Daemon (systemd --user) ==="
-Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user cat auto-company.service >/dev/null 2>&1" -IgnoreExitCode
+Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user cat autonomous-company.service >/dev/null 2>&1" -IgnoreExitCode
 if ($script:LastWslExitCode -eq 0) {
-    Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user is-active auto-company.service || true" -IgnoreExitCode
-    Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user show auto-company.service -p MainPID -p ActiveState -p SubState --no-pager" -IgnoreExitCode
+    Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user is-active autonomous-company.service || true" -IgnoreExitCode
+    Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user show autonomous-company.service -p MainPID -p ActiveState -p SubState --no-pager" -IgnoreExitCode
 } else {
-    Write-Output "auto-company.service: not installed"
+    Write-Output "autonomous-company.service: not installed"
 }
 
 Write-Output ""

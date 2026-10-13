@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — macOS Status Report for Dashboard
+# Autonomous Company — macOS Status Report for Dashboard
 # ============================================================
 
 set -euo pipefail
@@ -12,7 +12,7 @@ STATE_FILE="$PROJECT_DIR/.auto-loop-state"
 PID_FILE="$PROJECT_DIR/.auto-loop.pid"
 PAUSE_FLAG="$PROJECT_DIR/.auto-loop-paused"
 CONSENSUS_FILE="$PROJECT_DIR/memories/consensus.md"
-LABEL="com.autocompany.loop"
+LABEL="com.autonomouscompany.loop"
 PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
 
 loop_pid=""

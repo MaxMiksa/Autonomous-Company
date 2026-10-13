@@ -43,7 +43,7 @@ class CollectionTests(unittest.TestCase):
         with self.assertRaises(boundary.IsolationError):
             self.view.collect()
         self.assertEqual((self.root / "projects/sample/value.txt").read_text(), "original")
-        self.assertFalse((self.root / ".auto-company/isolation-pending.json").exists())
+        self.assertFalse((self.root / ".autonomous-company/isolation-pending.json").exists())
 
     def test_unknown_consensus_has_only_governance_input(self):
         body = (self.view.workspace / "memories/consensus.md").read_text()
@@ -58,7 +58,7 @@ class CollectionTests(unittest.TestCase):
         self.view.collect()
         self.assertEqual((self.root / "projects/sample/value.txt").read_text(), "new")
         self.assertEqual((self.root / "logs/old.json").read_text(), "old")
-        self.assertFalse((self.root / ".auto-company/isolation-pending.json").exists())
+        self.assertFalse((self.root / ".autonomous-company/isolation-pending.json").exists())
 
     def test_interrupted_collection_is_recoverable_and_blocks_restart(self):
         ready = self.view.store / "collect-recovery"
@@ -104,7 +104,7 @@ class CollectionTests(unittest.TestCase):
             request.assert_not_called()
 
 
-@unittest.skipUnless(sys.platform == "linux" and (os.environ.get("AUTO_COMPANY_BWRAP") or shutil.which("bwrap")),
+@unittest.skipUnless(sys.platform == "linux" and (os.environ.get("AUTONOMOUS_COMPANY_BWRAP") or shutil.which("bwrap")),
                      "Requires real Linux namespaces and bubblewrap; no emulation")
 class KernelTests(unittest.TestCase):
     def setUp(self):
@@ -154,7 +154,7 @@ pathlib.Path('/workspace/success').write_text('yes')
             boundary.run_isolated(["/usr/bin/true"], self.project)
 
     def test_missing_backend_never_executes_command(self):
-        with patch.dict(os.environ, {"AUTO_COMPANY_BWRAP": str(self.base / "missing")}):
+        with patch.dict(os.environ, {"AUTONOMOUS_COMPANY_BWRAP": str(self.base / "missing")}):
             with self.assertRaises(boundary.IsolationError):
                 boundary.run_isolated(["/usr/bin/touch", "/workspace/escaped"], self.project)
         self.assertFalse((self.project / "escaped").exists())
@@ -171,9 +171,9 @@ pathlib.Path('/workspace/success').write_text('yes')
         view = workspace.CompanyView(root, "", cycle)
         self.addCleanup(shutil.rmtree, view.folder, ignore_errors=True)
         view.prepare()
-        readonly = [(view.workspace / name, "/workspace/" + name) for name in ("scripts", "Makefile", ".auto-company.local")]
+        readonly = [(view.workspace / name, "/workspace/" + name) for name in ("scripts", "Makefile", ".autonomous-company.local")]
         code = boundary.run_isolated(["/bin/sh", "-c", "awk 'BEGIN {exit 0}' && exec make project-new NAME=new-probe"], view.workspace,
-                                     readonly=readonly, environment={"AUTO_COMPANY_ROOT": "/workspace", "AUTO_COMPANY_CYCLE_ID": cycle})
+                                     readonly=readonly, environment={"AUTONOMOUS_COMPANY_ROOT": "/workspace", "AUTONOMOUS_COMPANY_CYCLE_ID": cycle})
         self.assertEqual(code, 0)
         view.collect()
         state = read_state(root)

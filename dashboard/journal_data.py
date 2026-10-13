@@ -1,4 +1,4 @@
-"""Bounded journal projections of an Auto Company run.
+"""Bounded journal projections of an Autonomous Company run.
 
 Cycle identities come from program-owned ledgers. A consensus is the latest
 work report, not proof of a running process or a stream of agent activity.
@@ -104,7 +104,7 @@ class JournalSource:
 
     def identity_state(self):
         try:
-            raw, truncated = self.read(".auto-company/product-state.json", MAX_LEDGER_BYTES)
+            raw, truncated = self.read(".autonomous-company/product-state.json", MAX_LEDGER_BYTES)
         except FileNotFoundError:
             return {"identities": {}, "paths": {}, "cycles": {}}
         if truncated:
@@ -179,11 +179,11 @@ class JournalSource:
                     "productLanguageStatus": "recorded" if evidence else "unknown",
                     "languagePeriodId": evidence["languagePeriodId"] if evidence else None,
                     "languageEvidence": evidence}
-        settings = self.pairs(".auto-company.local")
-        preference = settings.get("AUTO_COMPANY_LANGUAGE")
+        settings = self.pairs(".autonomous-company.local")
+        preference = settings.get("AUTONOMOUS_COMPANY_LANGUAGE")
         preference = preference if preference in LANGUAGES else system_language()
-        current = settings.get("AUTO_COMPANY_PRODUCT_LANGUAGE")
-        locked = settings.get("AUTO_COMPANY_PRODUCT_STATUS") == "active" and current in LANGUAGES
+        current = settings.get("AUTONOMOUS_COMPANY_PRODUCT_LANGUAGE")
+        locked = settings.get("AUTONOMOUS_COMPANY_PRODUCT_STATUS") == "active" and current in LANGUAGES
         current = current if locked else preference
         if self.preview_language:
             current = self.preview_language
@@ -308,7 +308,7 @@ class JournalSource:
 
     def project(self) -> dict[str, Any]:
         """Return only selection-bound metadata; consensus is never identity."""
-        selected = self.scope.project or "" if self.scope else self.pairs(".auto-company.local").get("ACTIVE_PROJECT", "")
+        selected = self.scope.project or "" if self.scope else self.pairs(".autonomous-company.local").get("ACTIVE_PROJECT", "")
         if not selected and not self.scope:
             try:
                 selected = continuation_project(self.root)
@@ -321,11 +321,11 @@ class JournalSource:
             except (OSError, ValueError, TypeError):
                 current = None
             if not current or current['id'] != self.scope.product_id:
-                return {"id": selected or None, "name": selected.split("/")[-1] or "Auto Company",
-                        "displayName": selected.split("/")[-1] or "Auto Company", "description": "",
+                return {"id": selected or None, "name": selected.split("/")[-1] or "Autonomous Company",
+                        "displayName": selected.split("/")[-1] or "Autonomous Company", "description": "",
                         "source": "identity_ledger", "status": "historical", "recordedAt": None}
         if not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", selected):
-            return {"id": None, "name": "Auto Company", "displayName": "Auto Company",
+            return {"id": None, "name": "Autonomous Company", "displayName": "Autonomous Company",
                     "description": "", "source": "workspace", "status": "unselected",
                     "recordedAt": None}
         fallback = selected.split("/", 1)[1]

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Linux/WSL Dashboard Service Adapter
+# Autonomous Company — Linux/WSL Dashboard Service Adapter
 # ============================================================
 # Dashboard controls intentionally go through the installed
 # systemd --user unit. They never launch auto-loop.sh directly.
@@ -14,9 +14,9 @@ LOG_DIR="$PROJECT_DIR/logs"
 STATE_FILE="$PROJECT_DIR/.auto-loop-state"
 PID_FILE="$PROJECT_DIR/.auto-loop.pid"
 CONSENSUS_FILE="$PROJECT_DIR/memories/consensus.md"
-SERVICE_NAME="auto-company.service"
+SERVICE_NAME="autonomous-company.service"
 
-if [ -e "$PROJECT_DIR/.auto-company-center.json" ] || [ -L "$PROJECT_DIR/.auto-company-center.json" ]; then
+if [ -e "$PROJECT_DIR/.autonomous-company-center.json" ] || [ -L "$PROJECT_DIR/.autonomous-company-center.json" ]; then
     case "${1:-status}" in
         status) ;;
         *) ui_message center.managed >&2; exit 1 ;;
@@ -106,7 +106,7 @@ print_status() {
         echo "=== Autostart ==="
         echo "State=unavailable"
         echo "EnabledState=unknown"
-        echo "Raw=Cannot inspect auto-company.service without systemctl --user"
+        echo "Raw=Cannot inspect autonomous-company.service without systemctl --user"
         echo ""
         print_loop_section "UNAVAILABLE (systemd --user)"
         print_tail_sections
@@ -118,14 +118,14 @@ print_status() {
         echo "State=not_installed"
         echo "ActiveState=unknown"
         echo "SubState=unknown"
-        echo "Raw=auto-company.service is not installed; run make install"
+        echo "Raw=autonomous-company.service is not installed; run make install"
         echo ""
         echo "=== Autostart ==="
         echo "State=not_configured"
         echo "EnabledState=not-found"
-        echo "Raw=auto-company.service is not installed; run make install"
+        echo "Raw=autonomous-company.service is not installed; run make install"
         echo ""
-        print_loop_section "NOT INSTALLED (systemd --user auto-company.service)"
+        print_loop_section "NOT INSTALLED (systemd --user autonomous-company.service)"
         print_tail_sections
         return 0
     fi

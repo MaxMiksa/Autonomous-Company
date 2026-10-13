@@ -1,7 +1,7 @@
 {
-  "name": "auto-company-clone-win",
-  "version": "2.2.0",
+  "name": "autonomous-company",
+  "version": "3.0.0",
   "private": true,
-  "description": "Auto Company Windows + WSL runtime with dual-engine CLI support",
+  "description": "Autonomous Company Windows + WSL runtime with dual-engine CLI support",
   "license": "MIT"
 }

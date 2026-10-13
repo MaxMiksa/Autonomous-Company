@@ -30,7 +30,7 @@ EDGES = {"queued": {"canceled", "attention", "starting"},
          "running": {"stopping", "attention", "ended", "failed"},
          "stopping": {"attention", "ended", "failed"},
          "attention": {"running", "stopping", "ended", "failed", "canceled"}}
-MARKER = ".auto-company-center.json"
+MARKER = ".autonomous-company-center.json"
 ENGINES = {"claude", "codex", "cursor", "openai-compatible"}
 EFFORTS = profiles.EFFORTS
 RUNTIME_ENV_NAMES = {"CODEX_BIN", "CODEX_SANDBOX_MODE", "CLAUDE_BIN", "CLAUDE_PERMISSION_MODE", "CURSOR_BIN",
@@ -39,7 +39,7 @@ RUNTIME_ENV_NAMES = {"CODEX_BIN", "CODEX_SANDBOX_MODE", "CLAUDE_BIN", "CLAUDE_PE
                      "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_ALLOW_INSECURE_HTTP", "OPENAI_COMPATIBLE_MODEL",
                      "LOOP_INTERVAL", "CYCLE_TIMEOUT_SECONDS", "CYCLE_TERM_GRACE_SECONDS", "CYCLE_KILL_WAIT_SECONDS",
                      "USAGE_BUDGET_PERIOD", "USAGE_WARNING_USD", "USAGE_HARD_LIMIT_USD", "USAGE_WARNING_TOKENS", "USAGE_HARD_LIMIT_TOKENS",
-                     "AUTO_COMPANY_BWRAP", "AUTO_COMPANY_BROWSER_RUNTIME", "AUTO_COMPANY_LIBRARY_RUNTIME"}
+                     "AUTONOMOUS_COMPANY_BWRAP", "AUTONOMOUS_COMPANY_BROWSER_RUNTIME", "AUTONOMOUS_COMPANY_LIBRARY_RUNTIME"}
 
 
 def now():
@@ -96,7 +96,7 @@ def read_json(path):
 
 def config_fingerprint(root):
     result = {}
-    for name in (".auto-company.local", "PROMPT.md", ".auto-loop.env", "scripts/core/auto-loop.sh",
+    for name in (".autonomous-company.local", "PROMPT.md", ".auto-loop.env", "scripts/core/auto-loop.sh",
                  "scripts/core/center_runner.py", "scripts/core/engine-adapters.sh", "scripts/core/loop-lock.py"):
         path = Path(root) / name
         if path.exists():
@@ -490,7 +490,7 @@ class CenterRuntime:
         if root:
             sys.path.insert(0, str(self.framework_root / "scripts/core"))
             from localization import language_state
-            language = language_state(Path(root), {"AUTO_COMPANY_LANGUAGE": config["productLanguage"]})
+            language = language_state(Path(root), {"AUTONOMOUS_COMPANY_LANGUAGE": config["productLanguage"]})
             if language["locked"]:
                 if "productLanguage" in supplied and supplied["productLanguage"] != language["language"]:
                     raise CenterError("PRODUCT_LANGUAGE_LOCKED", "Existing product language is immutable", 409)
@@ -845,7 +845,7 @@ class CenterRuntime:
                     if actual != revision or not (prepared / "scripts/core/center_runner.py").is_file():
                         raise CenterError("RUNTIME_INCOMPATIBLE", "Prepared framework identity differs", 409)
                     configuration = operation["input"]["config"]
-                    (prepared / ".auto-company.local").write_text("AUTO_COMPANY_LANGUAGE=" + configuration["productLanguage"] + "\n", encoding="utf-8")
+                    (prepared / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=" + configuration["productLanguage"] + "\n", encoding="utf-8")
                     if operation["input"]["direction"]:
                         consensus = prepared / "memories/consensus.md"
                         if not consensus.exists():
@@ -1197,7 +1197,7 @@ class CenterRuntime:
         try:
             control_dir = self._control(request)
             configuration = request["config"]
-            environment = {"ENGINE": configuration["engine"], "MODEL": configuration["model"], "AUTO_COMPANY_LANGUAGE": configuration["productLanguage"]}
+            environment = {"ENGINE": configuration["engine"], "MODEL": configuration["model"], "AUTONOMOUS_COMPANY_LANGUAGE": configuration["productLanguage"]}
             if configuration["engine"] == "codex":
                 environment["CODEX_REASONING_EFFORT"] = configuration["effort"]
             manifest = {key: request[key] for key in ("requestId", "dispatchId", "nonce", "runtimeId", "entryId", "sourceId")}

@@ -5,13 +5,13 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "messages-win.ps1")
 
-if (Get-Item -LiteralPath (Join-Path $PSScriptRoot '../../.auto-company-center.json') -Force -ErrorAction SilentlyContinue) {
-    throw (Get-AutoCompanyMessage -Key 'This runtime is managed by the product center. Use the center controls.')
+if (Get-Item -LiteralPath (Join-Path $PSScriptRoot '../../.autonomous-company-center.json') -Force -ErrorAction SilentlyContinue) {
+    throw (Get-AutonomousCompanyMessage -Key 'This runtime is managed by the product center. Use the center controls.')
 }
 
 function Assert-WslAvailable {
     if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
-        throw (Get-AutoCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
+        throw (Get-AutonomousCompanyMessage -Key 'wsl.exe not found. Enable WSL first.')
     }
 }
 
@@ -20,11 +20,11 @@ function Get-RepoPaths {
     $repoWinForWsl = $repoWin -replace "\\", "/"
     $repoWslRaw = & wsl.exe -d $Distro wslpath -a "$repoWinForWsl"
     if (-not $repoWslRaw) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     $repoWsl = $repoWslRaw.Trim()
     if (-not $repoWsl) {
-        throw (Get-AutoCompanyMessage -Key 'Failed to convert repository path to WSL path.')
+        throw (Get-AutonomousCompanyMessage -Key 'Failed to convert repository path to WSL path.')
     }
     return @{
         RepoWin = $repoWin
@@ -47,7 +47,7 @@ function Invoke-WslCommand {
         }
     }
     if (-not $IgnoreExitCode -and $code -ne 0) {
-        throw (Get-AutoCompanyMessage -Key 'WSL command failed ({0}): {1}' -Values @($code, $Command))
+        throw (Get-AutonomousCompanyMessage -Key 'WSL command failed ({0}): {1}' -Values @($code, $Command))
     }
     return $code
 }
@@ -61,10 +61,10 @@ $pendingFile = Join-Path $repoWin ".auto-loop-stop-pending"
 [System.IO.File]::WriteAllText($pendingFile, "stopping`n")
 $stopFailed = $false
 try {
-    $installedCode = Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user cat auto-company.service >/dev/null 2>&1" -IgnoreExitCode
+    $installedCode = Invoke-WslCommand -RepoWsl $repoWsl -Command "systemctl --user cat autonomous-company.service >/dev/null 2>&1" -IgnoreExitCode
     if ($installedCode -eq 0) {
         $null = Invoke-WslCommand -RepoWsl $repoWsl -Command "bash scripts/wsl/dashboard-wsl.sh stop"
-        Write-Host (Get-AutoCompanyMessage -Key 'WSL daemon stopped: auto-company.service')
+        Write-Host (Get-AutonomousCompanyMessage -Key 'WSL daemon stopped: autonomous-company.service')
     } else {
         $null = Invoke-WslCommand -RepoWsl $repoWsl -Command "bash scripts/core/stop-loop.sh --wait"
     }
@@ -77,7 +77,7 @@ try {
 foreach ($helper in @('awake-guardian-win.ps1', 'wsl-anchor-win.ps1')) {
     try {
         $helperPath = Join-Path $PSScriptRoot $helper
-        $helperArgs = @{ Action = 'stop'; Language = $script:AutoCompanyMessageLanguage }
+        $helperArgs = @{ Action = 'stop'; Language = $script:AutonomousCompanyMessageLanguage }
         if ($helper -eq 'wsl-anchor-win.ps1') {
             $helperArgs.Distro = $Distro
             $helperArgs.RepoWsl = $repoWsl

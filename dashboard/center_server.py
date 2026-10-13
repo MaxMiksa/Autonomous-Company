@@ -56,10 +56,10 @@ STATIC = {
 
 def default_data_dir() -> Path:
     if os.name == "nt":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AutoCompany" / "center"
+        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AutonomousCompany" / "center"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "AutoCompany" / "center"
-    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "auto-company" / "center"
+        return Path.home() / "Library" / "Application Support" / "AutonomousCompany" / "center"
+    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "autonomous-company" / "center"
 
 
 class CenterServer(ThreadingHTTPServer):
@@ -338,6 +338,13 @@ def main(argv=None):
     domain = ({"platform": "wsl", "distribution": args.wsl_distro, "user": args.wsl_user}
               if args.wsl_distro else None)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    sys.path.insert(0, str(FRAMEWORK_ROOT / 'scripts/core'))
+    from namespace_guard import check_root
+    try:
+        for root in [args.framework_root, *args.source]:
+            check_root(root)
+    except ValueError as error:
+        parser.error(str(error))
     store = CenterStore(args.data_dir)
     runtime = None
     server = None

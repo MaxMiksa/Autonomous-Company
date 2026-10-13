@@ -4,7 +4,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FRAMEWORK_DIR="${AUTO_COMPANY_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+FRAMEWORK_DIR="${AUTONOMOUS_COMPANY_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+python3 "$SCRIPT_DIR/namespace_guard.py" --root "$FRAMEWORK_DIR"
 PROJECTS_DIR="$FRAMEWORK_DIR/projects"
 REGISTRY_FILE="$PROJECTS_DIR/registry.tsv"
 CONTEXT_TOOL="$SCRIPT_DIR/project-context.py"
@@ -38,7 +39,7 @@ resolve_name() {
 }
 
 require_human_operation() {
-    [ "${AUTO_COMPANY_CYCLE:-0}" != "1" ] || die "this operation is human-only and unavailable inside a cycle"
+    [ "${AUTONOMOUS_COMPANY_CYCLE:-0}" != "1" ] || die "this operation is human-only and unavailable inside a cycle"
     local pid_file="$FRAMEWORK_DIR/.auto-loop.pid" loop_pid=""
     if [ -f "$pid_file" ]; then
         IFS= read -r loop_pid < "$pid_file" || true
@@ -105,7 +106,7 @@ project_migrate_legacy() {
     name="$(resolve_name "$name")"
     local target relative="projects/$name"
     target="$(python3 "$CONTEXT_TOOL" path --root "$FRAMEWORK_DIR" --project "$name")"
-    local migration_dir="$FRAMEWORK_DIR/.auto-company-migrations/$name"
+    local migration_dir="$FRAMEWORK_DIR/.autonomous-company-migrations/$name"
     [ -d "$target" ] || die "legacy project directory not found: $target"
     [ ! -e "$target/.git" ] || die "project is already an independent Git repository"
     [ ! -e "$migration_dir" ] || die "migration evidence already exists: $migration_dir"
@@ -135,7 +136,7 @@ project_migrate_legacy() {
         rel="${tracked#${relative}/}"
         git -C "$target" add -f -- "$rel"
     done < <(git -C "$FRAMEWORK_DIR" ls-files -z -- "$relative")
-    git -C "$target" commit -m "Import from Auto Company framework $source_commit" >/dev/null
+    git -C "$target" commit -m "Import from Autonomous Company framework $source_commit" >/dev/null
     project_commit="$(git -C "$target" rev-parse HEAD)"
     git -C "$target" bundle create "$migration_dir/project.bundle" HEAD
     printf '%s\n' "$project_commit" > "$migration_dir/project-commit"
@@ -177,7 +178,7 @@ project_migrate_rollback() {
     name="$(resolve_name "$name")"
     local target relative="projects/$name"
     target="$(python3 "$CONTEXT_TOOL" path --root "$FRAMEWORK_DIR" --project "$name")"
-    local migration_dir="$FRAMEWORK_DIR/.auto-company-migrations/$name"
+    local migration_dir="$FRAMEWORK_DIR/.autonomous-company-migrations/$name"
     [ -d "$target/.git" ] || die "independent project Git directory not found"
     [ -f "$migration_dir/registry.before.tsv" ] || die "registry rollback evidence not found"
     [ -f "$migration_dir/project.bundle" ] || die "project recovery bundle not found"
@@ -265,8 +266,8 @@ project_new() {
         git -C "$target" init >/dev/null
         git -C "$target" symbolic-ref HEAD refs/heads/main
     fi
-    printf '# %s\n\nIndependent product repository managed by Auto Company.\n' "$name" > "$target/README.md"
-    printf '# Local secrets and generated output\n.env\n.env.*\ndist/\nbuild/\n.auto-company/\n' > "$target/.gitignore"
+    printf '# %s\n\nIndependent product repository managed by Autonomous Company.\n' "$name" > "$target/README.md"
+    printf '# Local secrets and generated output\n.env\n.env.*\ndist/\nbuild/\n.autonomous-company/\n' > "$target/.gitignore"
     # Description is optional observation data and cannot change selection or
     # make a successfully created product fail because reporting is unavailable.
     python3 "$SCRIPT_DIR/project_metadata.py" --root "$FRAMEWORK_DIR" --project "projects/$name" \
@@ -277,7 +278,7 @@ project_new() {
     # A normal creation event registers stable identity and, during exploration,
     # its explicit continuation. It never edits human-owned ACTIVE_PROJECT.
     if ! python3 "$SCRIPT_DIR/product_identity.py" --root "$FRAMEWORK_DIR" --project "projects/$name" register \
-        --cycle "${AUTO_COMPANY_CYCLE_ID:-}" >/dev/null; then
+        --cycle "${AUTONOMOUS_COMPANY_CYCLE_ID:-}" >/dev/null; then
         return 1
     fi
     NEW_CREATED=0
@@ -422,7 +423,7 @@ command="${1:-}"
 # Identity/config helpers have their own locks, always acquired after this one.
 case "$command" in
     new|select|status|publish|migrate-legacy|migrate-rollback)
-        if [ "${AUTO_COMPANY_PROJECT_LOCK_PID:-}" != "$$" ]; then
+        if [ "${AUTONOMOUS_COMPANY_PROJECT_LOCK_PID:-}" != "$$" ]; then
             exec python3 "$SCRIPT_DIR/project-lock.py" run "$FRAMEWORK_DIR" "$0" "$@"
         fi
         ;;

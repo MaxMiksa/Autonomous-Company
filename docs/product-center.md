@@ -74,9 +74,9 @@ Use the existing **New work** dialog. Each configuration group has its own engin
 
 在原有“新建工作”窗口添加配置组，每组分别选择引擎、模型、思考强度、新产品语言、数量及可留空方向。例如一组 high × 2，另一组 xhigh × 2。每个项目拥有独立运行目录，方向留空时独立探索。一次批量提交最多 100 个项目，不限制总运行或排队项目数；整批意图与配置先原子保存再准备，重复提交不重复创建。准备失败可在原队列查看。暂停、全部停止和重启撤销待启动授权，已准备工作保留为排队状态。
 
-Choose, save or set a default template beside model configuration, including when continuing a project. Templates store only engine, model, effort and new-product language, never credentials, direction or count. Existing product language remains locked. New forms use the default template, then the last submitted configuration, then the installation/launch choices saved in `.auto-loop.env` and `.auto-company.local`. Existing center preferences are preserved on upgrade. These files are parsed as data, not executed. Saving UI language alone does not change model defaults. Temporary edits do not overwrite templates; changing a template name saves a separate copy. Explicitly saving the same named selection updates that template. Clearing or deleting the default restores the last-configuration fallback.
+Choose, save or set a default template beside model configuration, including when continuing a project. Templates store only engine, model, effort and new-product language, never credentials, direction or count. Existing product language remains locked. New forms use the default template, then the last submitted configuration, then the installation/launch choices saved in `.auto-loop.env` and `.autonomous-company.local`. Existing center preferences are preserved on upgrade. These files are parsed as data, not executed. Saving UI language alone does not change model defaults. Temporary edits do not overwrite templates; changing a template name saves a separate copy. Explicitly saving the same named selection updates that template. Clearing or deleting the default restores the last-configuration fallback.
 
-模型配置旁支持选择、保存、设为默认，也可在继续项目时使用。模板只保存引擎、模型、思考强度和新产品语言，不保存凭据、方向或数量；已有产品语言仍锁定。默认顺序为：默认模板 → 上次提交配置 → 安装/启动流程保存在 `.auto-loop.env`、`.auto-company.local` 中的用户选择，升级保留原中心配置。仅读取这些文件，不执行其内容。只保存界面语言不会改变模型默认值。临时调整不覆盖模板；修改名称保存为另一份，显式保存同名选中项更新原模板。取消或删除默认模板后，回到上次配置。
+模型配置旁支持选择、保存、设为默认，也可在继续项目时使用。模板只保存引擎、模型、思考强度和新产品语言，不保存凭据、方向或数量；已有产品语言仍锁定。默认顺序为：默认模板 → 上次提交配置 → 安装/启动流程保存在 `.auto-loop.env`、`.autonomous-company.local` 中的用户选择，升级保留原中心配置。仅读取这些文件，不执行其内容。只保存界面语言不会改变模型默认值。临时调整不覆盖模板；修改名称保存为另一份，显式保存同名选中项更新原模板。取消或删除默认模板后，回到上次配置。
 
 Every submitted request retains its own configuration snapshot. Later template edits, deletion or concurrency changes cannot change queued or running requests. Missing or unsupported engines/models fail explicitly; the center does not substitute another model. Live explorations appear in the existing project list and status filters alongside formed products. Project details select the matching current request, not whichever parallel request appears first.
 
@@ -134,9 +134,9 @@ Default center state locations:
 
 | System | Directory |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%/AutoCompany/center` |
-| macOS | `~/Library/Application Support/AutoCompany/center` |
-| Linux | `${XDG_STATE_HOME:-~/.local/state}/auto-company/center` |
+| Windows | `%LOCALAPPDATA%/AutonomousCompany/center` |
+| macOS | `~/Library/Application Support/AutonomousCompany/center` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/autonomous-company/center` |
 
 `--data-dir` selects an explicit local directory. Do not put an active database on network or cloud-synchronized storage. Only one center process can own a data directory. The center database stores registration, requests and control history; the original runtime remains authoritative for product identities and cycles.
 

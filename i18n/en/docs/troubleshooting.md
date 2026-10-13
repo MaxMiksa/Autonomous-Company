@@ -2,7 +2,7 @@
 
 [English](troubleshooting.md) · [中文](../../../docs/troubleshooting.md) · [Language settings](../README.md)
 
-Run these commands from the Auto-Company repository root. `make` commands apply to Linux/WSL and macOS; Windows has PowerShell entrypoints. Keep the original error when troubleshooting: translated guidance explains the next step without replacing the underlying evidence.
+Run these commands from the Autonomous-Company repository root. `make` commands apply to Linux/WSL and macOS; Windows has PowerShell entrypoints. Keep the original error when troubleshooting: translated guidance explains the next step without replacing the underlying evidence.
 
 ## Everyday operations
 

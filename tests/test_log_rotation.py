@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 @unittest.skipIf(os.name == "nt", "rotation contracts execute in POSIX/WSL CI")
 class LogRotationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="auto-company-rotation-")
+        self.temp = tempfile.TemporaryDirectory(prefix="autonomous-company-rotation-")
         self.addCleanup(self.temp.cleanup)
         self.logs = Path(self.temp.name)
         source = (REPO / "scripts/core/auto-loop.sh").read_text()

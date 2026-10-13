@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FRAMEWORK_DIR="${AUTO_COMPANY_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+FRAMEWORK_DIR="${AUTONOMOUS_COMPANY_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 MEMORY_DIR="$FRAMEWORK_DIR/memories"
 CONSENSUS_FILE="$MEMORY_DIR/consensus.md"
 TEMPLATE_FILE="$MEMORY_DIR/consensus.template.md"
@@ -206,7 +206,7 @@ verify_cycle() {
 
 reset_consensus() {
     [ "$#" -eq 2 ] && [ "$1" = "--confirm" ] && [ "$2" = "RESET" ] || die "reset requires --confirm RESET"
-    [ "${AUTO_COMPANY_CYCLE:-0}" != "1" ] || die "consensus reset is human-only"
+    [ "${AUTONOMOUS_COMPANY_CYCLE:-0}" != "1" ] || die "consensus reset is human-only"
     local loop_pid="" backup
     if [ -f "$FRAMEWORK_DIR/.auto-loop.pid" ]; then
         IFS= read -r loop_pid < "$FRAMEWORK_DIR/.auto-loop.pid" || true

@@ -100,7 +100,7 @@ else
 endif
 
 resume: ## Resume paused daemon
-	@test ! -e .auto-company-center.json -a ! -L .auto-company-center.json || (bash scripts/core/ui-messages.sh center.managed; exit 1)
+	@test ! -e .autonomous-company-center.json -a ! -L .autonomous-company-center.json || (bash scripts/core/ui-messages.sh center.managed; exit 1)
 ifeq ($(UNAME_S),Darwin)
 	python3 ./scripts/core/usage.py resume
 	./scripts/core/stop-loop.sh --resume-daemon

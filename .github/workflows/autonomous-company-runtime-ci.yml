@@ -1,5 +1,5 @@
 # Always start this workflow so the required CI gate can report on every PR.
-name: Auto Company Runtime CI
+name: Autonomous Company Runtime CI
 'on':
   pull_request: null
   push:
@@ -9,7 +9,7 @@ name: Auto Company Runtime CI
 permissions:
   contents: read
 concurrency:
-  group: auto-company-runtime-${{ github.event_name }}-${{ github.ref }}
+  group: autonomous-company-runtime-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   changes:
@@ -110,7 +110,7 @@ jobs:
           CI_SCRIPT
       - name: Verify Dashboard Start with a real isolated LaunchAgent
         env:
-          AUTO_COMPANY_TEST_LAUNCHD: '1'
+          AUTONOMOUS_COMPANY_TEST_LAUNCHD: '1'
         run: python3 scripts/ci/run.py macos-runtime-3 python3 -m unittest discover -s tests -p test_launchd_installation.py -v
       - name: Save failure evidence
         if: failure()
@@ -176,7 +176,7 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           sudo systemctl start "user@$(id -u).service"
           systemctl --user show-environment > /dev/null
-          AUTO_COMPANY_TEST_SYSTEMD_USER=1 python3 -m unittest discover -s tests -p test_systemd_installation.py -v
+          AUTONOMOUS_COMPANY_TEST_SYSTEMD_USER=1 python3 -m unittest discover -s tests -p test_systemd_installation.py -v
           CI_SCRIPT
       - name: Verify project and consensus governance
         run: python3 scripts/ci/run.py shell-contracts-3 bash tests/test_project_governance.sh
@@ -238,12 +238,12 @@ jobs:
           python3 scripts/ci/run.py showcase-syntax node --check examples/scope-sheet/app.js
       - name: Verify automatic product screenshots and process cleanup
         env:
-          AUTO_COMPANY_TEST_PRODUCT_MEDIA_BROWSER: '1'
+          AUTONOMOUS_COMPANY_TEST_PRODUCT_MEDIA_BROWSER: '1'
         run: |
-          export AUTO_COMPANY_BROWSER_RUNTIME="$HOME/.cache/ms-playwright"
+          export AUTONOMOUS_COMPANY_BROWSER_RUNTIME="$HOME/.cache/ms-playwright"
           python3 scripts/ci/run.py product-media python3 tests/run_isolated_media_contracts.py
           python3 scripts/ci/run.py media-host-isolation python3 -m unittest discover -s tests -p test_isolated_media.py -v
-          AUTO_COMPANY_TEST_CENTER_MEDIA=1 AUTO_COMPANY_TEST_MEDIA_MODULES="$PWD/scripts/media/node_modules" python3 scripts/ci/run.py center-media python3 -m unittest tests.test_center_runtime.MediaIntegrationTests -v
+          AUTONOMOUS_COMPANY_TEST_CENTER_MEDIA=1 AUTONOMOUS_COMPANY_TEST_MEDIA_MODULES="$PWD/scripts/media/node_modules" python3 scripts/ci/run.py center-media python3 -m unittest tests.test_center_runtime.MediaIntegrationTests -v
       - name: Save failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

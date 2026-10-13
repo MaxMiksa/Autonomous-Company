@@ -1,6 +1,6 @@
-"""Real macOS launchd acceptance; never control the host's Auto Company agent.
+"""Real macOS launchd acceptance; never control the host's Autonomous Company agent.
 
-Set AUTO_COMPANY_TEST_LAUNCHD=1 to require these tests (missing prerequisites fail).
+Set AUTONOMOUS_COMPANY_TEST_LAUNCHD=1 to require these tests (missing prerequisites fail).
 Each case rewrites only the fixed label in temporary source copies, uses a fresh
 HOME and a harmless loop probe, and calls the actual Dashboard Start/Stop chain.
 """
@@ -27,17 +27,17 @@ SETTINGS = {"ENGINE": "codex", "MODEL": "launchd-probe-model", "CYCLE_TIMEOUT_SE
             "CODEX_SANDBOX_MODE": "workspace-write"}
 
 
-@unittest.skipUnless(os.environ.get("AUTO_COMPANY_TEST_LAUNCHD") == "1",
-                     "set AUTO_COMPANY_TEST_LAUNCHD=1 for isolated real launchd probes")
+@unittest.skipUnless(os.environ.get("AUTONOMOUS_COMPANY_TEST_LAUNCHD") == "1",
+                     "set AUTONOMOUS_COMPANY_TEST_LAUNCHD=1 for isolated real launchd probes")
 class LaunchdRuntimeTests(unittest.TestCase):
     def setUp(self):
         if platform.system() != "Darwin" or not Path("/bin/launchctl").is_file():
             self.fail("requested launchd probes require macOS and /bin/launchctl")
-        self.temp = tempfile.TemporaryDirectory(prefix="auto-company-launchd-")
+        self.temp = tempfile.TemporaryDirectory(prefix="autonomous-company-launchd-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.project = self.root / 'Repo & "trial"'
-        self.label = "com.autocompany.probe." + uuid.uuid4().hex
+        self.label = "com.autonomouscompany.probe." + uuid.uuid4().hex
         self.home = self.root / "home"
         self.plist = self.home / f"Library/LaunchAgents/{self.label}.plist"
         self.plist.parent.mkdir(parents=True)
@@ -52,7 +52,7 @@ class LaunchdRuntimeTests(unittest.TestCase):
                          "scripts/macos/install-daemon.sh", "scripts/macos/start-daemon.sh",
                          "scripts/macos/launchd-job.py"):
             path = self.project / relative
-            path.write_text(path.read_text().replace("com.autocompany.loop", self.label))
+            path.write_text(path.read_text().replace("com.autonomouscompany.loop", self.label))
         # Keep the real command path/arguments. Only its body becomes a local
         # sentinel: no engine invocation, network, repository writes, or children
         # other than short sleeps. launchd owns and cleans up this probe process.

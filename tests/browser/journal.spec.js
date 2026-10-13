@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const python = process.env.AUTO_COMPANY_BROWSER_PYTHON || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+const python = process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 async function refreshRecords(page) {
   await page.locator("#settingsButton").click();
@@ -61,17 +61,17 @@ const test = base.extend({
       await fs.writeFile(path.join(directory, "logs", `${cycle.cycle_id}.log`), `Fixture log ${cycle.cycle_number}\n<unsafe-is-text>\n`);
     }
     await fs.writeFile(path.join(directory, "memories", "consensus.md"), [
-      "# Auto Company Consensus", "## Current Phase", "Validating", "## What We Did This Cycle",
+      "# Autonomous Company Consensus", "## Current Phase", "Validating", "## What We Did This Cycle",
       "- 已完成当前轮次验证。", "- <img src=x onerror=window.journalInjected=true>",
       "## Active Projects", "- Journal Fixture：本地预览", "## Next Action", "等待用户检查新界面。",
       "## Company State", "- Product: Journal Fixture，本地工作记录预览", "",
     ].join("\n"));
     await fs.mkdir(path.join(directory, "projects/journal-fixture"), { recursive: true });
-    await fs.writeFile(path.join(directory, "projects/journal-fixture/.auto-company-project.json"), JSON.stringify({
+    await fs.writeFile(path.join(directory, "projects/journal-fixture/.autonomous-company-project.json"), JSON.stringify({
       version: 1, project: "projects/journal-fixture", displayName: "Journal Fixture", description: "Local journal fixture",
       recordedAt: new Date().toISOString(), source: "project_metadata",
     }));
-    await fs.writeFile(path.join(directory, ".auto-company.local"), "ACTIVE_PROJECT=projects/journal-fixture\nAUTO_COMPANY_LANGUAGE=zh-CN\n");
+    await fs.writeFile(path.join(directory, ".autonomous-company.local"), "ACTIVE_PROJECT=projects/journal-fixture\nAUTONOMOUS_COMPANY_LANGUAGE=zh-CN\n");
     await fs.writeFile(path.join(directory, ".auto-loop-state"), "STATUS=stopped\nENGINE=codex\nMODEL=gpt-6-astra\nLOOP_COUNT=3\n");
     const deliveryText = "# Browser fixture delivery\nThis document stays read-only.\n";
     const deliveryPath = "projects/journal-fixture/DELIVERY.md";
@@ -93,7 +93,7 @@ const test = base.extend({
       'fetch("/api/status").then(response => response.json()).then(data => { document.getElementById("archive").textContent = data.consensusHead; });');
     const port = await unusedPort();
     const url = `http://127.0.0.1:${port}`;
-    const child = spawn(process.env.AUTO_COMPANY_BROWSER_PYTHON || process.env.PYTHON
+    const child = spawn(process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || process.env.PYTHON
       || (process.platform === "win32" ? "python" : "python3"), [
       path.join(repository, "dashboard", "journal_server.py"), "--port", String(port), "--repo", directory,
       "--legacy-dir", legacyDirectory,
@@ -233,7 +233,7 @@ test("stable identity keeps moved history and document access, then isolates a s
     "(root / 'logs' / (row['cycleId'] + '.json')).write_text(json.dumps({'result': 'Synthetic identity fixture report'}))",
     "(root / 'projects/journal-fixture').rename(root / 'projects/moved-fixture')",
     "products.relocate_identity(root, row['productId'], 'projects/moved-fixture')",
-    "(root / '.auto-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTO_COMPANY_LANGUAGE=en\\n')",
+    "(root / '.autonomous-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTONOMOUS_COMPANY_LANGUAGE=en\\n')",
   ].join("\n"));
   await page.goto(`${journal.url}/journal`);
   await expect(page.locator("#cycleNumber")).toHaveText("01");
@@ -246,7 +246,7 @@ test("stable identity keeps moved history and document access, then isolates a s
   expect(await moved.text()).toContain("Browser fixture delivery");
   expect((await page.request.get(`${journal.url}/api/journal/document?path=projects%2Fjournal-fixture%2FDELIVERY.md`)).ok()).toBeFalsy();
   await changeIdentityFixture(journal.directory, [
-    "(root / 'projects/moved-fixture/.auto-company/identity.json').unlink()",
+    "(root / 'projects/moved-fixture/.autonomous-company/identity.json').unlink()",
     "products.register_project(root, 'projects/moved-fixture')",
   ].join("\n"));
   await refreshRecords(page);
@@ -277,7 +277,7 @@ test("relocated exploration keeps its recorded report and identity-bound documen
     "record_path.write_text(json.dumps(record))",
     "(root / 'projects/journal-fixture').rename(root / 'projects/moved-fixture')",
     "products.relocate_identity(root, identity['id'], 'projects/moved-fixture')",
-    "(root / '.auto-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTO_COMPANY_LANGUAGE=en\\n')",
+    "(root / '.autonomous-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTONOMOUS_COMPANY_LANGUAGE=en\\n')",
   ].join("\n"));
   await page.goto(`${journal.url}/journal`);
   await expect(page.locator("#cycleTitle")).toHaveText("Synthetic relocated exploration");
@@ -308,7 +308,7 @@ test("real static preview loads web assets and denies private same-origin reads"
     await expect(page.locator("h1")).toHaveCSS("color", "rgb(1, 2, 3)");
     expect(await page.evaluate(() => window.previewFixture)).toBeTruthy();
     expect(await page.locator("img").evaluate((image) => image.complete && image.naturalWidth === 4)).toBeTruthy();
-    for (const resource of ["/.env", "/.auto-company-health"]) {
+    for (const resource of ["/.env", "/.autonomous-company-health"]) {
       const status = await page.evaluate(async (resource) => (await fetch(resource)).status, resource);
       expect([403, 404]).toContain(status);
     }
@@ -318,7 +318,7 @@ test("real static preview loads web assets and denies private same-origin reads"
       if (record.kind === "preview") preview = record;
     }
     expect(preview).toBeTruthy();
-    const stopped = await fetch(`${url}.auto-company-stop`, { method: "POST", headers: { "X-Auto-Company-Preview": preview.token } });
+    const stopped = await fetch(`${url}.autonomous-company-stop`, { method: "POST", headers: { "X-Autonomous-Company-Preview": preview.token } });
     expect(stopped.status).toBe(204);
     await expect.poll(() => child.exitCode).toBe(0);
   } finally {
@@ -395,7 +395,7 @@ test("an explicitly supplied backup is served and reads the same archive", async
 
 test("empty archive follows English preference and remains navigable", async ({ page, journal }) => {
   await fs.writeFile(path.join(journal.directory, "logs", "usage.jsonl"), "");
-  await fs.writeFile(path.join(journal.directory, ".auto-company.local"), "AUTO_COMPANY_LANGUAGE=en\n");
+  await fs.writeFile(path.join(journal.directory, ".autonomous-company.local"), "AUTONOMOUS_COMPANY_LANGUAGE=en\n");
   await page.goto(`${journal.url}/journal`);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("heading", { name: "No cycle records yet" })).toBeVisible();

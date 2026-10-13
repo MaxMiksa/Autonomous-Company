@@ -114,7 +114,7 @@ class ProductIdentityTests(unittest.TestCase):
         self.assertEqual(actual["explorationId"], exploration["identityId"])
         history = products.list_cycle_projections(self.root, product["id"])["cycles"]
         self.assertEqual({row["kind"] for row in history}, {"exploration", "product"})
-        self.assertFalse((self.root / ".auto-company.local").exists())
+        self.assertFalse((self.root / ".autonomous-company.local").exists())
 
     def test_pagination_and_product_filter_are_exact(self):
         rows = []
@@ -141,7 +141,7 @@ class ProductIdentityTests(unittest.TestCase):
         restarted = products.reserve_cycle(self.root, "alpha", "product-run2", 1, "claude", "other")
         self.complete(restarted)
         expected = explorations + [first, restarted]
-        state_path = self.root / ".auto-company/product-state.json"
+        state_path = self.root / ".autonomous-company/product-state.json"
         before = state_path.read_bytes()
         original = json.loads(before)
         all_rows = products.list_cycle_projections(self.root, product["id"], limit=None)
@@ -164,7 +164,7 @@ class ProductIdentityTests(unittest.TestCase):
         product = products.register_project(self.root, "alpha", exploration["cycleId"])
         self.complete(exploration)
         self.complete(self.reserve("product"))
-        state_path = self.root / ".auto-company/product-state.json"
+        state_path = self.root / ".autonomous-company/product-state.json"
         state = json.loads(state_path.read_text())
         # An older linked ledger can lack the explicit creation-cycle evidence.
         del state["cycles"][exploration["cycleId"]]["createdProductIds"]
@@ -224,8 +224,8 @@ class ProductIdentityTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 products.register_project(self.root, "alpha")
         self.assertIsNone(products.get_identity(self.root, "alpha"))
-        self.assertFalse((self.root / "projects/alpha/.auto-company/identity.json").exists())
-        self.assertFalse((self.root / ".auto-company/product-state.lock").exists())
+        self.assertFalse((self.root / "projects/alpha/.autonomous-company/identity.json").exists())
+        self.assertFalse((self.root / ".autonomous-company/product-state.lock").exists())
 
     def test_killed_writer_recovers_staged_reservation_without_reusing_number(self):
         code = """
@@ -243,7 +243,7 @@ p.reserve_cycle(Path(sys.argv[2]), 'projects/alpha', 'crashed-writer', 1)
 """
         crashed = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts/core"), str(self.root)], capture_output=True)
         self.assertEqual(crashed.returncode, 91)
-        self.assertTrue((self.root / ".auto-company/product-state.lock").is_dir())
+        self.assertTrue((self.root / ".autonomous-company/product-state.lock").is_dir())
         restored = subprocess.run([sys.executable, str(ROOT / "scripts/core/product_identity.py"),
                                    "--root", str(self.root), "recover-lock", "--confirm", "STOPPED"], capture_output=True, text=True)
         self.assertEqual(restored.returncode, 0, restored.stderr)
@@ -266,7 +266,7 @@ p.reserve_cycle(Path(sys.argv[2]), 'projects/alpha', 'crashed-writer', 1)
 
     def test_corrupt_store_fails_closed_instead_of_resetting(self):
         self.reserve("first")
-        (self.root / ".auto-company/product-state.json").write_text('{"schemaVersion":1}')
+        (self.root / ".autonomous-company/product-state.json").write_text('{"schemaVersion":1}')
         with self.assertRaises(ValueError):
             self.reserve("second")
 

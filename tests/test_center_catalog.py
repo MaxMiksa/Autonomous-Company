@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(os.environ.get('AUTO_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get('AUTONOMOUS_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
 sys.path[:0] = [str(ROOT / 'dashboard'), str(ROOT / 'scripts/core')]
 from center_store import CenterStore, CenterError
 from center_catalog import CenterCatalog
@@ -73,7 +73,7 @@ class CenterCatalogTests(unittest.TestCase):
         self.assertEqual(entry['latestWork']['cycleId'], 'cycle-legacy-1')
         self.assertEqual(entry['executionSummary']['state'], 'read_only')
         self.assertEqual(entry['latestCycleStatus'], 'completed')
-        self.assertEqual(entry['displayName'], 'Auto Company')
+        self.assertEqual(entry['displayName'], 'Autonomous Company')
         self.assertIsNone(entry['productId'])
         self.assertEqual(self.hashes(), before)
 
@@ -166,7 +166,7 @@ class CenterCatalogTests(unittest.TestCase):
     def test_multi_product_logs_usage_consensus_isolated(self):
         one = self.cycle(tokens=13)
         two = self.cycle('projects/two', 'second', 90)
-        self.write('.auto-company.local', 'ACTIVE_PROJECT=projects/two\n')
+        self.write('.autonomous-company.local', 'ACTIVE_PROJECT=projects/two\n')
         self.write('memories/consensus.md', '# Other global report\n## Current Phase\nWrong phase')
         entries = self.import_root()
         item = next(item for item in entries if self.catalog.get_entry(item['entryId'])['productId'] == one['productId'])
@@ -214,10 +214,10 @@ class CenterCatalogTests(unittest.TestCase):
     def test_reused_path_never_exposes_replacement_metadata(self):
         original = self.cycle()
         item, = self.import_root()
-        (self.root / 'projects/one/.auto-company/identity.json').unlink()
+        (self.root / 'projects/one/.autonomous-company/identity.json').unlink()
         replacement = products.register_project(self.root, 'projects/one')
         self.assertNotEqual(replacement['id'], original['productId'])
-        self.write('projects/one/.auto-company/project.json', json.dumps({'displayName': 'wrong replacement'}))
+        self.write('projects/one/.autonomous-company/project.json', json.dumps({'displayName': 'wrong replacement'}))
         snapshot = self.catalog.journal(item['entryId'])
         self.assertEqual(snapshot['project']['status'], 'historical')
         self.assertNotEqual(snapshot['project']['displayName'], 'wrong replacement')
@@ -226,7 +226,7 @@ class CenterCatalogTests(unittest.TestCase):
     def test_missing_and_corrupt_source_isolated_from_catalog(self):
         self.cycle()
         item, = self.import_root()
-        self.write('.auto-company/product-state.json', '{broken')
+        self.write('.autonomous-company/product-state.json', '{broken')
         self.catalog.refresh_source(item['sourceId'])
         self.assertEqual(self.catalog.list_entries()['items'][0]['availability'], 'conflict')
         self.assertEqual(self.catalog.list_entries()['total'], 1)
@@ -337,7 +337,7 @@ class CenterCatalogTests(unittest.TestCase):
         self.import_root()
         backup = self.base / 'conflicting'
         shutil.copytree(self.root, backup)
-        path = backup / '.auto-company/product-state.json'
+        path = backup / '.autonomous-company/product-state.json'
         state = json.loads(path.read_text())
         state['cycles'][row['cycleId']]['state'] = 'failed'
         path.write_text(json.dumps(state))
@@ -529,7 +529,7 @@ class CenterCatalogTests(unittest.TestCase):
         with self.assertRaises(CenterError) as context:
             self.catalog.record(item['entryId'], foreign['cycleId'])
         self.assertEqual(context.exception.code, 'RECORD_NOT_FOUND')
-        (self.root / '.auto-company/product-state.json').unlink()
+        (self.root / '.autonomous-company/product-state.json').unlink()
         with self.assertRaises(CenterError) as context:
             self.catalog.record(item['entryId'], old['id'])
         self.assertEqual(context.exception.code, 'SOURCE_CONFLICT')
@@ -589,7 +589,7 @@ class CenterCatalogTests(unittest.TestCase):
         self.preview()
         with patch('observability_data.preview_available', return_value=True):
             item, = self.import_root()
-        (self.root / 'projects/one/.auto-company/identity.json').unlink()
+        (self.root / 'projects/one/.autonomous-company/identity.json').unlink()
         replacement = products.register_project(self.root, 'projects/one')
         self.assertNotEqual(replacement['id'], row['productId'])
         with patch('observability_data.preview_available', return_value=True) as health:
@@ -699,24 +699,24 @@ class CenterCatalogTests(unittest.TestCase):
         self.cycle()
         self.import_root()
         self.catalog.refresh_changed_sources()
-        self.write('projects/metadata-only/.auto-company-project.json', '{"displayName":"not a product"}')
+        self.write('projects/metadata-only/.autonomous-company-project.json', '{"displayName":"not a product"}')
         self.catalog.refresh_changed_sources()
         self.assertEqual(self.catalog.list_entries()['total'], 1)
         new_product = self.cycle('projects/two', 'second')
-        pending = self.write('.auto-company/product-state.transaction.json', '{"synthetic":"pending"}')
+        pending = self.write('.autonomous-company/product-state.transaction.json', '{"synthetic":"pending"}')
         self.catalog.refresh_changed_sources()
         self.assertEqual(self.catalog.list_entries()['total'], 1)
         pending.unlink()
-        marker = self.root / 'projects/two/.auto-company/identity.json'
+        marker = self.root / 'projects/two/.autonomous-company/identity.json'
         marker.unlink()
         self.catalog.refresh_changed_sources()
         self.assertEqual(self.catalog.list_entries()['total'], 1)
         marker.write_text(json.dumps({'schemaVersion': 1, 'id': new_product['productId']}))
-        self.write('.auto-company/product-state.lock/fixture', 'busy')
+        self.write('.autonomous-company/product-state.lock/fixture', 'busy')
         self.catalog.refresh_changed_sources()
         self.assertEqual(self.catalog.list_entries()['total'], 1)
-        (self.root / '.auto-company/product-state.lock/fixture').unlink()
-        (self.root / '.auto-company/product-state.lock').rmdir()
+        (self.root / '.autonomous-company/product-state.lock/fixture').unlink()
+        (self.root / '.autonomous-company/product-state.lock').rmdir()
         self.catalog.refresh_changed_sources()
         self.assertEqual(self.catalog.list_entries()['total'], 2)
 
@@ -726,17 +726,17 @@ class CenterCatalogTests(unittest.TestCase):
         (self.root / 'projects/created').mkdir(parents=True)
         product = products.register_project(self.root, 'projects/created', row['cycleId'])
         products.update_cycle(self.root, row['cycleId'], 'completed')
-        self.write('.auto-company.local', 'AUTO_COMPANY_LANGUAGE=en\n')
+        self.write('.autonomous-company.local', 'AUTONOMOUS_COMPANY_LANGUAGE=en\n')
         original_language = start_product(self.root)
-        ledger = (self.root / '.auto-company/product-state.json').read_bytes()
-        marker = (self.root / 'projects/created/.auto-company/identity.json').read_bytes()
-        settings = (self.root / '.auto-company.local').read_text().replace('AUTO_COMPANY_LANGUAGE=en', 'AUTO_COMPANY_LANGUAGE=zh-CN')
-        self.write('.auto-company.local', settings)
+        ledger = (self.root / '.autonomous-company/product-state.json').read_bytes()
+        marker = (self.root / 'projects/created/.autonomous-company/identity.json').read_bytes()
+        settings = (self.root / '.autonomous-company.local').read_text().replace('AUTONOMOUS_COMPANY_LANGUAGE=en', 'AUTONOMOUS_COMPANY_LANGUAGE=zh-CN')
+        self.write('.autonomous-company.local', settings)
         next_language = next_product(self.root, 'NEXT')
         self.assertNotEqual(original_language['productId'], next_language['productId'])
         self.assertEqual(next_language['language'], 'zh-CN')
-        self.assertEqual((self.root / '.auto-company/product-state.json').read_bytes(), ledger)
-        self.assertEqual((self.root / 'projects/created/.auto-company/identity.json').read_bytes(), marker)
+        self.assertEqual((self.root / '.autonomous-company/product-state.json').read_bytes(), ledger)
+        self.assertEqual((self.root / 'projects/created/.autonomous-company/identity.json').read_bytes(), marker)
         self.import_root()
         item = next(item for item in self.catalog.list_entries()['items'] if item['productId'] == product['id'])
         before = self.hashes()
@@ -755,7 +755,7 @@ class CenterCatalogTests(unittest.TestCase):
                                          'language': language, 'languagePeriodId': 'a' * 32, 'recordedAt': at}}
         self.write('logs/' + one['cycleId'] + '.context.json', json.dumps(context(one, 'projects/one', 'en')))
         self.write('logs/' + two['cycleId'] + '.context.json', json.dumps(context(two, 'projects/two', 'zh-CN')))
-        self.write('.auto-company.local', 'AUTO_COMPANY_LANGUAGE=zh-CN\nAUTO_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTO_COMPANY_PRODUCT_STATUS=active\n')
+        self.write('.autonomous-company.local', 'AUTONOMOUS_COMPANY_LANGUAGE=zh-CN\nAUTONOMOUS_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTONOMOUS_COMPANY_PRODUCT_STATUS=active\n')
         self.import_root()
         items = self.catalog.list_entries()['items']
         item = next(item for item in items if item['productId'] == one['productId'])

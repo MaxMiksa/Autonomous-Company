@@ -24,7 +24,7 @@ class DaemonInstallerTests(unittest.TestCase):
         self.project = root / 'Repo & "trial" %data'
         for directory in ("scripts/core", "scripts/macos", "scripts/wsl"):
             (self.project / directory).mkdir(parents=True, exist_ok=True)
-        for filename in ("scripts/core/engine-adapters.sh", "scripts/core/process-supervisor.sh", "scripts/core/launchd-config.py", "scripts/core/ui-messages.sh", "scripts/core/localization.py",
+        for filename in ("scripts/core/engine-adapters.sh", "scripts/core/process-supervisor.sh", "scripts/core/launchd-config.py", "scripts/core/ui-messages.sh", "scripts/core/localization.py", "scripts/core/namespace_guard.py",
                          "scripts/macos/install-daemon.sh", "scripts/wsl/install-wsl-daemon.sh"):
             shutil.copy2(REPO / filename, self.project / filename)
         shutil.copytree(REPO / "i18n", self.project / "i18n")
@@ -58,7 +58,7 @@ class DaemonInstallerTests(unittest.TestCase):
     def test_mac_install_preserves_budget_and_special_paths(self):
         self.fake("uname", 'printf "Darwin\\n"')
         self.run_installer("scripts/macos/install-daemon.sh")
-        raw = (self.home_dir / "Library/LaunchAgents/com.autocompany.loop.plist").read_bytes()
+        raw = (self.home_dir / "Library/LaunchAgents/com.autonomouscompany.loop.plist").read_bytes()
         config = plistlib.loads(raw)
         self.assertEqual(config["WorkingDirectory"], str(self.project))
         self.assertEqual(config["EnvironmentVariables"]["USAGE_HARD_LIMIT_TOKENS"], "9876")
@@ -73,7 +73,7 @@ class DaemonInstallerTests(unittest.TestCase):
 
     def test_systemd_formats_literal_paths_and_quoted_command_arguments(self):
         self.run_installer("scripts/wsl/install-wsl-daemon.sh")
-        unit = (self.home_dir / ".config/systemd/user/auto-company.service").read_text()
+        unit = (self.home_dir / ".config/systemd/user/autonomous-company.service").read_text()
         escaped = str(self.project).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
         self.assertIn(f'ExecStart=/usr/bin/bash "{escaped}/scripts/core/auto-loop.sh"', unit)
         literal_path = str(self.project).replace("%", "%%")

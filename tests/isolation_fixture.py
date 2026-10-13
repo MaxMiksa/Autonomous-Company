@@ -22,7 +22,7 @@ def install(root):
     core = root / 'scripts/core'
     core.mkdir(parents=True, exist_ok=True)
     for name in ('project_isolation.py', 'isolation_workspace.py', 'isolation_proxy.py',
-                 'isolation-runtime-files.json', 'product_identity.py'):
+                 'isolation-runtime-files.json', 'product_identity.py', 'namespace_guard.py'):
         target = core / name
         if not target.exists():
             shutil.copy2(ROOT / 'scripts/core' / name, target)

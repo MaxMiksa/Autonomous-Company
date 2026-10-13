@@ -9,7 +9,7 @@ export const test = base.extend({
   scenario: ["default", { option: true }],
 
   dashboard: async ({ scenario }, use, testInfo) => {
-    const python = process.env.AUTO_COMPANY_BROWSER_PYTHON
+    const python = process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON
       || (process.platform === "win32" ? "python" : "python3");
     const child = spawn(python, ["-u", fileURLToPath(new URL("fixture-server.py", import.meta.url)),
       "--scenario", scenario], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });

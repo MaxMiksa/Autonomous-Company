@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local dashboard server for Auto Company (Windows, Linux/WSL, and macOS)."""
+"""Local dashboard server for Autonomous Company (Windows, Linux/WSL, and macOS)."""
 
 from __future__ import annotations
 
@@ -427,7 +427,7 @@ def parse_windows_status_output(raw: str) -> dict[str, Any]:
     loop_rows = sections.get("Loop Status (scripts/core/monitor.sh)", [])
     if not loop_rows:
         loop_rows = sections.get("Loop Status (monitor.sh)", [])
-    loop_status_rows = sections.get("Auto Company Status", [])
+    loop_status_rows = sections.get("Autonomous Company Status", sections.get("Auto Company Status", []))
     merged_loop_rows = list(loop_rows) + list(loop_status_rows)
     parsed["loop"]["raw"] = "\n".join(merged_loop_rows).strip()
     for row in (x.strip() for x in merged_loop_rows if x.strip()):
@@ -679,10 +679,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def _text(
-        self, text: str, code: int = 200, content_type: str = "text/plain; charset=utf-8",
+        self, text: str | bytes, code: int = 200, content_type: str = "text/plain; charset=utf-8",
         *, truncated: bool = False,
     ) -> None:
-        raw = text.encode("utf-8")
+        raw = text.encode("utf-8") if isinstance(text, str) else text
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
@@ -697,7 +697,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not path.exists():
             self._text("Not found", code=404)
             return
-        self._text(path.read_text(encoding="utf-8"), content_type=content_type)
+        self._text(path.read_bytes(), content_type=content_type)
 
     def do_GET(self) -> None:  # noqa: N802
         if not self._request_allowed():
@@ -823,7 +823,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
-        managed_marker = REPO_ROOT / ".auto-company-center.json"
+        managed_marker = REPO_ROOT / ".autonomous-company-center.json"
         if path != "/api/action/refresh" and (managed_marker.exists() or managed_marker.is_symlink()):
             self._json({"ok": False, "code": "CENTER_MANAGED",
                         "error": "This runtime is managed by the product center. Use the center controls."}, code=409)
@@ -918,10 +918,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Auto Company web dashboard server")
+    parser = argparse.ArgumentParser(description="Autonomous Company web dashboard server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
+    from namespace_guard import check_root
+    try:
+        check_root(REPO_ROOT)
+    except ValueError as error:
+        parser.error(str(error))
 
     bind_host = "127.0.0.1" if args.host == "localhost" else args.host
     try:

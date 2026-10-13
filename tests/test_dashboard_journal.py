@@ -53,7 +53,7 @@ class JournalFixture(unittest.TestCase):
         pid = self.write(".auto-loop.pid", "4321\n")
         os.utime(pid, (1700000000, 1700000000))
         self.write(".auto-loop-state", "STATUS=running\nLOOP_COUNT=2\nENGINE=codex\nMODEL=example-model\n")
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
         self.write("logs/usage.jsonl.pending", json.dumps(record("cycle-0002-live", number=2, status="interrupted")))
         self.write("logs/cycle-0002-live.context.json", json.dumps({
             "version": 1, "cycleId": "cycle-0002-live", "project": "projects/probe",
@@ -67,7 +67,7 @@ class JournalTests(JournalFixture):
     def test_persistent_numbers_replace_only_their_exact_program_bound_cycles(self):
         from product_identity import reserve_cycle, update_cycle
         self.write("projects/probe/index.html", "<p>Real file</p>")
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
         first = reserve_cycle(self.root, "projects/probe", "attempt-a", 1)
         update_cycle(self.root, first["cycleId"], "completed")
         second = reserve_cycle(self.root, "projects/probe", "attempt-b", 1)
@@ -86,7 +86,7 @@ class JournalTests(JournalFixture):
     def test_unconfirmed_reservation_is_visible_without_invented_usage_or_live_status(self):
         from product_identity import reserve_cycle, update_cycle, recover_cycles
         self.write("projects/probe/index.html", "<p>Real file</p>")
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
         cycle = reserve_cycle(self.root, "projects/probe", "uncertain", 1)
         update_cycle(self.root, cycle["cycleId"], "dispatching")
         recover_cycles(self.root)
@@ -207,7 +207,7 @@ class JournalTests(JournalFixture):
         self.write("projects/sample/README.md", "# Sample guide")
         self.write(".env", "private")
         self.assertEqual([item["path"] for item in self.source.documents()], ["DELIVERY.md", "projects/sample/README.md"])
-        self.assertEqual(self.source.snapshot()["project"]["name"], "Auto Company",
+        self.assertEqual(self.source.snapshot()["project"]["name"], "Autonomous Company",
                          "delivery prose is not project identity")
         self.assertEqual(self.source.document("projects/sample/README.md")[0], "# Sample guide")
         for path in (".env", "../.env", "projects/sample/../../.env", "C:/secret", "projects\\sample\\README.md"):
@@ -217,8 +217,8 @@ class JournalTests(JournalFixture):
     def test_project_metadata_is_identity_bound_and_never_reuses_consensus(self):
         self.write("DELIVERY.md", "# Old Product\n[Guide](projects/old/README.md)\n")
         self.write("projects/old/README.md", "stale deliverable")
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
-        self.write("projects/probe/.auto-company-project.json", json.dumps({
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write("projects/probe/.autonomous-company-project.json", json.dumps({
             "version": 1, "project": "projects/probe", "displayName": "Probe",
             "description": "Bound description", "recordedAt": "2026-09-19T01:00:00+00:00",
             "source": "project_metadata"}))
@@ -229,19 +229,19 @@ class JournalTests(JournalFixture):
                                   "status": "recorded", "recordedAt": "2026-09-19T01:00:00+00:00", "stableId": None,
                                   "createdAt": None})
         self.assertEqual(self.source.documents(), [], "legacy root delivery cannot cross product selection")
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/other\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/other\n")
         self.write("projects/other/README.md", "new selection")
         project = self.source.snapshot()["project"]
         self.assertEqual((project["id"], project["name"], project["description"], project["status"]),
                          ("projects/other", "other", "", "missing"))
-        self.write("projects/other/.auto-company-project.json", json.dumps({
+        self.write("projects/other/.autonomous-company-project.json", json.dumps({
             "version": 1, "project": "projects/probe", "displayName": "Wrong",
             "description": "wrong identity", "recordedAt": "2026-09-19T01:00:00+00:00",
             "source": "project_metadata"}))
         self.assertEqual(self.source.snapshot()["project"]["status"], "invalid")
 
     def test_project_switch_does_not_borrow_unknown_or_other_cycle(self):
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
         self.write("projects/probe/README.md", "selected")
         current = record("cycle-current", started_at="2026-09-19T12:00:00+00:00")
         other = record("cycle-other", number=2, started_at="2026-09-19T13:00:00+00:00")
@@ -281,7 +281,7 @@ class JournalTests(JournalFixture):
     def test_cycle_check_projection_and_live_elapsed_have_verified_identity(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/core"))
         from runtime_artifacts import base_record, save
-        self.write(".auto-company.local", "ACTIVE_PROJECT=projects/probe\n")
+        self.write(".autonomous-company.local", "ACTIVE_PROJECT=projects/probe\n")
         self.write("projects/probe/README.md", "project")
         self.ledger(record())
         check = base_record("projects/probe", "check")
@@ -329,7 +329,7 @@ class JournalTests(JournalFixture):
         self.assertLessEqual(len(text), data_module.MAX_TEXT_BYTES)
 
     def test_saved_language_and_locked_product_are_read_without_writes(self):
-        path = self.write(".auto-company.local", "AUTO_COMPANY_LANGUAGE=en\nAUTO_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTO_COMPANY_PRODUCT_STATUS=active\n")
+        path = self.write(".autonomous-company.local", "AUTONOMOUS_COMPANY_LANGUAGE=en\nAUTONOMOUS_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTONOMOUS_COMPANY_PRODUCT_STATUS=active\n")
         before = path.read_bytes()
         language = data_module.JournalSource(self.root).language()
         self.assertEqual(language["language"], "zh-CN")
@@ -572,8 +572,8 @@ class ProductionJournalHTTPTests(JournalFixture):
         self.assertEqual(self.request("/legacy")[0], 404)
 
     def test_snapshot_reuses_shared_language_lock_and_budget_pause(self):
-        config = self.write(".auto-company.local", "AUTO_COMPANY_LANGUAGE=en\nAUTO_COMPANY_PRODUCT_ID=" + "a" * 32
-                            + "\nAUTO_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTO_COMPANY_PRODUCT_STATUS=active\n")
+        config = self.write(".autonomous-company.local", "AUTONOMOUS_COMPANY_LANGUAGE=en\nAUTONOMOUS_COMPANY_PRODUCT_ID=" + "a" * 32
+                            + "\nAUTONOMOUS_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTONOMOUS_COMPANY_PRODUCT_STATUS=active\n")
         before = config.read_bytes()
         marker = {"reason": "usage_hard_limit", "budget": {"state": "hard_limit"}}
         self.write(".auto-loop-budget-paused", json.dumps(marker))

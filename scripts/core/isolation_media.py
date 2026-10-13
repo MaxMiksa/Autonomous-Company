@@ -18,7 +18,7 @@ def run(request_path):
     original_output = Path(request["output"])
     project = Path(request["project"])
     framework = Path(__file__).resolve().parents[2]
-    with tempfile.TemporaryDirectory(prefix="auto-company-media-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="autonomous-company-media-") as temporary:
         view = Path(temporary) / "workspace"
         view.mkdir()
         copy_tree(project, view / "project")
@@ -34,9 +34,9 @@ def run(request_path):
         if not dependencies.is_dir():
             raise IsolationError("Project media needs framework-local Playwright dependencies")
         readonly.append((dependencies, "/workspace/scripts/media/node_modules"))
-        browser = os.environ.get("AUTO_COMPANY_BROWSER_RUNTIME")
+        browser = os.environ.get("AUTONOMOUS_COMPANY_BROWSER_RUNTIME")
         if not browser:
-            raise IsolationError("AUTO_COMPANY_BROWSER_RUNTIME must name a reviewed, browser-only Playwright runtime directory")
+            raise IsolationError("AUTONOMOUS_COMPANY_BROWSER_RUNTIME must name a reviewed, browser-only Playwright runtime directory")
         for child in Path(browser).iterdir():
             if child.is_dir() and re.fullmatch(r"(?:chromium|chromium_headless_shell|ffmpeg)-[0-9]+", child.name):
                 readonly.append((child, "/opt/browsers/" + child.name))

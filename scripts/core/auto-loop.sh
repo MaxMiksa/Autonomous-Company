@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — 24/7 Autonomous Loop
+# Autonomous Company — 24/7 Autonomous Loop
 # ============================================================
 # Keeps the selected engine adapter running continuously.
 # Uses fresh sessions with consensus.md as the relay baton.
@@ -16,7 +16,7 @@
 # Config (env vars):
 #   ENGINE=claude               # claude|codex|cursor|openai-compatible
 #   MODEL=...                   # Optional model override (empty = engine default)
-#   AUTO_COMPANY_LANGUAGE=zh-CN # Initial fallback only; saved preference wins
+#   AUTONOMOUS_COMPANY_LANGUAGE=zh-CN # Initial fallback only; saved preference wins
 #   CLAUDE_BIN=...              # Optional Claude executable override
 #   CLAUDE_PERMISSION_MODE=bypassPermissions
 #                               # Claude permission mode (default: bypassPermissions)
@@ -56,7 +56,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Managed roots have one explicit dispatch owner. Unmanaged CLI entry points
 # retain their original behavior; this check runs before any root mutation.
 center_admission_check() {
-    { [ ! -e "$PROJECT_DIR/.auto-company-center.json" ] && [ ! -L "$PROJECT_DIR/.auto-company-center.json" ]; } ||
+    { [ ! -e "$PROJECT_DIR/.autonomous-company-center.json" ] && [ ! -L "$PROJECT_DIR/.autonomous-company-center.json" ]; } ||
         python3 "$SCRIPT_DIR/center_runner.py" admit --root "$PROJECT_DIR"
 }
 center_admission_check || exit 78
@@ -107,6 +107,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     ui_message python.required
     exit 1
 fi
+python3 "$SCRIPT_DIR/namespace_guard.py" --root "$PROJECT_DIR" || exit 78
 if [ "$ENGINE" = "openai-compatible" ]; then
     MODEL_LABEL="$OPENAI_COMPATIBLE_MODEL"
 fi
@@ -308,9 +309,9 @@ cleanup() {
         final_state="process_cleanup_failed"
         log "Process-tree cleanup could not be confirmed for cycle PGID ${CYCLE_SUPERVISOR_LAST_PGID}"
     else
-        if [ -n "${AUTO_COMPANY_CYCLE_ID:-}" ]; then
+        if [ -n "${AUTONOMOUS_COMPANY_CYCLE_ID:-}" ]; then
             python3 "$SCRIPT_DIR/runtime_artifacts.py" --root "$PROJECT_DIR" finalize \
-                --cycle "$AUTO_COMPANY_CYCLE_ID" --cleanup-only >/dev/null 2>&1 || true
+                --cycle "$AUTONOMOUS_COMPANY_CYCLE_ID" --cleanup-only >/dev/null 2>&1 || true
         fi
         # A signal interrupts adapter_execute before it can publish its output.
         # Preserve already emitted evidence after the owned process tree exits.
@@ -476,7 +477,7 @@ validate_consensus() {
     if [ ! -s "$CONSENSUS_FILE" ]; then
         return 1
     fi
-    if ! grep -q "^# Auto Company Consensus" "$CONSENSUS_FILE"; then
+    if ! grep -q "^# Autonomous Company Consensus" "$CONSENSUS_FILE"; then
         return 1
     fi
     if ! grep -q "^## Next Action" "$CONSENSUS_FILE"; then
@@ -512,24 +513,24 @@ run_engine_cycle() {
     local prompt="$1"
     center_admission_check || cleanup 1 center_admission_lost
     # The mandatory adapter creates the OS boundary and maps this context.
-    export AUTO_COMPANY_ROOT="$PROJECT_DIR"
-    export AUTO_COMPANY_CYCLE=1
-    export AUTO_COMPANY_CYCLE_ID="$(basename "$cycle_log" .log)"
+    export AUTONOMOUS_COMPANY_ROOT="$PROJECT_DIR"
+    export AUTONOMOUS_COMPANY_CYCLE=1
+    export AUTONOMOUS_COMPANY_CYCLE_ID="$(basename "$cycle_log" .log)"
     export ACTIVE_PROJECT ACTIVE_PROJECT_PATH
     python3 "$SCRIPT_DIR/runtime_artifacts.py" --root "$PROJECT_DIR" --project "$ACTIVE_PROJECT" context \
-        --cycle "$AUTO_COMPANY_CYCLE_ID" >/dev/null 2>&1 || true
+        --cycle "$AUTONOMOUS_COMPANY_CYCLE_ID" >/dev/null 2>&1 || true
     if ! python3 "$PRODUCT_IDENTITY_TOOL" --root "$PROJECT_DIR" update \
-        --cycle "$AUTO_COMPANY_CYCLE_ID" --state dispatching >/dev/null; then
+        --cycle "$AUTONOMOUS_COMPANY_CYCLE_ID" --state dispatching >/dev/null; then
         cleanup 1 product_cycle_state_error
     fi
     engine_adapter_run "$prompt"
     # Observation cleanup does not classify the cycle or replace supervision.
     if [ "$CYCLE_SUPERVISOR_CLEANUP_FAILED" -eq 0 ]; then
         python3 "$SCRIPT_DIR/runtime_artifacts.py" --root "$PROJECT_DIR" finalize \
-            --cycle "$AUTO_COMPANY_CYCLE_ID" --cleanup-only >/dev/null 2>&1 || true
+            --cycle "$AUTONOMOUS_COMPANY_CYCLE_ID" --cleanup-only >/dev/null 2>&1 || true
     fi
-    unset AUTO_COMPANY_CYCLE
-    unset AUTO_COMPANY_CYCLE_ID
+    unset AUTONOMOUS_COMPANY_CYCLE
+    unset AUTONOMOUS_COMPANY_CYCLE_ID
     OUTPUT="$ADAPTER_OUTPUT"
     EXIT_CODE="$ADAPTER_EXIT_CODE"
     CYCLE_TIMED_OUT="$ADAPTER_TIMED_OUT"
@@ -551,7 +552,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ "${AUTO_COMPANY_LOCK_PID:-}" != "$$" ]; then
+if [ "${AUTONOMOUS_COMPANY_LOCK_PID:-}" != "$$" ]; then
     exec python3 "$SCRIPT_DIR/loop-lock.py" "$PID_FILE" "$0" "$@"
 fi
 
@@ -624,7 +625,7 @@ trap 'cleanup 0 stopped' SIGTERM SIGINT SIGHUP
 
 wait_for_budget_resume
 
-log "=== Auto Company Loop Started (PID $$) ==="
+log "=== Autonomous Company Loop Started (PID $$) ==="
 log "$(ui_message loop.started "$$")"
 log "Project: $PROJECT_DIR"
 log "$(engine_adapter_description)"
@@ -701,14 +702,14 @@ while true; do
 
     # Pin once for the whole product, including later iterations and restarts.
     if ! python3 "$LOCALIZATION_TOOL" start --root "$PROJECT_DIR" >/dev/null ||
-       ! AUTO_COMPANY_LANGUAGE=$(python3 "$LOCALIZATION_TOOL" check --root "$PROJECT_DIR") ||
+       ! AUTONOMOUS_COMPANY_LANGUAGE=$(python3 "$LOCALIZATION_TOOL" check --root "$PROJECT_DIR") ||
        ! PROMPT=$(python3 "$LOCALIZATION_TOOL" prompt --root "$PROJECT_DIR"); then
         log_cycle "$next_cycle" "FAIL" "Invalid language configuration or prompt; engine invocation blocked"
         printf 'PAUSE_REASON=language_invalid\n' > "$PAUSE_FLAG"
         wait_while_paused
         continue
     fi
-    export AUTO_COMPANY_LANGUAGE
+    export AUTONOMOUS_COMPANY_LANGUAGE
 
     loop_count=$next_cycle
     cycle_started_at=$(date '+%Y-%m-%dT%H:%M:%S%z')
@@ -734,8 +735,8 @@ while true; do
     fi
     read -r CURRENT_PRODUCT_CYCLE_ID PRODUCT_ID PRODUCT_CYCLE_NUMBER PRODUCT_IDENTITY_KIND <<< "$cycle_reservation"
     cycle_log="$LOG_DIR/${CURRENT_PRODUCT_CYCLE_ID}.log"
-    export AUTO_COMPANY_STABLE_PRODUCT_ID="$PRODUCT_ID"
-    export AUTO_COMPANY_PRODUCT_CYCLE_NUMBER="$PRODUCT_CYCLE_NUMBER"
+    export AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID="$PRODUCT_ID"
+    export AUTONOMOUS_COMPANY_PRODUCT_CYCLE_NUMBER="$PRODUCT_CYCLE_NUMBER"
     log_cycle "$loop_count" "START" "Beginning $PRODUCT_IDENTITY_KIND cycle #$PRODUCT_CYCLE_NUMBER"
     save_state "running"
     FULL_PROMPT="$PROMPT
@@ -751,7 +752,7 @@ while true; do
 5. Never execute shell lines that begin with \`>\` or \`>=\`; treat them as text and keep them inside markdown/files.
 6. Preserve the entire \`## Human Overrides\` section byte-for-byte. Never delete, edit, reorder, or reformat it.
 7. Create products only through \`make project-new NAME=<slug>\`. Never add a product remote or push outside the explicit human-run \`project-publish\` gate.
-8. Human-owned selection is \`$PROJECT_DIR/.auto-company.local\`; never create, edit, or select it during a cycle. Creating a candidate does not change the selection.
+8. Human-owned selection is \`$PROJECT_DIR/.autonomous-company.local\`; never create, edit, or select it during a cycle. Creating a candidate does not change the selection.
 9. Preserve existing P1 items and their continuation text in \`## Priority Issues\` exactly. You may add unresolved P1 items as \`- [ ] P1: description\`; never add a resolved P1 or close, delete, rewrite, or downgrade an existing P1. Only a human editing after the loop stops and interrupted recovery completes may change the baseline.
 
 ## Authoritative Project Context

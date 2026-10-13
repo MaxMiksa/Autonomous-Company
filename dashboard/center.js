@@ -22,12 +22,28 @@ window.DashboardNavigation.register('center', (view) => {
     sort: "activity", sortDirection: "desc", roundFilter: "all", previewMode: "screenshot",
   };
 
-  const VIEW_STATE_KEY = "auto-company:center:view:v1";
+  const VIEW_STATE_KEY = "autonomous-company:center:view:v1";
+  function migrateBrowserState(storageName, oldKey, newKey) {
+    try {
+      const storage = window[storageName];
+      const previous = storage?.getItem(oldKey);
+      if (previous !== null && previous !== undefined) {
+        if (storage.getItem(newKey) !== null && storage.getItem(newKey) !== previous) {
+          console.warn("Stored center preferences conflict; previous value retained for explicit recovery.");
+          return;
+        }
+        storage.setItem(newKey, previous);
+        storage.removeItem(oldKey);
+      }
+    } catch (_) {}
+  }
+  migrateBrowserState("sessionStorage", "auto-company:center:view:v1", VIEW_STATE_KEY);
+  migrateBrowserState("localStorage", "auto-company:center:auto-refresh", "autonomous-company:center:auto-refresh");
   function saveView() {
     try { window.sessionStorage?.setItem(VIEW_STATE_KEY, JSON.stringify({ query: $("productSearch")?.value.trim() ?? state.query, filter: state.filter, sort: state.sort, sortDirection: state.sortDirection, roundFilter: state.roundFilter, previewMode: state.previewMode, otherExpanded: state.otherExpanded, scroll: window.scrollY || 0 })); } catch (_) {}
   }
   function loadView() {
-    try { state.autoRefresh = window.localStorage?.getItem("auto-company:center:auto-refresh") !== "off"; } catch (_) {}
+    try { state.autoRefresh = window.localStorage?.getItem("autonomous-company:center:auto-refresh") !== "off"; } catch (_) {}
     $("centerAutoRefresh").checked = state.autoRefresh;
     try {
       const saved = JSON.parse(window.sessionStorage?.getItem(VIEW_STATE_KEY) || "null");
@@ -581,7 +597,7 @@ window.DashboardNavigation.register('center', (view) => {
     if (!view.active) return;
     UI.selectFilter?.(state.filter);
     document.documentElement.lang = state.language;
-    document.title = `Auto Company · ${message("products")}`;
+    document.title = `Autonomous Company · ${message("products")}`;
     document.querySelectorAll("[data-i18n]").forEach((node) => { if (node.closest("button")?.dataset.idleText || node.closest('button[aria-busy="true"]')) return; node.textContent = message(node.dataset.i18n); });
     document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { node.placeholder = message(node.dataset.i18nPlaceholder); });
     document.querySelectorAll("[data-i18n-aria]").forEach((node) => { node.setAttribute("aria-label", message(node.dataset.i18nAria)); });
@@ -1324,7 +1340,7 @@ window.DashboardNavigation.register('center', (view) => {
     });
     $("centerAutoRefresh").addEventListener("change", event => {
       state.autoRefresh = event.target.checked; clearTimeout(state.timer);
-      try { window.localStorage?.setItem("auto-company:center:auto-refresh", state.autoRefresh ? "on" : "off"); } catch (_) {}
+      try { window.localStorage?.setItem("autonomous-company:center:auto-refresh", state.autoRefresh ? "on" : "off"); } catch (_) {}
       if (state.autoRefresh) refresh();
     });
     $("centerRefreshButton").addEventListener("click", async event => { const button = event.currentTarget; if (button.disabled) return; button.disabled = true; button.setAttribute("aria-busy", "true"); button.textContent = message("loading"); try { await refresh(); } finally { button.disabled = false; button.removeAttribute("aria-busy"); button.textContent = message("retryRead"); } });

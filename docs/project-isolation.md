@@ -6,7 +6,7 @@ Every model cycle, interactive team, product check and screenshot worker must en
 
 Linux and Windows through WSL2 require bubblewrap 0.9 or newer, unprivileged user/mount/PID/IPC/network namespaces and libseccomp. Native Windows and macOS execution are refused. There is no unsafe fallback or disable-isolation option. Missing dependencies and unsupported CLI packaging fail before a model starts.
 
-Install bubblewrap with your distribution package manager, or point `AUTO_COMPANY_BWRAP` at an operator-installed executable. Validate the actual kernel mechanism:
+Install bubblewrap with your distribution package manager, or point `AUTONOMOUS_COMPANY_BWRAP` at an operator-installed executable. Validate the actual kernel mechanism:
 
 ```bash
 python3 scripts/core/project_isolation.py --check
@@ -25,11 +25,11 @@ The engine sees `/workspace`: an explicit framework file manifest, the selected 
 
 The framework scripts, role resources and human configuration are read-only. Product code, current documents, HOME, caches, session files and temporary files belong to this invocation. Nothing mounts the host root, home directory, Windows drives, shared temp directory, Docker socket, display socket or host process tree. Absolute links, escaping relative links, hard-linked files, device nodes, sockets and FIFOs in input/output trees are refused. Internal relative links such as package `.bin` links work.
 
-Read-only runtime mounts are listed in `RUNTIME_PATHS` in `scripts/core/project_isolation.py`: Linux binaries/libraries, Node system modules, Git runtime data, TLS certificates and font resources. These are trusted operator-installed runtime files. Do not store project data or secrets in these system runtime locations. An optional framework-local Playwright dependency tree is also read-only. `AUTO_COMPANY_BROWSER_RUNTIME` names a reviewed Playwright browser directory; only the Chromium, headless Chromium and FFmpeg version directories are mounted, not cache metadata or profiles.
+Read-only runtime mounts are listed in `RUNTIME_PATHS` in `scripts/core/project_isolation.py`: Linux binaries/libraries, Node system modules, Git runtime data, TLS certificates and font resources. These are trusted operator-installed runtime files. Do not store project data or secrets in these system runtime locations. An optional framework-local Playwright dependency tree is also read-only. `AUTONOMOUS_COMPANY_BROWSER_RUNTIME` names a reviewed Playwright browser directory; only the Chromium, headless Chromium and FFmpeg version directories are mounted, not cache metadata or profiles.
 
 The operator's selected native Linux Node executable is mounted individually at `/opt/runtime/node`, including when installed by NVM or a CI tool cache. Its parent installation directory, global packages and caches are not exposed.
 
-Chromium also needs its normal Linux shared libraries. Install them through the distribution, or set `AUTO_COMPANY_LIBRARY_RUNTIME` to a reviewed directory containing only the necessary `.so` files. That narrow directory is mounted read-only and replaces inherited library-search settings; an arbitrary host `LD_LIBRARY_PATH` is not imported.
+Chromium also needs its normal Linux shared libraries. Install them through the distribution, or set `AUTONOMOUS_COMPANY_LIBRARY_RUNTIME` to a reviewed directory containing only the necessary `.so` files. That narrow directory is mounted read-only and replaces inherited library-search settings; an arbitrary host `LD_LIBRARY_PATH` is not imported.
 
 The isolated network has its own loopback, so local application servers and browser tests work together. An invocation-specific HTTP proxy permits public HTTP/HTTPS destinations on ports 80/443. It resolves and validates all addresses, pins the destination IP, and rejects private, loopback, link-local and special-use addresses. Direct network access, host-local services, Unix host sockets, VSOCK and packet sockets are unavailable. Existing public HTTP upstream proxies may transport the pinned connection. Applications needing internet access must honor HTTP(S) proxy settings; raw outbound TCP/UDP is unavailable.
 
@@ -49,7 +49,7 @@ Collection uses a persistent rename journal and retains previous versions. A pen
 python3 scripts/core/isolation_workspace.py --root /path/to/runtime --recover
 ```
 
-Recovery restores original files and keeps rejected candidates for inspection; it does not claim to reverse network activity or other external business effects. Per-product working documents, scoped session records, last-run metadata and collection backups live under `.auto-company/isolation/`. An execution whose output fails validation retains its private temporary view and reports the location. Additional files created at the framework root also retain that view, with their names recorded in `last-run.json`; they are never silently discarded or copied over host control files.
+Recovery restores original files and keeps rejected candidates for inspection; it does not claim to reverse network activity or other external business effects. Per-product working documents, scoped session records, last-run metadata and collection backups live under `.autonomous-company/isolation/`. An execution whose output fails validation retains its private temporary view and reports the location. Additional files created at the framework root also retain that view, with their names recorded in `last-run.json`; they are never silently discarded or copied over host control files.
 
 ## Verification
 

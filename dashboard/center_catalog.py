@@ -69,6 +69,11 @@ class CenterCatalog:
         self._source_refresh_lock = threading.RLock()
 
     def _scan(self, root, kind_hint=None):
+        from namespace_guard import check_root
+        try:
+            check_root(root)
+        except ValueError as error:
+            raise CenterError('NAMESPACE_MIGRATION_REQUIRED', str(error), 409) from error
         source = JournalSource(root)
         try:
             state = source.identity_state()
@@ -730,10 +735,10 @@ class CenterCatalog:
             self._refresh_index = (self._refresh_index + len(selected)) % len(sources)
             refreshed = 0
             for source in selected:
-                paths = ['', '.auto-loop-state', '.auto-loop.pid', 'logs/usage.jsonl.pending', '.auto-company', '.auto-company/product-state.json', '.auto-company/product-state.transaction.json',
-                         '.auto-company/product-state.lock', '.auto-company.local', 'projects/registry.tsv', 'logs/usage.jsonl', 'logs', 'logs/artifacts']
+                paths = ['', '.auto-loop-state', '.auto-loop.pid', 'logs/usage.jsonl.pending', '.autonomous-company', '.autonomous-company/product-state.json', '.autonomous-company/product-state.transaction.json',
+                         '.autonomous-company/product-state.lock', '.autonomous-company.local', 'projects/registry.tsv', 'logs/usage.jsonl', 'logs', 'logs/artifacts']
                 if source.get('project'):
-                    paths += [source['project'], source['project'] + '/.auto-company/identity.json', source['project'] + '/.auto-company-project.json', source['project'] + '/.auto-company/media.json']
+                    paths += [source['project'], source['project'] + '/.autonomous-company/identity.json', source['project'] + '/.autonomous-company-project.json', source['project'] + '/.autonomous-company/media.json']
                 if source.get('productId'):
                     paths.append('logs/product-media/' + source['productId'] + '/media.json')
                     for resource in media_resources.get(source['sourceId'], []):
@@ -779,7 +784,7 @@ class CenterCatalog:
         try:
             root = root_path(anchor['root'])
             reader = JournalSource(root)
-            pending = ('.auto-company/product-state.transaction.json', '.auto-company/product-state.lock')
+            pending = ('.autonomous-company/product-state.transaction.json', '.autonomous-company/product-state.lock')
             if any(reader.safe_path(name).exists() for name in pending):
                 return []
             state = reader.identity_state()

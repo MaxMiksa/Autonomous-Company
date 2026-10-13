@@ -102,7 +102,7 @@ class QueueTests(unittest.TestCase):
         root = self.folder / name
         root.mkdir()
         entry_id, source_id, runtime_id = "entry_" + name * 8, "source_" + name * 8, "runtime_" + name * 8
-        atomic_json(root / ".auto-company-center.json", {"protocolVersion": 1, "centerId": self.store.center_id,
+        atomic_json(root / ".autonomous-company-center.json", {"protocolVersion": 1, "centerId": self.store.center_id,
                     "entryId": entry_id, "sourceId": source_id, "runtimeId": runtime_id})
         entry = {"entryId": entry_id, "preferredSourceId": source_id, "kind": "exploration", "archived": False, "revision": 1}
         source = {"entryId": entry_id, "sourceId": source_id, "runtimeId": runtime_id, "root": str(root), "kind": "exploration", "sourceRevision": 1, "revision": 1, "availability": "available", "capabilities": {}}
@@ -176,7 +176,7 @@ class QueueTests(unittest.TestCase):
 
     def test_waiting_config_change_pauses_without_launch(self):
         request = self.create()
-        (Path(self.a["root"]) / ".auto-company.local").write_text("AUTO_COMPANY_LANGUAGE=en\n")
+        (Path(self.a["root"]) / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=en\n")
         self.enable()
         self.runtime.tick()
         observed = self.runtime.get_request(request["requestId"])
@@ -429,7 +429,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.runtime.get_request(request["requestId"])["state"], "starting")
 
     def test_lost_takeover_response_reconciles_same_binding_without_repeating_write(self):
-        marker = Path(self.a["root"]) / ".auto-company-center.json"
+        marker = Path(self.a["root"]) / ".autonomous-company-center.json"
         marker.unlink()
         with self.store.transaction() as tx:
             runtime = tx.get("runtimes", self.a["runtimeId"])
@@ -441,7 +441,7 @@ class QueueTests(unittest.TestCase):
             if action == "bind":
                 calls.append(action)
                 manifest = json.loads(Path(kwargs["manifest"]).read_text())
-                atomic_json(Path(manifest["root"]) / ".auto-company-center.json", manifest["marker"])
+                atomic_json(Path(manifest["root"]) / ".autonomous-company-center.json", manifest["marker"])
                 raise TimeoutError("fixture lost response")
             return original(action, **kwargs)
         self.adapter.query = query
@@ -511,7 +511,7 @@ class QueueTests(unittest.TestCase):
                 result = execution_context(root, kwargs.get("expected_product_id"))
                 return {"compatible": True, "quiescent": result["valid"], "reason": result["reason"]}
             if action == "bind":
-                (root / ".auto-company-center.json").unlink()
+                (root / ".autonomous-company-center.json").unlink()
                 return {"ok": True}
             return original(action, **kwargs)
         self.adapter.query = query
@@ -545,6 +545,7 @@ class PreparationTests(unittest.TestCase):
         (framework / "scripts/core").mkdir(parents=True)
         shutil.copy2(ROOT / "scripts/core/center_runner.py", framework / "scripts/core/center_runner.py")
         shutil.copy2(ROOT / "scripts/core/localization.py", framework / "scripts/core/localization.py")
+        shutil.copy2(ROOT / "scripts/core/namespace_guard.py", framework / "scripts/core/namespace_guard.py")
         (framework / "scripts/core/auto-loop.sh").write_text("#!/bin/bash\n# center_admission_check fixture\nexit 0\n")
         (framework / "memories").mkdir()
         (framework / "memories/consensus.template.md").write_text("# Consensus\n\n## Human Overrides\n\n## Current State\n")
@@ -583,7 +584,7 @@ class PreparationTests(unittest.TestCase):
         self.assertIsNone(source["productId"])
         root = Path(source["root"])
         self.assertTrue((root / ".git").is_dir())
-        self.assertFalse((root / ".auto-company/product-state.json").exists())
+        self.assertFalse((root / ".autonomous-company/product-state.json").exists())
         self.assertFalse((root / "logs").exists())
         self.assertEqual((root / "PROMPT.md").read_text(), "Normal workflow fixture\n")
         self.assertIn(body["direction"], (root / "memories/consensus.md").read_text())
@@ -725,8 +726,8 @@ class ContextLanguageTests(unittest.TestCase):
             set_language(root, "en")
             language = start_product(root)
             cycle = reserve_cycle(root, project, "fixture-attempt", 1)["cycleId"]
-            environment = {"AUTO_COMPANY_CYCLE": "1", "AUTO_COMPANY_CYCLE_ID": cycle,
-                           "AUTO_COMPANY_STABLE_PRODUCT_ID": product["id"], "AUTO_COMPANY_LANGUAGE": "en"}
+            environment = {"AUTONOMOUS_COMPANY_CYCLE": "1", "AUTONOMOUS_COMPANY_CYCLE_ID": cycle,
+                           "AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID": product["id"], "AUTONOMOUS_COMPANY_LANGUAGE": "en"}
             with patch.dict(os.environ, environment):
                 write_context(root, cycle, project)
             context = json.loads((root / "logs" / (cycle + ".context.json")).read_text())
@@ -737,11 +738,11 @@ class ContextLanguageTests(unittest.TestCase):
             set_language(root, "zh-CN")
             following = next_product(root, "NEXT")
             self.assertNotEqual(following["productId"], language["productId"])
-            with patch.dict(os.environ, {**environment, "AUTO_COMPANY_LANGUAGE": "zh-CN"}):
+            with patch.dict(os.environ, {**environment, "AUTONOMOUS_COMPANY_LANGUAGE": "zh-CN"}):
                 write_context(root, cycle, project)
             self.assertNotIn("languageEvidence", json.loads((root / "logs" / (cycle + ".context.json")).read_text()))
             exploration = reserve_cycle(root, "", "exploration-attempt", 2)["cycleId"]
-            with patch.dict(os.environ, {**environment, "AUTO_COMPANY_CYCLE_ID": exploration}):
+            with patch.dict(os.environ, {**environment, "AUTONOMOUS_COMPANY_CYCLE_ID": exploration}):
                 write_context(root, exploration, "")
             self.assertNotIn("languageEvidence", json.loads((root / "logs" / (exploration + ".context.json")).read_text()))
 
@@ -874,14 +875,14 @@ class ExecutionContextTests(unittest.TestCase):
         (self.root / "projects/selected/.git").mkdir(parents=True)
         selected = register_project(self.root, "projects/selected")
         self.registry.write_text(self.header + self.row + "selected\tprojects/selected\tlocal\t2026-09-26T00:00:00Z\n")
-        (self.root / ".auto-company.local").write_text("ACTIVE_PROJECT=projects/selected\n")
+        (self.root / ".autonomous-company.local").write_text("ACTIVE_PROJECT=projects/selected\n")
         self.assertTrue(self.inspect(self.root, selected["id"])["valid"])
         self.assertFalse(self.inspect(self.root, self.product["id"])["valid"])
-        (self.root / "projects/selected/.auto-company/identity.json").write_text('{}')
+        (self.root / "projects/selected/.autonomous-company/identity.json").write_text('{}')
         self.assertFalse(self.inspect(self.root, selected["id"])["valid"])
 
     def test_pending_transactions_and_missing_git_remain_read_only(self):
-        for relative in (".auto-company/product-state.transaction.json", ".auto-company/product-state.lock", ".auto-company.local.language-update"):
+        for relative in (".autonomous-company/product-state.transaction.json", ".autonomous-company/product-state.lock", ".autonomous-company.local.language-update"):
             with self.subTest(relative=relative):
                 path = self.root / relative
                 path.write_text("pending fixture")
@@ -902,7 +903,7 @@ class ExecutionContextTests(unittest.TestCase):
         subprocess.run(["git", "init", str(self.root / self.project)], check=True, capture_output=True)
         self.assertTrue(self.inspect(self.root, self.product["id"], check_git=True)["valid"])
         import fcntl
-        with (self.root / ".auto-company/project-registry.lock").open("wb") as writer:
+        with (self.root / ".autonomous-company/project-registry.lock").open("wb") as writer:
             fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
             before = self.snapshot()
             self.assertFalse(self.inspect(self.root, self.product["id"], check_git=True)["valid"])
@@ -934,8 +935,8 @@ class RunnerTests(unittest.TestCase):
         self.control.mkdir()
         self.manifest = {"centerId": "center_fixture123", "entryId": "entry_fixture123", "sourceId": "source_fixture123", "runtimeId": "runtime_fixture123",
                          "requestId": "request_fixture123", "dispatchId": "dispatch_fixture123", "nonce": "nonce_fixture123", "root": str(self.root),
-                         "controlDir": str(self.control), "environment": {"ENGINE": "claude", "MODEL": "fixture", "AUTO_COMPANY_LANGUAGE": "en"}}
-        atomic_json(self.root / ".auto-company-center.json", {"protocolVersion": 1, **{key: self.manifest[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}})
+                         "controlDir": str(self.control), "environment": {"ENGINE": "claude", "MODEL": "fixture", "AUTONOMOUS_COMPANY_LANGUAGE": "en"}}
+        atomic_json(self.root / ".autonomous-company-center.json", {"protocolVersion": 1, **{key: self.manifest[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}})
         self.manifest_path = self.control / "manifest.json"
         atomic_json(self.manifest_path, self.manifest)
         self.runner = self.root / "scripts/core/center_runner.py"
@@ -943,13 +944,13 @@ class RunnerTests(unittest.TestCase):
         fake.write_text('''#!/bin/bash
 if [ "${1:-}" = "--version" ]; then exit 0; fi
 count=0
-[ ! -f "$AUTO_COMPANY_ROOT/invocations" ] || count=$(cat "$AUTO_COMPANY_ROOT/invocations")
+[ ! -f "$AUTONOMOUS_COMPANY_ROOT/invocations" ] || count=$(cat "$AUTONOMOUS_COMPANY_ROOT/invocations")
 count=$((count+1))
-echo "$count" > "$AUTO_COMPANY_ROOT/invocations"
+echo "$count" > "$AUTONOMOUS_COMPANY_ROOT/invocations"
 if [ "${CREATE_ARTIFACT:-0}" = 1 ] && [ "$count" = 1 ]; then
-  bash "$AUTO_COMPANY_ROOT/scripts/core/project.sh" new --name doc-fixture >/dev/null
-  echo 'Offline artifact fixture' > "$AUTO_COMPANY_ROOT/projects/doc-fixture/README.md"
-  python3 "$AUTO_COMPANY_ROOT/scripts/core/runtime_artifacts.py" --root "$AUTO_COMPANY_ROOT" --project projects/doc-fixture document README.md && touch "$AUTO_COMPANY_ROOT/artifact-ok"
+  bash "$AUTONOMOUS_COMPANY_ROOT/scripts/core/project.sh" new --name doc-fixture >/dev/null
+  echo 'Offline artifact fixture' > "$AUTONOMOUS_COMPANY_ROOT/projects/doc-fixture/README.md"
+  python3 "$AUTONOMOUS_COMPANY_ROOT/scripts/core/runtime_artifacts.py" --root "$AUTONOMOUS_COMPANY_ROOT" --project projects/doc-fixture document README.md && touch "$AUTONOMOUS_COMPANY_ROOT/artifact-ok"
 fi
 if [ "${SPAWN_ORPHAN:-0}" = 1 ]; then
     # Wait for the child to publish its identity before ending the fake engine;
@@ -964,17 +965,17 @@ if os.fork():
     os._exit(0)
 os.close(reader)
 os.setsid()
-Path(os.environ["AUTO_COMPANY_ROOT"]+"/orphan").write_text(str(os.getpid()))
+Path(os.environ["AUTONOMOUS_COMPANY_ROOT"]+"/orphan").write_text(str(os.getpid()))
 os.write(writer,b"1")
 os.close(writer)
 time.sleep(120)'
 fi
 if [ "${SLOW_ENGINE:-0}" = 1 ]; then sleep 120; fi
 if [ "${ADD_P1:-0}" = 1 ]; then
-    python3 -c 'import os,pathlib; p=pathlib.Path(os.environ["AUTO_COMPANY_ROOT"])/"memories/consensus.md"; p.write_text(p.read_text().replace("## Priority Issues", "## Priority Issues\\n- [ ] P1: fixture needs human decision"))'
+    python3 -c 'import os,pathlib; p=pathlib.Path(os.environ["AUTONOMOUS_COMPANY_ROOT"])/"memories/consensus.md"; p.write_text(p.read_text().replace("## Priority Issues", "## Priority Issues\\n- [ ] P1: fixture needs human decision"))'
 fi
 printf '{"type":"result","subtype":"success","result":"offline","usage":{"input_tokens":1,"output_tokens":1}}\\n'
-if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loop-stop"; fi
+if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTONOMOUS_COMPANY_ROOT/.auto-loop-stop"; fi
 ''')
         fake.chmod(0o755)
         self.env = dict(os.environ, CLAUDE_BIN=str(fake), CLAUDE_PERMISSION_MODE="default", LOOP_INTERVAL="0", CYCLE_TIMEOUT_SECONDS="30",
@@ -1046,7 +1047,7 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         self.assertTrue(receipt["cleanupConfirmed"])
         orphan = int((self.root / "orphan").read_text())
         self.assertFalse(Path("/proc/%d" % orphan).exists())
-        state = json.loads((self.root / ".auto-company/product-state.json").read_text())
+        state = json.loads((self.root / ".autonomous-company/product-state.json").read_text())
         self.assertEqual(len(state["cycles"]), 2)
         duplicate = subprocess.run([sys.executable, str(self.runner), "run", "--manifest", str(self.manifest_path)], env=self.env, capture_output=True, timeout=10)
         self.assertEqual(duplicate.returncode, 78)
@@ -1124,7 +1125,7 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         self.assertEqual((receipt["state"], receipt["reason"], receipt["launched"]), ("terminal", "unresolved_p1", False))
         self.assertTrue(receipt["cleanupConfirmed"])
         self.assertFalse((self.root / "invocations").exists())
-        marker_path = self.root / ".auto-company-center.json"
+        marker_path = self.root / ".autonomous-company-center.json"
         marker = json.loads(marker_path.read_text())
         marker_path.unlink()
         binding = self.control / "binding.json"
@@ -1198,8 +1199,8 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         project = "projects/preview-fixture"
         (self.root / project).mkdir(parents=True)
         product = register_project(self.root, project)
-        marker = json.loads((self.root / ".auto-company-center.json").read_text())
-        (self.root / ".auto-company-center.json").unlink()
+        marker = json.loads((self.root / ".autonomous-company-center.json").read_text())
+        (self.root / ".autonomous-company-center.json").unlink()
         atomic_json(self.root / "logs/artifacts/legacy-preview.json", {"id": "legacy-preview", "kind": "preview", "state": "running",
                     "lifetime": "operator", "project": project, "productId": product["id"], "token": "old-fixture-token", "pid": 999999})
         binding = self.control / "binding.json"
@@ -1207,7 +1208,7 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         result = subprocess.run([sys.executable, str(self.runner), "bind", "--manifest", str(binding)], env=self.env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 78)
         self.assertIn("preview_owner_unconfirmed", result.stderr)
-        self.assertFalse((self.root / ".auto-company-center.json").exists())
+        self.assertFalse((self.root / ".autonomous-company-center.json").exists())
 
     def test_runner_and_takeover_reject_missing_registration_before_loop_but_release_still_works(self):
         sys.path.insert(0, str(ROOT / "scripts/core"))
@@ -1229,7 +1230,7 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         self.assertTrue(receipt["cleanupConfirmed"])
         self.assertFalse((self.root / "invocations").exists())
         self.assertFalse((self.root / ".auto-loop-paused").exists())
-        marker_path = self.root / ".auto-company-center.json"
+        marker_path = self.root / ".autonomous-company-center.json"
         marker = json.loads(marker_path.read_text())
         marker_path.unlink()
         binding = self.control / "binding.json"
@@ -1246,7 +1247,7 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         self.assertFalse(marker_path.exists())
 
 
-@unittest.skipUnless(os.name == "nt" and os.environ.get("AUTO_COMPANY_TEST_CENTER_WSL") == "1", "Explicit Windows/WSL bridge fixture")
+@unittest.skipUnless(os.name == "nt" and os.environ.get("AUTONOMOUS_COMPANY_TEST_CENTER_WSL") == "1", "Explicit Windows/WSL bridge fixture")
 class WindowsBridgeTests(unittest.TestCase):
     def test_native_center_controls_wsl_git_clone_and_runner_with_unicode_paths(self):
         with tempfile.TemporaryDirectory(prefix="center 中文 % ") as temporary:
@@ -1264,19 +1265,19 @@ class WindowsBridgeTests(unittest.TestCase):
                             ["git", "-C", str(framework), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture"]):
                 subprocess.run(command, check=True, capture_output=True)
             revision = subprocess.check_output(["git", "-C", str(framework), "rev-parse", "HEAD"], text=True).strip()
-            domain = {"platform": "wsl", "distribution": os.environ.get("AUTO_COMPANY_TEST_WSL_DISTRO", "Ubuntu"), "user": os.environ.get("AUTO_COMPANY_TEST_WSL_USER", "max")}
+            domain = {"platform": "wsl", "distribution": os.environ.get("AUTONOMOUS_COMPANY_TEST_WSL_DISTRO", "Ubuntu"), "user": os.environ.get("AUTONOMOUS_COMPANY_TEST_WSL_USER", "max")}
             adapter = PosixAdapter(framework, domain)
             adapter.clone(framework, target, revision, control)
             self.assertTrue((target / ".git").is_dir())
             result = adapter._execute(adapter._wsl() + ["--exec", "git", "-C", adapter.path(target), "rev-parse", "HEAD"])
             self.assertEqual(result.stdout.strip(), revision)
             fake = target / "fake-engine"
-            fake.write_text('#!/bin/bash\nif [ "${1:-}" = "--version" ]; then exit 0; fi\necho called > "$AUTO_COMPANY_ROOT/invocations"\nprintf \'{"type":"result","subtype":"success","result":"offline"}\\n\'\ntouch "$AUTO_COMPANY_ROOT/.auto-loop-stop"\n', encoding="utf-8", newline="\n")
+            fake.write_text('#!/bin/bash\nif [ "${1:-}" = "--version" ]; then exit 0; fi\necho called > "$AUTONOMOUS_COMPANY_ROOT/invocations"\nprintf \'{"type":"result","subtype":"success","result":"offline"}\\n\'\ntouch "$AUTONOMOUS_COMPANY_ROOT/.auto-loop-stop"\n', encoding="utf-8", newline="\n")
             adapter._execute(adapter._wsl() + ["--exec", "chmod", "+x", adapter.path(fake)])
             ids = {key: prefix + "_" + uuid.uuid4().hex for key, prefix in (("centerId", "center"), ("entryId", "entry"), ("sourceId", "source"), ("runtimeId", "runtime"), ("requestId", "request"), ("dispatchId", "dispatch"))}
-            atomic_json(target / ".auto-company-center.json", {"protocolVersion": 2, **{key: ids[key] for key in ("centerId", "runtimeId", "sourceId", "entryId")}})
+            atomic_json(target / ".autonomous-company-center.json", {"protocolVersion": 2, **{key: ids[key] for key in ("centerId", "runtimeId", "sourceId", "entryId")}})
             manifest = {**ids, "nonce": uuid.uuid4().hex, "root": adapter.path(target), "controlDir": adapter.path(control),
-                        "environment": {"ENGINE": "claude", "MODEL": "fixture", "AUTO_COMPANY_LANGUAGE": "en"}}
+                        "environment": {"ENGINE": "claude", "MODEL": "fixture", "AUTONOMOUS_COMPANY_LANGUAGE": "en"}}
             path = control / "manifest.json"
             atomic_json(path, manifest)
             heartbeat = {key: manifest[key] for key in ("centerId", "requestId", "dispatchId", "nonce")}
@@ -1304,7 +1305,7 @@ class WindowsBridgeTests(unittest.TestCase):
                         process.wait(timeout=20)
 
 
-@unittest.skipUnless(sys.platform == "linux" and os.environ.get("AUTO_COMPANY_TEST_CENTER_MEDIA") == "1", "Explicit real media integration fixture")
+@unittest.skipUnless(sys.platform == "linux" and os.environ.get("AUTONOMOUS_COMPANY_TEST_CENTER_MEDIA") == "1", "Explicit real media integration fixture")
 class MediaIntegrationTests(unittest.TestCase):
     def test_preview_capture_continue_and_release_cleanup(self):
         from center_catalog import CenterCatalog
@@ -1313,7 +1314,7 @@ class MediaIntegrationTests(unittest.TestCase):
         from runtime_artifacts import artifact_records, preview_request
         from center_runner import same_process
         import urllib.request
-        modules = Path(os.environ["AUTO_COMPANY_TEST_MEDIA_MODULES"])
+        modules = Path(os.environ["AUTONOMOUS_COMPANY_TEST_MEDIA_MODULES"])
         self.assertTrue((modules / "playwright").is_dir(), "Explicit existing Playwright dependency is missing")
         with tempfile.TemporaryDirectory(prefix="center-media-fixture-") as temporary:
             folder = Path(temporary)
@@ -1343,7 +1344,7 @@ class MediaIntegrationTests(unittest.TestCase):
             with transaction(root) as state:
                 state["continuationProductId"] = product["id"]
             fake = root / "fake-engine"
-            fake.write_text('#!/bin/bash\nif [ "${1:-}" = "--version" ]; then exit 0; fi\nprintf \'{"type":"result","subtype":"success","result":"offline fixture"}\\n\'\ntouch "$AUTO_COMPANY_ROOT/.auto-loop-stop"\n')
+            fake.write_text('#!/bin/bash\nif [ "${1:-}" = "--version" ]; then exit 0; fi\nprintf \'{"type":"result","subtype":"success","result":"offline fixture"}\\n\'\ntouch "$AUTONOMOUS_COMPANY_ROOT/.auto-loop-stop"\n')
             fake.chmod(0o755)
             store = CenterStore(folder / "center")
             catalog = CenterCatalog(store)
@@ -1395,7 +1396,7 @@ class MediaIntegrationTests(unittest.TestCase):
                     self.assertEqual(evidence["attempt"]["state"], "success")
                     self.assertEqual({row["viewport"] for row in evidence["latestSuccess"]["variants"]}, {"desktop", "mobile"})
                     self.assertTrue(preview_request(preview), "Capture should not stop the retained read-only preview")
-                    profile_path = root / project / ".auto-company/media.json"
+                    profile_path = root / project / ".autonomous-company/media.json"
                     atomic_json(profile_path, {"version": 1, "type": "static", "webRoot": ".", "readySelector": "#fixture-never-ready", "timeoutSeconds": 15})
                     current = source()
                     interrupted = runtime.media_action(entry_id, "capture", {"sourceId": source_id, "expectedRevision": current["revision"], "idempotencyKey": str(uuid.uuid4())})
@@ -1461,7 +1462,7 @@ class MediaIntegrationTests(unittest.TestCase):
                     release_body = {"expectedRevision": source()["revision"], "idempotencyKey": str(uuid.uuid4())}
                     with self.assertRaises(subprocess.CalledProcessError):
                         runtime.source_action(source_id, "release", release_body)
-                    self.assertTrue((root / ".auto-company-center.json").exists())
+                    self.assertTrue((root / ".autonomous-company-center.json").exists())
                     self.assertTrue(source()["capabilities"]["preview"])
                     self.assertTrue(preview_request(preview), "Unknown preview ownership cannot revoke management or kill by PID")
                     atomic_json(preview_record, preview)
@@ -1469,7 +1470,7 @@ class MediaIntegrationTests(unittest.TestCase):
                     self.assertEqual((recovered["state"], recovered["reason"]), ("failed", "binding_not_applied"))
                     released = runtime.source_action(source_id, "release", {"expectedRevision": source()["revision"], "idempotencyKey": str(uuid.uuid4())})
                     self.assertEqual(released["state"], "succeeded")
-                    self.assertFalse((root / ".auto-company-center.json").exists())
+                    self.assertFalse((root / ".autonomous-company-center.json").exists())
                     for preview in previews:
                         self.assertFalse(same_process(preview["processIdentity"]))
                         self.assertFalse(preview_request(preview))

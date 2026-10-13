@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Install/Uninstall launchd Daemon (macOS)
+# Autonomous Company — Install/Uninstall launchd Daemon (macOS)
 # ============================================================
 # Generates a launchd plist dynamically based on current paths,
 # installs it to ~/Library/LaunchAgents/, and loads it.
@@ -15,12 +15,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_DIR/scripts/core/ui-messages.sh"
-if [ -e "$PROJECT_DIR/.auto-company-center.json" ] || [ -L "$PROJECT_DIR/.auto-company-center.json" ]; then
+if [ -e "$PROJECT_DIR/.autonomous-company-center.json" ] || [ -L "$PROJECT_DIR/.autonomous-company-center.json" ]; then
     ui_message center.managed >&2
     exit 1
 fi
-LABEL="com.autocompany.loop"
+LABEL="com.autonomouscompany.loop"
 PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
+python3 "$PROJECT_DIR/scripts/core/namespace_guard.py" --root "$PROJECT_DIR"
+if [ -e "$HOME/Library/LaunchAgents/com.autocompany.loop.plist" ]; then
+    echo 'Old Auto-Company LaunchAgent exists; migrate it with scripts/migrate-service-name.py first.' >&2
+    exit 1
+fi
 PAUSE_FLAG="${PROJECT_DIR}/.auto-loop-paused"
 OS_NAME="$(uname -s)"
 ENGINE="${ENGINE:-claude}"

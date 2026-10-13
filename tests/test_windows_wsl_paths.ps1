@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $windowsRoot = (Resolve-Path (Join-Path $PSScriptRoot '../scripts/windows')).Path
-$global:autoCompanyWslPathFixture = @{}
+$global:autonomousCompanyWslPathFixture = @{}
 $script:checks = 0
 $script:failures = @()
 
@@ -8,15 +8,15 @@ $script:failures = @()
 # process, service, guardian, or model is started by these tests.
 function wsl.exe {
     $callArgs = @($args)
-    $global:autoCompanyWslPathFixture.wslCalls.Add($callArgs)
-    $selected = $global:autoCompanyWslPathFixture.defaultDistro
+    $global:autonomousCompanyWslPathFixture.wslCalls.Add($callArgs)
+    $selected = $global:autonomousCompanyWslPathFixture.defaultDistro
     if ($callArgs[0] -eq '-d') {
         $selected = $callArgs[1]
         $callArgs = @($callArgs | Select-Object -Skip 2)
     }
     if ($callArgs[0] -eq 'wslpath') {
         if ($callArgs.Count -ne 3 -or $callArgs[1] -ne '-a' -or
-            $callArgs[2] -cne $global:autoCompanyWslPathFixture.expectedWindowsPath) {
+            $callArgs[2] -cne $global:autonomousCompanyWslPathFixture.expectedWindowsPath) {
             throw 'wslpath did not receive the complete normalized repository path.'
         }
         return "  /mounts/$selected/repo path  "
@@ -24,7 +24,7 @@ function wsl.exe {
     if ($callArgs[0] -eq '--cd' -and $callArgs.Count -eq 5 -and
         $callArgs[2] -eq 'bash' -and $callArgs[3] -eq '-lc' -and
         $callArgs[4] -in @('make cycles', 'make last', 'make monitor')) {
-        if ($selected -cne $global:autoCompanyWslPathFixture.targetDistro -or
+        if ($selected -cne $global:autonomousCompanyWslPathFixture.targetDistro -or
             $callArgs[1] -cne "/mounts/$selected/repo path") {
             throw 'The command uses a path resolved in a different distro.'
         }
@@ -49,13 +49,13 @@ foreach ($name in @('cycles', 'last', 'monitor', 'status', 'wsl-anchor', 'start'
     if ($parseErrors.Count -ne 0) { throw ($parseErrors | Out-String) }
     foreach ($scenario in $scenarios) {
         $script:checks++
-        $global:autoCompanyWslPathFixture.defaultDistro = $scenario.Default
-        $global:autoCompanyWslPathFixture.targetDistro = $scenario.Target
-        $global:autoCompanyWslPathFixture.expectedWindowsPath = (Resolve-Path (Join-Path $windowsRoot '../..')).Path -replace '\\', '/'
-        $global:autoCompanyWslPathFixture.wslCalls = [System.Collections.Generic.List[object]]::new()
+        $global:autonomousCompanyWslPathFixture.defaultDistro = $scenario.Default
+        $global:autonomousCompanyWslPathFixture.targetDistro = $scenario.Target
+        $global:autonomousCompanyWslPathFixture.expectedWindowsPath = (Resolve-Path (Join-Path $windowsRoot '../..')).Path -replace '\\', '/'
+        $global:autonomousCompanyWslPathFixture.wslCalls = [System.Collections.Generic.List[object]]::new()
         try {
             & {
-                $Distro = $global:autoCompanyWslPathFixture.targetDistro
+                $Distro = $global:autonomousCompanyWslPathFixture.targetDistro
                 if ($name -in @('cycles', 'last', 'monitor')) {
                     # These read-only entrypoints also verify the converted path
                     # is forwarded to their subsequent WSL command.
@@ -82,8 +82,8 @@ foreach ($name in @('cycles', 'last', 'monitor', 'status', 'wsl-anchor', 'start'
             }
             $expectedCalls = 1
             if ($name -in @('cycles', 'last', 'monitor')) { $expectedCalls = 2 }
-            if ($global:autoCompanyWslPathFixture.wslCalls.Count -ne $expectedCalls) { throw 'Unexpected WSL call count.' }
-            $conversion = $global:autoCompanyWslPathFixture.wslCalls[0]
+            if ($global:autonomousCompanyWslPathFixture.wslCalls.Count -ne $expectedCalls) { throw 'Unexpected WSL call count.' }
+            $conversion = $global:autonomousCompanyWslPathFixture.wslCalls[0]
             if ($conversion[0] -ne '-d' -or $conversion[1] -cne $scenario.Target -or
                 $conversion[2] -ne 'wslpath') {
                 throw 'wslpath did not receive the explicitly selected distro.'
@@ -97,7 +97,7 @@ foreach ($name in @('cycles', 'last', 'monitor', 'status', 'wsl-anchor', 'start'
 
 $script:checks++
 try {
-    $global:autoCompanyWslPathFixture.wslCalls.Clear()
+    $global:autonomousCompanyWslPathFixture.wslCalls.Clear()
     $anchorPath = Join-Path $windowsRoot 'wsl-anchor-win.ps1'
     $anchorAst = [System.Management.Automation.Language.Parser]::ParseFile(
         $anchorPath, [ref]$tokens, [ref]$parseErrors
@@ -108,7 +108,7 @@ try {
     }, $true)
     . ([scriptblock]::Create($resolver.Extent.Text))
     if ((Resolve-RepoWslPath -RawRepoWsl '/supplied/repo path') -cne '/supplied/repo path' -or
-        $global:autoCompanyWslPathFixture.wslCalls.Count -ne 0) {
+        $global:autonomousCompanyWslPathFixture.wslCalls.Count -ne 0) {
         throw 'An explicitly supplied WSL path was unnecessarily converted.'
     }
     Write-Host 'PASS: anchor preserves an explicitly supplied WSL path without conversion'
@@ -117,5 +117,5 @@ try {
 }
 
 Write-Host "Windows WSL path checks: $($script:checks - $script:failures.Count) passed, $($script:failures.Count) failed, 0 skipped"
-Remove-Variable -Name autoCompanyWslPathFixture -Scope Global
+Remove-Variable -Name autonomousCompanyWslPathFixture -Scope Global
 if ($script:failures.Count) { throw ($script:failures -join "`n") }

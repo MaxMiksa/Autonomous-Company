@@ -1,12 +1,12 @@
 param(
-    [string]$TaskName = "AutoCompany-WSL-Start"
+    [string]$TaskName = "AutonomousCompany-WSL-Start"
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "messages-win.ps1")
 
 if (-not (Get-Command schtasks.exe -ErrorAction SilentlyContinue)) {
-    throw (Get-AutoCompanyMessage -Key 'schtasks.exe not found.')
+    throw (Get-AutonomousCompanyMessage -Key 'schtasks.exe not found.')
 }
 
 $queryOutput = & schtasks.exe /Query /TN $TaskName /V /FO LIST 2>&1

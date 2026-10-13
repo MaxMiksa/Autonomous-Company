@@ -100,11 +100,11 @@ wsl -d Ubuntu bash -lc 'codex --version; command -v codex'
 ```
 
 说明：
-- `.\scripts\windows\start-win.ps1` 只更新 `.auto-loop.env` 中显式传入的设置，保留已有预算等其他设置，并启动 `auto-company.service` + `awake guardian` + `wsl anchor`
+- `.\scripts\windows\start-win.ps1` 只更新 `.auto-loop.env` 中显式传入的设置，保留已有预算等其他设置，并启动 `autonomous-company.service` + `awake guardian` + `wsl anchor`
 - 启停前会校验服务绑定的仓库；若它属于其他 worktree，会拒绝操作。请先人工确认应该使用哪个工作目录，不要为绕过提示而直接重新绑定现有服务
-- `.\scripts\windows\stop-win.ps1` 会停止 `auto-company.service` 并关闭 `awake guardian` + `wsl anchor`
+- `.\scripts\windows\stop-win.ps1` 会停止 `autonomous-company.service` 并关闭 `awake guardian` + `wsl anchor`
 - `.\scripts\windows\dashboard-win.ps1` 会启动本地 Web 看板（默认 `http://127.0.0.1:8787`）
-- 也可在 WSL 仓库目录执行 `make dashboard`；Linux/WSL 看板只通过已安装的 `systemd --user auto-company.service` 启停运行时，不会另起前台或 `nohup` 循环
+- 也可在 WSL 仓库目录执行 `make dashboard`；Linux/WSL 看板只通过已安装的 `systemd --user autonomous-company.service` 启停运行时，不会另起前台或 `nohup` 循环
 
 推荐参数：
 - `CycleTimeoutSeconds`：`900-1800`
@@ -143,7 +143,7 @@ python scripts/core/localization.py set --language en
 .\scripts\windows\disable-autostart-win.ps1
 ```
 
-自启任务名：`AutoCompany-WSL-Start`（触发器：At logon）。
+自启任务名：`AutonomousCompany-WSL-Start`（触发器：At logon）。
 若提示 `Access is denied`，请使用管理员 PowerShell 重新执行。
 
 ## 6. Chat-first 模式（和 Claude/Codex 对话）

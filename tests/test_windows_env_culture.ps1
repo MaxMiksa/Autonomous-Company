@@ -29,7 +29,7 @@ $functionAst = $ast.Find({ param($node)
 if (-not $functionAst) { throw 'Missing Write-AutoLoopEnv function.' }
 # Exercise the real merge function without starting WSL, guardians, or services.
 . ([scriptblock]::Create($functionAst.Extent.Text))
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('auto-company-culture-' + [guid]::NewGuid())
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('autonomous-company-culture-' + [guid]::NewGuid())
 $null = New-Item -ItemType Directory -Path $testRoot
 $envFile = Join-Path $testRoot '.auto-loop.env'
 $originalCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture

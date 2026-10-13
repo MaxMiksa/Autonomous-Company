@@ -27,13 +27,13 @@ def main():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         readonly = [(ROOT / 'scripts/media/node_modules', '/workspace/scripts/media/node_modules')]
-        browsers = Path(os.environ['AUTO_COMPANY_BROWSER_RUNTIME'])
+        browsers = Path(os.environ['AUTONOMOUS_COMPANY_BROWSER_RUNTIME'])
         for child in browsers.iterdir():
             if child.is_dir() and re.fullmatch(r'(?:chromium|chromium_headless_shell|ffmpeg)-[0-9]+', child.name):
                 readonly.append((child, '/opt/browsers/' + child.name))
         return run_isolated(['/usr/bin/python3', '-m', 'unittest', 'discover', '-s', 'tests',
                              '-p', 'test_product_media.py', '-v'], workspace, readonly=readonly,
-                            environment={'AUTO_COMPANY_TEST_PRODUCT_MEDIA_BROWSER': '1',
+                            environment={'AUTONOMOUS_COMPANY_TEST_PRODUCT_MEDIA_BROWSER': '1',
                                          'PLAYWRIGHT_BROWSERS_PATH': '/opt/browsers'})
 
 

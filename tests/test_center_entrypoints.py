@@ -21,7 +21,7 @@ class CenterLegacyHttpTests(unittest.TestCase):
     def test_managed_root_rejects_every_legacy_write_without_calling_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / '.auto-company-center.json').write_text('{}')
+            (root / '.autonomous-company-center.json').write_text('{}')
             with mock.patch.object(legacy, 'REPO_ROOT', root), \
                     mock.patch.object(legacy, 'run_dashboard_action') as action, \
                     mock.patch.object(legacy, 'capture_product_media') as capture, \
@@ -55,8 +55,8 @@ class CenterLegacyWindowsTests(unittest.TestCase):
             scripts.mkdir(parents=True)
             # No WSL invocation is allowed: the marker must be checked first.
             (scripts / 'messages-win.ps1').write_text(
-                'function Get-AutoCompanyMessage { param($Key) return $Key }\n')
-            (root / '.auto-company-center.json').write_text('{}')
+                'function Get-AutonomousCompanyMessage { param($Key) return $Key }\n')
+            (root / '.autonomous-company-center.json').write_text('{}')
             (root / '.auto-loop.env').write_text('PROTECTED=original\n')
             for script in ('start-win.ps1', 'stop-win.ps1'):
                 shutil.copyfile(ROOT / 'scripts/windows' / script, scripts / script)
@@ -66,7 +66,7 @@ class CenterLegacyWindowsTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(b'This runtime is managed by the product center', result.stdout + result.stderr)
             self.assertEqual((root / '.auto-loop.env').read_text(), 'PROTECTED=original\n')
-            self.assertFalse((root / '.auto-company.local').exists())
+            self.assertFalse((root / '.autonomous-company.local').exists())
             self.assertFalse((root / '.auto-loop-stop').exists())
 
 
@@ -84,7 +84,7 @@ class CenterLegacyShellTests(unittest.TestCase):
             messages = root / 'scripts/core/ui-messages.sh'
             messages.parent.mkdir(parents=True)
             messages.write_text('ui_message() { echo "$1"; }\nif [ "${BASH_SOURCE[0]}" = "$0" ]; then ui_message "$@"; fi\n')
-            (root / '.auto-company-center.json').write_text('{}')
+            (root / '.autonomous-company-center.json').write_text('{}')
             for script in scripts:
                 arguments = ('start', 'stop', 'check') if script.endswith('dashboard-wsl.sh') else ('',)
                 for argument in arguments:

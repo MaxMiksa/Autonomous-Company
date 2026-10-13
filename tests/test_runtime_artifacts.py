@@ -25,7 +25,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.project = self.root / "projects/probe"
         self.project.mkdir(parents=True)
-        self.env = dict(os.environ, AUTO_COMPANY_ROOT=str(self.root), ACTIVE_PROJECT="projects/probe", AUTO_COMPANY_CYCLE_ID="cycle-probe")
+        self.env = dict(os.environ, AUTONOMOUS_COMPANY_ROOT=str(self.root), ACTIVE_PROJECT="projects/probe", AUTONOMOUS_COMPANY_CYCLE_ID="cycle-probe")
 
     def command(self, *arguments):
         return [sys.executable, str(ROOT / "scripts/core/runtime_artifacts.py"), *arguments]
@@ -69,7 +69,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             write_metadata(self.root, "projects/probe", "Bad\nname", "")
         self.assertEqual(read_metadata(self.root, "projects/probe"), value)
-        path = self.project / ".auto-company-project.json"
+        path = self.project / ".autonomous-company-project.json"
         path.write_text(json.dumps({**value, "project": "projects/other"}))
         with self.assertRaises(ValueError):
             read_metadata(self.root, "projects/probe")
@@ -283,7 +283,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(self.records(), [])
 
     def test_operator_background_remains_available_outside_cycle(self):
-        environment = {key: value for key, value in self.env.items() if key != "AUTO_COMPANY_CYCLE_ID"}
+        environment = {key: value for key, value in self.env.items() if key != "AUTONOMOUS_COMPANY_CYCLE_ID"}
         result = subprocess.run(self.command("preview", "--background"), env=environment, capture_output=True,
                                 text=True, encoding="utf-8", errors="replace", timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)

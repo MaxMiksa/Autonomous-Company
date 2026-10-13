@@ -30,15 +30,15 @@ class ProjectRegistryTests(unittest.TestCase):
         self.git("add", "projects/registry.tsv")
         self.bin = Path(self.temp.name) / "bin"
         self.bin.mkdir()
-        self.env = {**os.environ, "AUTO_COMPANY_ROOT": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
+        self.env = {**os.environ, "AUTONOMOUS_COMPANY_ROOT": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
                     "PATH": str(self.bin) + os.pathsep + os.environ["PATH"]}
-        for name in ("AUTO_COMPANY_CYCLE", "AUTO_COMPANY_CYCLE_ID", "AUTO_COMPANY_PROJECT_LOCK_PID", "ACTIVE_PROJECT"):
+        for name in ("AUTONOMOUS_COMPANY_CYCLE", "AUTONOMOUS_COMPANY_CYCLE_ID", "AUTONOMOUS_COMPANY_PROJECT_LOCK_PID", "ACTIVE_PROJECT"):
             self.env.pop(name, None)
         # Only delay/fail the selected boundary. Every other helper, including
         # the real state transaction and command-wide lock, executes unchanged.
         wrapper = self.bin / "python3"
         wrapper.write_text("#!" + sys.executable + "\n" + '''import os, pathlib, subprocess, sys, time
-root = pathlib.Path(os.environ["AUTO_COMPANY_ROOT"])
+root = pathlib.Path(os.environ["AUTONOMOUS_COMPANY_ROOT"])
 args = sys.argv[1:]
 script = pathlib.Path(args[0]).name
 if os.environ.get("SECONDARY") == "1":
@@ -126,7 +126,7 @@ os.execv(sys.executable, [sys.executable, *args])
                                  "validate", "--root", str(self.root), "--project", name],
                                 capture_output=True, text=True, timeout=10)
         self.assert_ok(result)
-        state = json.loads((self.root / ".auto-company/product-state.json").read_text())
+        state = json.loads((self.root / ".autonomous-company/product-state.json").read_text())
         self.assertIn("projects/" + name, state["paths"])
 
     def git(self, *args, root=None):
@@ -156,7 +156,7 @@ os.execv(sys.executable, [sys.executable, *args])
                                  "--root", str(self.root), "reserve", "--attempt", "explore-1", "--run-cycle", "1"],
                                 capture_output=True, text=True, timeout=10)
         self.assert_ok(result)
-        self.env.update(AUTO_COMPANY_CYCLE="1", AUTO_COMPANY_CYCLE_ID=json.loads(result.stdout)["cycleId"])
+        self.env.update(AUTONOMOUS_COMPANY_CYCLE="1", AUTONOMOUS_COMPANY_CYCLE_ID=json.loads(result.stdout)["cycleId"])
         first, second = self.overlap(("new", "--name", "second"))
         self.assertEqual(sorted([first.returncode, second.returncode]), [0, 1], first.stderr + second.stderr)
         winner = "candidate" if first.returncode == 0 else "second"
@@ -210,7 +210,7 @@ os.execv(sys.executable, [sys.executable, *args])
 
     def test_busy_operation_fails_before_mutation_and_can_retry(self):
         import fcntl
-        folder = self.root / ".auto-company"
+        folder = self.root / ".autonomous-company"
         folder.mkdir()
         with (folder / "project-registry.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -244,7 +244,7 @@ os.execv(sys.executable, [sys.executable, *args])
         self.assertIn("tracked worktree must be clean", migration.stderr)
         self.assertEqual(self.rows()["legacy"][2], "legacy-tracked")
         self.assertFalse((target / ".git").exists())
-        self.assertFalse((self.root / ".auto-company-migrations").exists())
+        self.assertFalse((self.root / ".autonomous-company-migrations").exists())
         self.assert_valid("candidate")
 
     def test_migration_rollback_preserves_later_registration(self):

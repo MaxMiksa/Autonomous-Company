@@ -17,7 +17,7 @@ from product_identity import get_identity
 from product_media import atomic_json, capture_product, media_folder
 
 
-@unittest.skipUnless(os.environ.get('AUTO_COMPANY_TEST_PRODUCT_MEDIA_BROWSER') == '1',
+@unittest.skipUnless(os.environ.get('AUTONOMOUS_COMPANY_TEST_PRODUCT_MEDIA_BROWSER') == '1',
                      'Enable real Chromium and namespace acceptance explicitly')
 class IsolatedMediaTests(unittest.TestCase):
     def test_host_capture_blocks_other_project_environment_and_local_service(self):
@@ -56,7 +56,7 @@ fs.writeFileSync('preview-side-effect','namespace only');
 const request=http.get(hostURL,()=>{throw new Error('host service accessible');});
 request.on('error',()=>{
  const server=http.createServer((req,res)=>{
-  res.writeHead(200,{'Content-Type':'text/html','X-Auto-Company-Media':process.env.AUTO_COMPANY_MEDIA_TOKEN,'X-Auto-Company-Version':process.env.AUTO_COMPANY_MEDIA_VERSION});
+  res.writeHead(200,{'Content-Type':'text/html','X-Autonomous-Company-Media':process.env.AUTONOMOUS_COMPANY_MEDIA_TOKEN,'X-Autonomous-Company-Version':process.env.AUTONOMOUS_COMPANY_MEDIA_VERSION});
   res.end('<!doctype html><html><body><main style="font:28px sans-serif;padding:50px"><h1>Isolated project preview</h1><p>Current product and its child process work.</p></main></body></html>');
  });
  server.listen(Number(process.argv[2]),'127.0.0.1');
@@ -65,7 +65,7 @@ request.setTimeout(2000,()=>request.destroy());
 '''.replace('TARGET', json.dumps(str(forbidden))).replace('HOST_URL', json.dumps(url))
                 (project / 'preview.cjs').write_text(script)
                 (project / 'index.html').write_text('<!doctype html><main>Current product</main>')
-                atomic_json(project / '.auto-company/media.json', {
+                atomic_json(project / '.autonomous-company/media.json', {
                     'version':1, 'type':'node', 'command':['node','preview.cjs','{port}'],
                     'healthPath':'/', 'readySelector':'main', 'timeoutSeconds':5})
                 product = get_identity(root, 'projects/current', create=True)

@@ -10,7 +10,7 @@ import time
 import unittest
 from urllib.parse import urlsplit
 
-ROOT = Path(os.environ.get("AUTO_COMPANY_TEST_SOURCE", Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get("AUTONOMOUS_COMPANY_TEST_SOURCE", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT / "scripts/core"))
 from runtime_artifacts import preview_request
 
@@ -28,14 +28,14 @@ class PreviewSecurityTests(unittest.TestCase):
                  "data.json": '{"fixture": true}', "font.woff2": "synthetic-font",
                  "nested/index.html": "Nested public entry", "listing/readme.txt": "Public resource",
                  ".env": "FAKE_SECRET=synthetic-only", ".git/config": "FAKE_GIT_CONFIG",
-                 ".auto-company/identity.json": "FAKE_IDENTITY", "hidden/.private.json": "FAKE_PRIVATE",
+                 ".autonomous-company/identity.json": "FAKE_IDENTITY", "hidden/.private.json": "FAKE_PRIVATE",
                  "credentials.json": "FAKE_CREDENTIAL", "service-account.json": "FAKE_SERVICE_ACCOUNT",
                  "secret.pem": "FAKE_KEY", "id_rsa": "FAKE_KEY", "settings.py": "FAKE_SOURCE"}
         for relative, payload in files.items():
             path = self.project / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(payload, encoding="utf-8")
-        environment = dict(os.environ, AUTO_COMPANY_CYCLE_ID="security-fixture")
+        environment = dict(os.environ, AUTONOMOUS_COMPANY_CYCLE_ID="security-fixture")
         self.process = subprocess.Popen([sys.executable, str(ROOT / "scripts/core/runtime_artifacts.py"),
                                          "--root", str(self.root), "--project", "projects/probe", "preview"],
                                         env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -72,7 +72,7 @@ class PreviewSecurityTests(unittest.TestCase):
             connection.close()
 
     def test_private_files_and_directory_listing_are_denied(self):
-        for path in ("/.env", "/%2eenv", "/.git/config", "/.auto-company/identity.json",
+        for path in ("/.env", "/%2eenv", "/.git/config", "/.autonomous-company/identity.json",
                      "/hidden/.private.json", "/credentials.json", "/service-account.json",
                      "/secret.pem", "/id_rsa", "/settings.py", "/listing/", "/listing"):
             with self.subTest(path=path):
@@ -87,7 +87,7 @@ class PreviewSecurityTests(unittest.TestCase):
                 status, body, headers = self.request(path)
                 self.assertEqual(status, 200)
                 self.assertTrue(body)
-                self.assertNotIn("X-Auto-Company-Preview", headers)
+                self.assertNotIn("X-Autonomous-Company-Preview", headers)
                 self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
         self.assertEqual(self.request("/index.html", method="HEAD")[0], 200)
 
@@ -96,17 +96,17 @@ class PreviewSecurityTests(unittest.TestCase):
                         {"Origin": "https://attacker.invalid"}, {"Origin": "null"},
                         {"Sec-Fetch-Site": "cross-site"}):
             for method, path in (("GET", "/"), ("HEAD", "/index.html"),
-                                 ("GET", "/.auto-company-health")):
+                                 ("GET", "/.autonomous-company-health")):
                 with self.subTest(headers=headers, method=method, path=path):
-                    supplied = {"X-Auto-Company-Preview": self.record["token"], **headers}
+                    supplied = {"X-Autonomous-Company-Preview": self.record["token"], **headers}
                     self.assertEqual(self.request(path, supplied, method)[0], 403)
         self.assertTrue(preview_request(self.record))
         for host in (f"localhost:{self.port}", f"127.0.0.1:{self.port}"):
             self.assertEqual(self.request(headers={"Host": host, "Origin": f"http://{host}", "Sec-Fetch-Site": "same-origin"})[0], 200)
         # Last so the vulnerable implementation cannot stop the server before
         # the independent read-boundary assertions have executed.
-        self.assertEqual(self.request("/.auto-company-stop", {"Host": "attacker.invalid",
-                                     "X-Auto-Company-Preview": self.record["token"]}, "POST")[0], 403)
+        self.assertEqual(self.request("/.autonomous-company-stop", {"Host": "attacker.invalid",
+                                     "X-Autonomous-Company-Preview": self.record["token"]}, "POST")[0], 403)
 
     def test_encoded_traversal_and_linked_files_or_indexes_are_denied(self):
         for path in ("/../index.html", "/%2e%2e/index.html", "/hidden%2f.private.json", "/index.html:stream",
@@ -123,12 +123,12 @@ class PreviewSecurityTests(unittest.TestCase):
         self.assertIn(self.request("/linked-index/")[0], {403, 404})
 
     def test_health_and_stop_require_token_and_stop_exits_cleanly(self):
-        for path, method in (("/.auto-company-health", "GET"), ("/.auto-company-stop", "POST")):
+        for path, method in (("/.autonomous-company-health", "GET"), ("/.autonomous-company-stop", "POST")):
             for token in (None, "b" * 32):
-                headers = {"X-Auto-Company-Preview": token} if token else {}
+                headers = {"X-Autonomous-Company-Preview": token} if token else {}
                 status, _, returned = self.request(path, headers, method)
                 self.assertEqual(status, 403)
-                self.assertNotIn("X-Auto-Company-Preview", returned)
+                self.assertNotIn("X-Autonomous-Company-Preview", returned)
         self.assertTrue(preview_request(self.record))
         self.assertTrue(preview_request(self.record, stop=True))
         self.assertEqual(self.process.wait(timeout=5), 0)

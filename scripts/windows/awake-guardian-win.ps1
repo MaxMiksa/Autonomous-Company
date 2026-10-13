@@ -7,17 +7,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "messages-win.ps1")
-if ($PSBoundParameters.ContainsKey("Language")) { Initialize-AutoCompanyMessages -Language $Language }
+if ($PSBoundParameters.ContainsKey("Language")) { Initialize-AutonomousCompanyMessages -Language $Language }
 
 $repoWin = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
 $pidFile = Join-Path $repoWin ".auto-loop-awake.pid"
 $stopFile = Join-Path $repoWin ".auto-loop-awake.stop"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-if (-not ("AutoCompanySleepGuard.NativeMethods" -as [type])) {
+if (-not ("AutonomousCompanySleepGuard.NativeMethods" -as [type])) {
     Add-Type -TypeDefinition @"
 using System.Runtime.InteropServices;
-namespace AutoCompanySleepGuard {
+namespace AutonomousCompanySleepGuard {
     public static class NativeMethods {
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern uint SetThreadExecutionState(uint esFlags);
@@ -68,7 +68,7 @@ switch ($Action) {
     "start" {
         $existing = Get-RunningGuardianProcess
         if ($existing) {
-            Write-Output (Get-AutoCompanyMessage -Key 'Awake guardian already running (PID {0}).' -Values @($existing.Id))
+            Write-Output (Get-AutonomousCompanyMessage -Key 'Awake guardian already running (PID {0}).' -Values @($existing.Id))
             exit 0
         }
 
@@ -86,7 +86,7 @@ switch ($Action) {
             Start-Sleep -Milliseconds 200
             $running = Get-RunningGuardianProcess
             if ($running) {
-                Write-Output (Get-AutoCompanyMessage -Key 'Awake guardian started (PID {0}).' -Values @($running.Id))
+                Write-Output (Get-AutonomousCompanyMessage -Key 'Awake guardian started (PID {0}).' -Values @($running.Id))
                 exit 0
             }
         }
@@ -94,7 +94,7 @@ switch ($Action) {
         if ($proc -and -not $proc.HasExited) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         }
-        Write-Error (Get-AutoCompanyMessage -Key 'Failed to start awake guardian.')
+        Write-Error (Get-AutonomousCompanyMessage -Key 'Failed to start awake guardian.')
         exit 1
     }
 
@@ -103,18 +103,18 @@ switch ($Action) {
         Remove-Item $stopFile -ErrorAction SilentlyContinue
 
         try {
-            $state = [AutoCompanySleepGuard.NativeMethods]::SetThreadExecutionState($RUN_FLAGS)
+            $state = [AutonomousCompanySleepGuard.NativeMethods]::SetThreadExecutionState($RUN_FLAGS)
             if ($state -eq 0) {
-                throw (Get-AutoCompanyMessage -Key 'SetThreadExecutionState failed at startup.')
+                throw (Get-AutonomousCompanyMessage -Key 'SetThreadExecutionState failed at startup.')
             }
 
             while (-not (Test-Path $stopFile)) {
                 Start-Sleep -Seconds $HeartbeatSeconds
-                [void][AutoCompanySleepGuard.NativeMethods]::SetThreadExecutionState($RUN_FLAGS)
+                [void][AutonomousCompanySleepGuard.NativeMethods]::SetThreadExecutionState($RUN_FLAGS)
             }
         }
         finally {
-            [void][AutoCompanySleepGuard.NativeMethods]::SetThreadExecutionState($ES_CONTINUOUS)
+            [void][AutonomousCompanySleepGuard.NativeMethods]::SetThreadExecutionState($ES_CONTINUOUS)
             Clear-StateFiles
         }
         exit 0
@@ -124,7 +124,7 @@ switch ($Action) {
         $existing = Get-RunningGuardianProcess
         if (-not $existing) {
             Clear-StateFiles
-            Write-Output (Get-AutoCompanyMessage -Key 'Awake guardian is not running.')
+            Write-Output (Get-AutonomousCompanyMessage -Key 'Awake guardian is not running.')
             exit 0
         }
 
@@ -139,7 +139,7 @@ switch ($Action) {
         }
         if (Get-RunningGuardianProcess) { throw "Awake guardian is still running." }
         Clear-StateFiles
-        Write-Output (Get-AutoCompanyMessage -Key 'Awake guardian stopped.')
+        Write-Output (Get-AutonomousCompanyMessage -Key 'Awake guardian stopped.')
         exit 0
     }
 

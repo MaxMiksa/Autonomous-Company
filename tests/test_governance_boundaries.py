@@ -38,7 +38,7 @@ class GovernanceFixture(unittest.TestCase):
         self.git("config", "user.email", "governance@example.invalid")
         self.git("add", ".")
         self.git("commit", "-m", "fixture")
-        self.env = dict(os.environ, AUTO_COMPANY_ROOT=str(self.root))
+        self.env = dict(os.environ, AUTONOMOUS_COMPANY_ROOT=str(self.root))
         self.consensus = self.root / "memories/consensus.md"
 
     def git(self, *args, cwd=None):
@@ -65,7 +65,7 @@ class GovernanceFixture(unittest.TestCase):
 
 class GovernanceBoundariesTest(GovernanceFixture):
     def test_new_preserves_human_selection_and_other_local_config_bytes(self):
-        config = self.root / ".auto-company.local"
+        config = self.root / ".autonomous-company.local"
         original = b"# operator settings\r\nACTIVE_PROJECT=projects/existing\r\nCUSTOM=value"
         config.write_bytes(original)
         self.assert_ok(self.project("new", "--name", "candidate"))
@@ -73,11 +73,11 @@ class GovernanceBoundariesTest(GovernanceFixture):
 
     def test_new_does_not_select_on_behalf_of_human(self):
         self.assert_ok(self.project("new", "--name", "candidate"))
-        self.assertFalse((self.root / ".auto-company.local").exists())
+        self.assertFalse((self.root / ".autonomous-company.local").exists())
 
     def test_select_is_explicit_and_preserves_unrelated_config_bytes(self):
         self.assert_ok(self.project("new", "--name", "candidate"))
-        config = self.root / ".auto-company.local"
+        config = self.root / ".autonomous-company.local"
         config.write_bytes(b"# operator settings\r\nACTIVE_PROJECT=projects/old\r\nCUSTOM=value")
         self.assertNotEqual(self.project("select", "--project", "candidate").returncode, 0)
         self.assert_ok(self.project("select", "--project", "candidate", "--confirm", "SELECT"))
@@ -87,7 +87,7 @@ class GovernanceBoundariesTest(GovernanceFixture):
         )
 
     def test_human_operations_are_blocked_from_cycle_context(self):
-        self.env["AUTO_COMPANY_CYCLE"] = "1"
+        self.env["AUTONOMOUS_COMPANY_CYCLE"] = "1"
         for command, token in (("select", "SELECT"), ("publish", "PUBLISH"), ("migrate-legacy", "MIGRATE")):
             with self.subTest(command=command):
                 result = self.project(command, "--confirm", token)
@@ -147,7 +147,7 @@ class GovernanceBoundariesTest(GovernanceFixture):
 
     def test_local_config_is_data_and_accepts_final_line_without_newline(self):
         self.assert_ok(self.project("new", "--name", "candidate"))
-        config = self.root / ".auto-company.local"
+        config = self.root / ".autonomous-company.local"
         config.write_text("ACTIVE_PROJECT=projects/candidate")
         self.assert_ok(self.project("status"))
         marker = self.root / "shell-executed"
@@ -165,7 +165,7 @@ class GovernanceBoundariesTest(GovernanceFixture):
     def test_guard_detects_eof_newline_change(self):
         self.assert_ok(self.guard("init"))
         original = (
-            b"# Auto Company Consensus\n## Priority Issues\n- None.\n"
+            b"# Autonomous Company Consensus\n## Priority Issues\n- None.\n"
             b"## Human Overrides\n- Keep billing disabled."
         )
         self.consensus.write_bytes(original)
@@ -186,7 +186,7 @@ class GovernanceBoundariesTest(GovernanceFixture):
                      "- [] P1: approval", "- [?] P1: approval", "- [  ] P1: approval"):
             with self.subTest(item=item):
                 self.consensus.write_text(
-                    "# Auto Company Consensus\n## Human Overrides\n- Keep.\n"
+                    "# Autonomous Company Consensus\n## Human Overrides\n- Keep.\n"
                     f"## Priority Issues\n{item}\n"
                 )
                 self.assertEqual(self.guard("preflight", "1").returncode, 41)
@@ -239,7 +239,7 @@ class GovernanceBoundariesTest(GovernanceFixture):
 
     def test_cycle_cannot_change_human_selection_or_create_initial_selection(self):
         self.assert_ok(self.guard("init"))
-        config = self.root / ".auto-company.local"
+        config = self.root / ".autonomous-company.local"
         for original in (None, b"# manual\nACTIVE_PROJECT=projects/selected\n"):
             with self.subTest(original=original):
                 if original is not None:
@@ -313,7 +313,7 @@ class PriorityIssuesTest(GovernanceFixture):
 
     def replace_issues(self, issues):
         self.consensus.write_bytes(
-            b"# Auto Company Consensus\n## Human Overrides\n- Keep billing disabled.\n"
+            b"# Autonomous Company Consensus\n## Human Overrides\n- Keep billing disabled.\n"
             b"## Priority Issues\n" + issues + b"\n## Work\n- Before cycle.\n"
         )
 
@@ -474,14 +474,14 @@ class GovernanceLoopTest(GovernanceFixture):
             "import json, os, pathlib, subprocess, sys, time\n"
             "if '--version' in sys.argv:\n"
             "    print('fake-claude 1.0'); sys.exit(0)\n"
-            "root = pathlib.Path(os.environ['AUTO_COMPANY_ROOT'])\n"
+            "root = pathlib.Path(os.environ['AUTONOMOUS_COMPANY_ROOT'])\n"
             "project = os.environ.get('ACTIVE_PROJECT_PATH', '')\n"
             "record = {'cwd': os.getcwd(), 'active': os.environ.get('ACTIVE_PROJECT'), 'project': project, 'argv': sys.argv}\n"
             "with (root / 'calls.jsonl').open('a') as stream: stream.write(json.dumps(record) + '\\n')\n"
             "consensus = root / 'memories/consensus.md'\n"
             "if os.environ.get('FAKE_MODE') == 'interrupt-mutate':\n"
             "    consensus.write_bytes(consensus.read_bytes().replace(b'- (none)', b'- Agent changed the rule.'))\n"
-            "    (root / '.auto-company.local').write_text('ACTIVE_PROJECT=projects/agent-choice\\n')\n"
+            "    (root / '.autonomous-company.local').write_text('ACTIVE_PROJECT=projects/agent-choice\\n')\n"
             "    (root / 'mutation-ready.tmp').write_text(str(os.getpid()))\n"
             "    (root / 'mutation-ready.tmp').replace(root / 'mutation-ready')\n"
             "    time.sleep(30)\n"
@@ -592,7 +592,7 @@ class GovernanceLoopTest(GovernanceFixture):
         self.assertEqual(len(list((self.root / "memories/snapshots").glob("*.md"))), 1)
 
     def test_invalid_active_project_prevents_engine_call(self):
-        (self.root / ".auto-company.local").write_text("ACTIVE_PROJECT=projects/missing\n")
+        (self.root / ".autonomous-company.local").write_text("ACTIVE_PROJECT=projects/missing\n")
         process = self.start_loop()
         self.wait_until(lambda: self.text_contains(self.root / ".auto-loop-state", "active_project_invalid"), process)
         self.assertFalse((self.root / "calls.jsonl").exists())
@@ -672,11 +672,11 @@ class GovernanceLoopTest(GovernanceFixture):
         original = self.consensus.read_bytes()
         process = self.start_loop("interrupt-mutate")
         self.wait_until(lambda: (self.root / "mutation-ready").exists(), process)
-        pinned_config = bytes.fromhex(json.loads((self.root / ".auto-company.local.cycle-backup").read_text())["data"])
+        pinned_config = bytes.fromhex(json.loads((self.root / ".autonomous-company.local.cycle-backup").read_text())["data"])
         process.terminate()
         process.wait(timeout=12)
         self.assertEqual(self.consensus.read_bytes(), original)
-        self.assertEqual((self.root / ".auto-company.local").read_bytes(), pinned_config)
+        self.assertEqual((self.root / ".autonomous-company.local").read_bytes(), pinned_config)
         self.assertIn("interrupted_cycle", (self.root / ".auto-loop-paused").read_text())
         self.assertFalse((self.root / "memories/.consensus-cycle-pending").exists())
 
@@ -684,7 +684,7 @@ class GovernanceLoopTest(GovernanceFixture):
         original = self.consensus.read_bytes()
         process = self.start_loop("interrupt-mutate")
         self.wait_until(lambda: (self.root / "mutation-ready").exists(), process)
-        pinned_config = bytes.fromhex(json.loads((self.root / ".auto-company.local.cycle-backup").read_text())["data"])
+        pinned_config = bytes.fromhex(json.loads((self.root / ".autonomous-company.local.cycle-backup").read_text())["data"])
         engine_pid = int((self.root / "mutation-ready").read_text())
         process.kill()
         process.wait(timeout=3)
@@ -699,7 +699,7 @@ class GovernanceLoopTest(GovernanceFixture):
         restarted = self.start_loop()
         self.wait_until(lambda: self.text_contains(self.root / ".auto-loop-state", "STATUS=paused"), restarted)
         self.assertEqual(self.consensus.read_bytes(), original)
-        self.assertEqual((self.root / ".auto-company.local").read_bytes(), pinned_config)
+        self.assertEqual((self.root / ".autonomous-company.local").read_bytes(), pinned_config)
         self.assertIn("interrupted_cycle", (self.root / ".auto-loop-paused").read_text())
         self.assertEqual(len((self.root / "calls.jsonl").read_text().splitlines()), 1)
         (self.root / ".auto-loop-stop").touch()
@@ -707,11 +707,11 @@ class GovernanceLoopTest(GovernanceFixture):
 
     def test_interrupted_invalid_language_is_restored_before_language_validation(self):
         original = self.consensus.read_bytes()
-        config = self.root / ".auto-company.local"
-        baseline = b"AUTO_COMPANY_LANGUAGE=en\n"
+        config = self.root / ".autonomous-company.local"
+        baseline = b"AUTONOMOUS_COMPANY_LANGUAGE=en\n"
         config.write_bytes(baseline)
         self.assert_ok(self.guard("begin", "1"))
-        config.write_bytes(b"AUTO_COMPANY_LANGUAGE=invalid\nnot a configuration line\n")
+        config.write_bytes(b"AUTONOMOUS_COMPANY_LANGUAGE=invalid\nnot a configuration line\n")
         self.consensus.write_bytes(original.replace(b'- (none)', b'- Tampered rule.'))
         restarted = self.start_loop()
         self.wait_until(lambda: self.text_contains(self.root / ".auto-loop-state", "STATUS=paused"), restarted)
@@ -739,7 +739,7 @@ class GovernanceLoopTest(GovernanceFixture):
         self.env["USAGE_HARD_LIMIT_TOKENS"] = "1"
         process = self.start_loop("interrupt-mutate")
         self.wait_until(lambda: (self.root / "mutation-ready").exists(), process)
-        pinned_config = bytes.fromhex(json.loads((self.root / ".auto-company.local.cycle-backup").read_text())["data"])
+        pinned_config = bytes.fromhex(json.loads((self.root / ".autonomous-company.local.cycle-backup").read_text())["data"])
         engine_pid = int((self.root / "mutation-ready").read_text())
         process.kill()
         process.wait(timeout=3)
@@ -752,7 +752,7 @@ class GovernanceLoopTest(GovernanceFixture):
         self.wait_until(lambda: self.text_contains(self.root / ".auto-loop-state", "STATUS=paused"), restarted)
         self.wait_until(lambda: (self.root / ".auto-loop-budget-paused").exists(), restarted)
         self.assertEqual(self.consensus.read_bytes(), original)
-        self.assertEqual((self.root / ".auto-company.local").read_bytes(), pinned_config)
+        self.assertEqual((self.root / ".autonomous-company.local").read_bytes(), pinned_config)
         self.assertIn("interrupted_cycle", (self.root / ".auto-loop-paused").read_text())
         self.assertIn("budget_unverifiable", (self.root / ".auto-loop-budget-paused").read_text())
         records = [json.loads(row) for row in (self.root / "logs/usage.jsonl").read_text().splitlines()]

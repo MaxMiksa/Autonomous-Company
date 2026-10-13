@@ -2,7 +2,7 @@
 
 [中文](troubleshooting.md) · [English](../i18n/en/docs/troubleshooting.md) · [语言设置](../i18n/README.md)
 
-以下命令从 Auto-Company 仓库根目录执行。`make` 命令适用于 Linux/WSL 和 macOS；Windows 使用 PowerShell 入口。排错时保留原始报错，翻译提示帮助理解下一步，不替代底层证据。
+以下命令从 Autonomous-Company 仓库根目录执行。`make` 命令适用于 Linux/WSL 和 macOS；Windows 使用 PowerShell 入口。排错时保留原始报错，翻译提示帮助理解下一步，不替代底层证据。
 
 ## 日常操作
 

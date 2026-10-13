@@ -38,6 +38,10 @@ class _Transaction:
 
 class CenterStore:
     def __init__(self, data_dir):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/core'))
+        from namespace_guard import check_center
+        check_center(data_dir)
         self.data_dir = Path(data_dir).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._mutex = threading.RLock()

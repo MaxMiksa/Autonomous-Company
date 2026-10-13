@@ -29,7 +29,7 @@ class ObservabilityTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.project = self.root / "projects/probe"
         self.project.mkdir(parents=True)
-        (self.root / ".auto-company.local").write_text("ACTIVE_PROJECT=projects/probe\n")
+        (self.root / ".autonomous-company.local").write_text("ACTIVE_PROJECT=projects/probe\n")
         self.source = JournalSource(self.root)
 
     def test_events_partial_and_wrong_cycle(self):
@@ -102,7 +102,7 @@ class ObservabilityTests(unittest.TestCase):
         self.assertFalse(registered_artifacts(self.source)[0]["available"])
         path.unlink()
         self.assertFalse(registered_artifacts(self.source)[0]["available"])
-        (self.root / ".auto-company.local").write_text("ACTIVE_PROJECT=projects/other\n")
+        (self.root / ".autonomous-company.local").write_text("ACTIVE_PROJECT=projects/other\n")
         self.assertEqual(registered_artifacts(self.source), [])
 
     def test_check_exit_and_junit_and_stale_report(self):
@@ -181,7 +181,7 @@ class ObservabilityTests(unittest.TestCase):
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(204)
-                self.send_header("X-Auto-Company-Preview", "a" * 32)
+                self.send_header("X-Autonomous-Company-Preview", "a" * 32)
                 self.end_headers()
             def log_message(self, *args):
                 pass

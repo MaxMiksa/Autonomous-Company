@@ -26,15 +26,15 @@ $functionAst = $ast.Find({ param($node)
 . ([scriptblock]::Create($functionAst.Extent.Text))
 $serviceFunction = $ast.Find({ param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -eq 'Start-AutoCompanyService'
+    $node.Name -eq 'Start-AutonomousCompanyService'
 }, $true)
 . ([scriptblock]::Create($serviceFunction.Extent.Text))
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('auto-company-env-' + [guid]::NewGuid())
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('autonomous-company-env-' + [guid]::NewGuid())
 $null = New-Item -ItemType Directory -Path $testRoot
 try {
     $envFile = Join-Path $testRoot '.auto-loop.env'
-    $localPath = Join-Path $testRoot '.auto-company.local'
-    $initial = "# operator settings`nUSAGE_HARD_LIMIT_USD=12`nCODEX_SANDBOX_MODE=read-only`nMODEL=old`nAUTO_COMPANY_LANGUAGE=zh-CN`n"
+    $localPath = Join-Path $testRoot '.autonomous-company.local'
+    $initial = "# operator settings`nUSAGE_HARD_LIMIT_USD=12`nCODEX_SANDBOX_MODE=read-only`nMODEL=old`nAUTONOMOUS_COMPANY_LANGUAGE=zh-CN`n"
     [System.IO.File]::WriteAllText($envFile, $initial)
     Write-AutoLoopEnv -RepoWin $testRoot
     if ([System.IO.File]::ReadAllText($envFile) -cne $initial) {
@@ -43,7 +43,7 @@ try {
     Write-AutoLoopEnv -RepoWin $testRoot -EnvLines @('MODEL=new model', 'CLAUDE_BIN=/home/user name/claude')
     $updated = [System.IO.File]::ReadAllText($envFile)
     foreach ($required in @('USAGE_HARD_LIMIT_USD=12', 'CODEX_SANDBOX_MODE=read-only',
-                           'MODEL="new model"', 'CLAUDE_BIN="/home/user name/claude"', 'AUTO_COMPANY_LANGUAGE=zh-CN')) {
+                           'MODEL="new model"', 'CLAUDE_BIN="/home/user name/claude"', 'AUTONOMOUS_COMPANY_LANGUAGE=zh-CN')) {
         if (-not $updated.Contains($required)) { throw "Missing preserved/quoted setting: $required" }
     }
     if ($updated.Contains('MODEL=old')) { throw 'Explicit MODEL override was not applied.' }
@@ -75,8 +75,8 @@ try {
             }
             $nextLanguage = $Matches[1]
             $local = if (Test-Path -LiteralPath $localPath) { [System.IO.File]::ReadAllText($localPath) } else { '' }
-            $local = [regex]::Replace($local, '(?m)^AUTO_COMPANY_LANGUAGE=[^\r\n]*(?:\r?\n|$)', '')
-            [System.IO.File]::WriteAllText($localPath, "AUTO_COMPANY_LANGUAGE=$nextLanguage`n" + $local)
+            $local = [regex]::Replace($local, '(?m)^AUTONOMOUS_COMPANY_LANGUAGE=[^\r\n]*(?:\r?\n|$)', '')
+            [System.IO.File]::WriteAllText($localPath, "AUTONOMOUS_COMPANY_LANGUAGE=$nextLanguage`n" + $local)
         }
         if ($Command -eq 'make install' -or $Command -like '*dashboard-wsl.sh start') {
             $contents = [System.IO.File]::ReadAllText($envFile)
@@ -85,16 +85,16 @@ try {
                 throw 'Install/start ran before the selected engine and existing budget were persisted.'
             }
             if (-not (Test-Path -LiteralPath $localPath) -or
-                -not ([System.IO.File]::ReadAllText($localPath)).Contains('AUTO_COMPANY_LANGUAGE=en')) {
+                -not ([System.IO.File]::ReadAllText($localPath)).Contains('AUTONOMOUS_COMPANY_LANGUAGE=en')) {
                 throw 'Install/start ran before the global language preference was persisted.'
             }
-            if (-not $contents.Contains('AUTO_COMPANY_LANGUAGE=zh-CN')) {
+            if (-not $contents.Contains('AUTONOMOUS_COMPANY_LANGUAGE=zh-CN')) {
                 throw 'Existing service language was unexpectedly rewritten.'
             }
         }
         return 0
     }
-    Start-AutoCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=codex') -Language EN
+    Start-AutonomousCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=codex') -Language EN
     if (-not $script:serviceCommands.Contains('make install')) { throw 'First install was not exercised.' }
     $beforeMismatch = [System.IO.File]::ReadAllText($envFile)
     $localBeforeMismatch = [System.IO.File]::ReadAllText($localPath)
@@ -102,7 +102,7 @@ try {
     $script:serviceMismatched = $true
     $script:serviceCommands.Clear()
     $rejected = $false
-    try { Start-AutoCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=claude') -Language zh-CN }
+    try { Start-AutonomousCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=claude') -Language zh-CN }
     catch { $rejected = $true }
     if (-not $rejected -or [System.IO.File]::ReadAllText($envFile) -cne $beforeMismatch -or
         [System.IO.File]::ReadAllText($localPath) -cne $localBeforeMismatch) {
@@ -119,7 +119,7 @@ try {
     $script:serviceCommands.Clear()
     $script:languageSetFails = $true
     $rejected = $false
-    try { Start-AutoCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=claude') -Language en }
+    try { Start-AutonomousCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -EnvLines @('ENGINE=claude') -Language en }
     catch { $rejected = $true }
     if (-not $rejected -or [System.IO.File]::ReadAllText($envFile) -cne $beforeMismatch -or
         $script:serviceCommands.Contains('bash scripts/wsl/dashboard-wsl.sh start')) {
@@ -127,17 +127,17 @@ try {
     }
     $script:languageSetFails = $false
     $script:serviceCommands.Clear()
-    $pinned = "AUTO_COMPANY_LANGUAGE=zh-CN`nAUTO_COMPANY_PRODUCT_ID=0123456789abcdef0123456789abcdef`nAUTO_COMPANY_PRODUCT_LANGUAGE=zh-CN`nAUTO_COMPANY_PRODUCT_STATUS=active`n"
+    $pinned = "AUTONOMOUS_COMPANY_LANGUAGE=zh-CN`nAUTONOMOUS_COMPANY_PRODUCT_ID=0123456789abcdef0123456789abcdef`nAUTONOMOUS_COMPANY_PRODUCT_LANGUAGE=zh-CN`nAUTONOMOUS_COMPANY_PRODUCT_STATUS=active`n"
     [System.IO.File]::WriteAllText($localPath, $pinned)
-    Start-AutoCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -Language en
-    if ($script:AutoCompanyMessageLanguage -cne 'zh-CN' -or
-        [System.IO.File]::ReadAllText($localPath) -cne $pinned.Replace('AUTO_COMPANY_LANGUAGE=zh-CN', 'AUTO_COMPANY_LANGUAGE=en') -or
+    Start-AutonomousCompanyService -RepoWin $testRoot -RepoWsl '/fixture' -Language en
+    if ($script:AutonomousCompanyMessageLanguage -cne 'zh-CN' -or
+        [System.IO.File]::ReadAllText($localPath) -cne $pinned.Replace('AUTONOMOUS_COMPANY_LANGUAGE=zh-CN', 'AUTONOMOUS_COMPANY_LANGUAGE=en') -or
         [System.IO.File]::ReadAllText($envFile) -cne $beforeMismatch) {
         throw 'Changing the next preference changed the current product or service environment.'
     }
     $script:serviceCommands.Clear()
-    Start-AutoCompanyService -RepoWin $testRoot -RepoWsl '/fixture'
-    if ($script:AutoCompanyMessageLanguage -cne 'zh-CN' -or
+    Start-AutonomousCompanyService -RepoWin $testRoot -RepoWsl '/fixture'
+    if ($script:AutonomousCompanyMessageLanguage -cne 'zh-CN' -or
         @($script:serviceCommands | Where-Object { $_ -like 'python3 scripts/core/localization.py set*' }).Count) {
         throw 'Restart reset the product language or rewrote the global preference.'
     }

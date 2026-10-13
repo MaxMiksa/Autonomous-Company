@@ -1,4 +1,4 @@
-# Auto Company — 全自主 AI 公司
+# Autonomous Company — 全自主 AI 公司
 
 [中文](CLAUDE.md) | [English](../../CLAUDE.md) · [文档与语言设置](../README.md)
 

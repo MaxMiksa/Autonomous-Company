@@ -127,9 +127,9 @@ def preview_available(record):
         return False
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=0.25)
     try:
-        connection.request("GET", "/.auto-company-health", headers={"X-Auto-Company-Preview": token})
+        connection.request("GET", "/.autonomous-company-health", headers={"X-Autonomous-Company-Preview": token})
         response = connection.getresponse()
-        return response.status == 204 and response.getheader("X-Auto-Company-Preview") == token
+        return response.status == 204 and response.getheader("X-Autonomous-Company-Preview") == token
     except (OSError, http.client.HTTPException):
         return False
     finally:
@@ -174,7 +174,7 @@ def _artifact_owner(source, state, record, historical_paths):
             # A retained marker can prove a copied source; an absent old source
             # cannot prove relocation. Missing path history stays unassociated.
             try:
-                raw, truncated = source.read(record["project"] + "/.auto-company/identity.json", 4096)
+                raw, truncated = source.read(record["project"] + "/.autonomous-company/identity.json", 4096)
                 marker = json.loads(raw)
                 if truncated or marker.get("schemaVersion") != 1 or marker.get("id") != created[0]:
                     return None

@@ -102,11 +102,11 @@ Run from the repository root:
 
 Notes:
 
-- `.\scripts\windows\start-win.ps1` updates only explicitly supplied settings in `.auto-loop.env`, preserves other existing settings such as budgets, and starts `auto-company.service`, `awake guardian`, and `wsl anchor`.
+- `.\scripts\windows\start-win.ps1` updates only explicitly supplied settings in `.auto-loop.env`, preserves other existing settings such as budgets, and starts `autonomous-company.service`, `awake guardian`, and `wsl anchor`.
 - Start and stop operations verify the checkout bound to the service. They refuse to control a service belonging to another worktree. Confirm which working directory you intend to use; do not rebind an existing service just to bypass the check.
-- `.\scripts\windows\stop-win.ps1` stops `auto-company.service`, `awake guardian`, and `wsl anchor`.
+- `.\scripts\windows\stop-win.ps1` stops `autonomous-company.service`, `awake guardian`, and `wsl anchor`.
 - `.\scripts\windows\dashboard-win.ps1` starts the local web Dashboard, at `http://127.0.0.1:8787` by default.
-- You can also run `make dashboard` from the WSL repository directory. The Linux/WSL Dashboard starts and stops the runtime only through the installed `systemd --user auto-company.service`; it does not launch a separate foreground or `nohup` loop.
+- You can also run `make dashboard` from the WSL repository directory. The Linux/WSL Dashboard starts and stops the runtime only through the installed `systemd --user autonomous-company.service`; it does not launch a separate foreground or `nohup` loop.
 
 Recommended parameters:
 
@@ -147,7 +147,7 @@ To disable it:
 .\scripts\windows\disable-autostart-win.ps1
 ```
 
-The scheduled task is named `AutoCompany-WSL-Start`, with an At logon trigger.
+The scheduled task is named `AutonomousCompany-WSL-Start`, with an At logon trigger.
 If you see `Access is denied`, rerun the command in an administrator PowerShell window.
 
 ## 6. Chat-First Mode (Talk to Claude/Codex)

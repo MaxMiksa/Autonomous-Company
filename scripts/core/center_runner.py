@@ -23,7 +23,7 @@ import sys
 import time
 
 PROTOCOL = 2
-MARKER = ".auto-company-center.json"
+MARKER = ".autonomous-company-center.json"
 MAX_JSON = 128 * 1024
 HEARTBEAT_TIMEOUT = 15
 CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "scripts/core/stop-loop.sh",
@@ -33,7 +33,7 @@ CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "
                  "scripts/core/product_media.py", "scripts/core/product_media_worker.cjs",
                  "scripts/core/project-context.py", "scripts/core/product_identity.py",
                  "scripts/core/consensus-format.py", "scripts/core/consensus-guard.sh",
-                 "scripts/core/localization.py", "scripts/core/runtime_artifacts.py", "dashboard/server.py", "Makefile",
+                 "scripts/core/localization.py", "scripts/core/namespace_guard.py", "scripts/core/runtime_artifacts.py", "dashboard/server.py", "Makefile",
                  "scripts/macos/start-daemon.sh", "scripts/macos/install-daemon.sh", "scripts/wsl/dashboard-wsl.sh",
                  "scripts/wsl/install-wsl-daemon.sh", "scripts/windows/start-win.ps1", "scripts/windows/stop-win.ps1")
 
@@ -82,7 +82,7 @@ def token(value):
 
 def domain_dir(center_id):
     base = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    path = base / "auto-company/center-runners" / token(center_id)
+    path = base / "autonomous-company/center-runners" / token(center_id)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
@@ -210,13 +210,13 @@ def admission(root):
         return
     import fcntl
     marker = marker_for(root)
-    manifest = read_json(os.environ["AUTO_COMPANY_CENTER_MANIFEST"])
+    manifest = read_json(os.environ["AUTONOMOUS_COMPANY_CENTER_MANIFEST"])
     if Path(manifest["root"]).resolve() != root:
         raise ValueError("root_mismatch")
     for key in ("centerId", "runtimeId", "entryId", "sourceId"):
         if manifest.get(key) != marker.get(key):
             raise ValueError("admission_identity_mismatch")
-    descriptor = int(os.environ["AUTO_COMPANY_CENTER_SLOT_FD"])
+    descriptor = int(os.environ["AUTONOMOUS_COMPANY_CENTER_SLOT_FD"])
     slot = owner_dir(marker) / "slot.lock"
     if (os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino) != (slot.stat().st_dev, slot.stat().st_ino):
         raise ValueError("admission_descriptor_mismatch")
@@ -351,10 +351,10 @@ def execution_context(root, expected_product_id=None, check_git=False):
     root = Path(root).resolve()
     result = {"valid": False, "reason": "context_unavailable", "project": None, "productId": None}
     try:
-        for relative in (".auto-company/product-state.transaction.json", ".auto-company/product-state.lock", ".auto-company.local.language-update"):
+        for relative in (".autonomous-company/product-state.transaction.json", ".autonomous-company/product-state.lock", ".autonomous-company.local.language-update"):
             if safe_path(root, relative).exists():
                 return result
-        if check_git and not existing_lock_free(safe_path(root, ".auto-company/project-registry.lock")):
+        if check_git and not existing_lock_free(safe_path(root, ".autonomous-company/project-registry.lock")):
             return result
         _, settings = read_settings(root)
         state = read_state(root)
@@ -406,7 +406,7 @@ def preflight(root, center_id=None, allow_protected=False, require_context=True,
     if not result["compatible"]:
         result["reason"] = "runtime_incompatible"
         return result
-    if (root / ".auto-company.local.team-active").exists():
+    if (root / ".autonomous-company.local.team-active").exists():
         result["reason"] = "interactive_team_active"
         return result
     if (reason := protective_reason(root)) and not allow_protected:
@@ -425,9 +425,9 @@ def preflight(root, center_id=None, allow_protected=False, require_context=True,
         return result
     # Enabled legacy service bindings must be explicitly retired by the operator.
     if sys.platform == "linux":
-        command = ["systemctl", "--user", "show", "auto-company.service", "-p", "ExecStart", "-p", "ActiveState", "-p", "UnitFileState"]
+        command = ["systemctl", "--user", "show", "autonomous-company.service", "-p", "ExecStart", "-p", "ActiveState", "-p", "UnitFileState"]
     else:
-        command = ["launchctl", "print", "gui/%s/com.autocompany.loop" % os.getuid()]
+        command = ["launchctl", "print", "gui/%s/com.autonomouscompany.loop" % os.getuid()]
     try:
         service = subprocess.run(command, capture_output=True, text=True, timeout=3)
         if service.returncode:
@@ -578,7 +578,7 @@ def run_owned(manifest_path, descriptor, gate):
         env = dict(os.environ)
         # Browser input never selects executable paths, shell text or credentials.
         env.update(manifest["environment"])
-        env.update(AUTO_COMPANY_CENTER_MANIFEST=str(manifest_path), AUTO_COMPANY_CENTER_SLOT_FD=str(descriptor))
+        env.update(AUTONOMOUS_COMPANY_CENTER_MANIFEST=str(manifest_path), AUTONOMOUS_COMPANY_CENTER_SLOT_FD=str(descriptor))
         control_for(manifest)
         command = ["bash", str(root / "scripts/core/auto-loop.sh")]
         launched_at_ns = time.time_ns()

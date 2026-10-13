@@ -117,7 +117,7 @@ class LocalBridge(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class BridgeRequest(socketserver.BaseRequestHandler):
     def handle(self):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as remote:
-            remote.connect("/run/auto-company/egress.sock")
+            remote.connect("/run/autonomous-company/egress.sock")
             relay(self.request, remote)
 
 

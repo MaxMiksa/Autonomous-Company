@@ -1,4 +1,4 @@
-# Auto Company Index
+# Autonomous Company Index
 
 [English](INDEX.md) | [中文](../../INDEX.md) · [Documentation and language settings](../README.md)
 
@@ -30,7 +30,7 @@ There are no script wrappers at the repository root. Run and maintain scripts di
 
 Default call chain:
 
-`scripts/windows/start-win.ps1` -> WSL `systemd --user auto-company.service` -> `scripts/core/auto-loop.sh`
+`scripts/windows/start-win.ps1` -> WSL `systemd --user autonomous-company.service` -> `scripts/core/auto-loop.sh`
 
 Notes:
 
@@ -42,7 +42,7 @@ Notes:
 
 Stop sequence:
 
-`scripts/windows/stop-win.ps1` -> stop `auto-company.service` + stop `awake guardian` + stop `wsl anchor`
+`scripts/windows/stop-win.ps1` -> stop `autonomous-company.service` + stop `awake guardian` + stop `wsl anchor`
 
 ## Script Responsibilities (Entrypoints, Daemons, Autostart, Diagnostics)
 
@@ -60,7 +60,7 @@ Stop sequence:
 | Autostart | `scripts/windows/enable-autostart-win.ps1` | Create the logon startup task |
 | Autostart | `scripts/windows/disable-autostart-win.ps1` | Remove the logon startup task |
 | Autostart | `scripts/windows/autostart-status-win.ps1` | Query startup task status |
-| Daemon | `scripts/wsl/install-wsl-daemon.sh` | Install and enable `auto-company.service` |
+| Daemon | `scripts/wsl/install-wsl-daemon.sh` | Install and enable `autonomous-company.service` |
 | Daemon | `scripts/wsl/uninstall-wsl-daemon.sh` | Uninstall the WSL daemon |
 | Daemon | `scripts/wsl/wsl-daemon-status.sh` | Query WSL daemon status |
 | Daemon | `scripts/wsl/dashboard-wsl.sh` | Query, start, and stop the `systemd --user` service for the Linux/WSL Dashboard |

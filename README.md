@@ -1,6 +1,8 @@
 <div align="center">
 
-# Auto Company
+# Autonomous Company
+
+Autonomous Company was formerly Auto-Company. For existing installations, follow [the one-time v3 migration guide](docs/rename-migration.md) before starting.
 
 **An AI company framework for continuous autonomous work**
 
@@ -160,8 +162,8 @@ Plus 30+ reusable skills (deep research, scraping, financial modeling, SEO, secu
 # - Available model quota
 
 # Clone
-git clone https://github.com/MaxMiksa/Auto-Company.git
-cd Auto-Company
+git clone https://github.com/MaxMiksa/Autonomous-Company.git
+cd Autonomous-Company
 
 # Foreground run with Claude Code (default, live output)
 make start
@@ -187,8 +189,8 @@ ENGINE=codex make install
 # - Available model quota
 
 # Clone
-git clone https://github.com/MaxMiksa/Auto-Company.git
-cd Auto-Company
+git clone https://github.com/MaxMiksa/Autonomous-Company.git
+cd Autonomous-Company
 
 # Start (daemon mode via PowerShell, default engine = claude)
 .\scripts\windows\start-win.ps1
@@ -248,7 +250,7 @@ Notes:
 
 ## 🏗️ Architecture & Technology Stack (5-Layer Architecture)
 
-Auto-Company is not a simple LLM API wrapper, but a highly decoupled **Multi-Agent System (MAS)**. Its technical architecture is divided into 5 distinct layers:
+Autonomous-Company is not a simple LLM API wrapper, but a highly decoupled **Multi-Agent System (MAS)**. Its technical architecture is divided into 5 distinct layers:
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
@@ -285,7 +287,7 @@ Auto-Company is not a simple LLM API wrapper, but a highly decoupled **Multi-Age
 ### Layer 2: Orchestration & State Machine
 *   **The Auto-Loop**: `scripts/core/auto-loop.sh` schedules repeated CLI calls, waits, and failure handling. It can continue while services, model access, budgets, and runtime checks permit.
 *   **Consensus Memory**: `memories/consensus.md` carries the natural-language work summary between calls. Structured product identity, usage, configuration, and recovery records are stored separately; the summary is not the entire runtime state.
-*   **Resilience & Recovery**: Built-in circuit breakers (cooldown triggered by consecutive errors), rate-limit backoff (auto-sleep on 429 errors), and consensus recovery after failed cycles. Human Overrides, `.auto-company.local`, and the framework's root `.gitignore` have targeted protection. Product code changes and external side effects are not automatically rolled back.
+*   **Resilience & Recovery**: Built-in circuit breakers (cooldown triggered by consecutive errors), rate-limit backoff (auto-sleep on 429 errors), and consensus recovery after failed cycles. Human Overrides, `.autonomous-company.local`, and the framework's root `.gitignore` have targeted protection. Product code changes and external side effects are not automatically rolled back.
 
 ### Layer 1: Execution Engine & Infrastructure
 *   **Engine Adapters**: The main entrypoints use **Claude Code** (default) or **Codex CLI**. Optional **Cursor** and **OpenAI-compatible** adapters require explicit opt-in and configuration; their tools and team capabilities differ. See the [adapter guide](ENGINE_ADAPTERS.md).
@@ -380,7 +382,7 @@ No automatic engine fallback is performed. If the selected engine is missing, st
 ## 📁 Project Structure
 
 ```
-auto-company/
+autonomous-company/
 ├── CLAUDE.md              # Company charter (mission + guardrails + team + workflows)
 ├── PROMPT.md              # Per-cycle execution prompt (convergence rules)
 ├── Makefile               # Common command entry
@@ -476,19 +478,19 @@ Suggested rollout: start with `make start` (foreground), then move to daemon mod
 <a id="acknowledgments"></a>
 ## 🙏 Acknowledgments
 
-Thanks to the contributors whose reports, fixes, and proposals have shaped Auto Company:
+Thanks to the contributors whose reports, fixes, and proposals have shaped Autonomous Company:
 
 | Contributor | Contribution | Reference |
 |---|---|---|
-| [@JasonQWJ](https://github.com/JasonQWJ) | Early macOS Dashboard proposal and implementation that informed the `v1.1.0` design | [#1](https://github.com/MaxMiksa/Auto-Company/pull/1) |
-| [@cnwillz](https://github.com/cnwillz) | macOS Dashboard support proposal that informed the cross-platform implementation | [#2](https://github.com/MaxMiksa/Auto-Company/pull/2) |
-| [@chbndrhnns](https://github.com/chbndrhnns) | Reported the missing executable bit that prevented first startup | [#5](https://github.com/MaxMiksa/Auto-Company/issues/5) |
-| [@Sittichai9680](https://github.com/Sittichai9680) | Advanced Linux/WSL Dashboard support | [#9](https://github.com/MaxMiksa/Auto-Company/pull/9) |
-| [@allenter](https://github.com/allenter) | Advanced cost monitoring, budget alerts, and executable script entrypoints | [#13](https://github.com/MaxMiksa/Auto-Company/pull/13), [#14](https://github.com/MaxMiksa/Auto-Company/pull/14) |
+| [@JasonQWJ](https://github.com/JasonQWJ) | Early macOS Dashboard proposal and implementation that informed the `v1.1.0` design | [#1](https://github.com/MaxMiksa/Autonomous-Company/pull/1) |
+| [@cnwillz](https://github.com/cnwillz) | macOS Dashboard support proposal that informed the cross-platform implementation | [#2](https://github.com/MaxMiksa/Autonomous-Company/pull/2) |
+| [@chbndrhnns](https://github.com/chbndrhnns) | Reported the missing executable bit that prevented first startup | [#5](https://github.com/MaxMiksa/Autonomous-Company/issues/5) |
+| [@Sittichai9680](https://github.com/Sittichai9680) | Advanced Linux/WSL Dashboard support | [#9](https://github.com/MaxMiksa/Autonomous-Company/pull/9) |
+| [@allenter](https://github.com/allenter) | Advanced cost monitoring, budget alerts, and executable script entrypoints | [#13](https://github.com/MaxMiksa/Autonomous-Company/pull/13), [#14](https://github.com/MaxMiksa/Autonomous-Company/pull/14) |
 | [@maxgoff](https://github.com/maxgoff) | Documented engines surviving Cycle timeouts and proposed full process-tree cleanup | [Fork contribution](https://github.com/maxgoff/Auto-Company/commit/861d678fc3070d385e3771591cb6468f2857aa05) |
 | [@omergeiger](https://github.com/omergeiger) | Informed Human Overrides preservation and P1 issue gates | [Human Overrides](https://github.com/omergeiger/Auto-Company/commit/cb1dba1b687eaf700258411f562fd2986586c82d), [P1 issues](https://github.com/omergeiger/Auto-Company/commit/4730a7d03c25e49035be95e48bda428f983e176e) |
-| [@NicklasSandin](https://github.com/NicklasSandin) | Advocated English documentation and an English-language workflow | [#21](https://github.com/MaxMiksa/Auto-Company/pull/21) |
-| [@mdoganexe](https://github.com/mdoganexe) | Reported and contributed fixes for systemd installation, WSL distribution selection, and locale-dependent configuration handling | [#27](https://github.com/MaxMiksa/Auto-Company/pull/27), [#28](https://github.com/MaxMiksa/Auto-Company/pull/28) |
+| [@NicklasSandin](https://github.com/NicklasSandin) | Advocated English documentation and an English-language workflow | [#21](https://github.com/MaxMiksa/Autonomous-Company/pull/21) |
+| [@mdoganexe](https://github.com/mdoganexe) | Reported and contributed fixes for systemd installation, WSL distribution selection, and locale-dependent configuration handling | [#27](https://github.com/MaxMiksa/Autonomous-Company/pull/27), [#28](https://github.com/MaxMiksa/Autonomous-Company/pull/28) |
 
 - [nicepkg/auto-company](https://github.com/nicepkg/auto-company) - initial macOS edition
 - [shadcn/ui](https://github.com/shadcn-ui/ui) - shared Dashboard components; [license and integration notes](dashboard/ui/README.md)
@@ -507,4 +509,4 @@ Welcome to submit Issues and Pull Requests!
 Any questions or suggestions? Please contact Zheyuan (Max) Kong (Carnegie Mellon University, Pittsburgh, PA).
 
 Zheyuan (Max) Kong: kongzheyuan@outlook.com | zheyuank@tepper.cmu.edu
-GitHub: https://github.com/MaxMiksa/Auto-Company
+GitHub: https://github.com/MaxMiksa/Autonomous-Company

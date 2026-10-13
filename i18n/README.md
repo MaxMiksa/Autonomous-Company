@@ -19,7 +19,7 @@ Windows 不使用 make 时：
 python scripts/core/localization.py set --language en
 ```
 
-Windows 的 `start-win.ps1 -Language en` 也保存同一个偏好。已保存设置优先于旧服务中的 `AUTO_COMPANY_LANGUAGE` 环境变量；环境值只在没有保存设置时提供初始选择。Dashboard 不再保留独立浏览器语言偏好，无需同步修改多处配置。
+Windows 的 `start-win.ps1 -Language en` 也保存同一个偏好。已保存设置优先于旧服务中的 `AUTONOMOUS_COMPANY_LANGUAGE` 环境变量；环境值只在没有保存设置时提供初始选择。Dashboard 不再保留独立浏览器语言偏好，无需同步修改多处配置。
 
 ## 一个产品周期内保持固定
 

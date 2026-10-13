@@ -15,7 +15,7 @@ class LaunchdConfigTests(unittest.TestCase):
     def loaded_config(self):
         project = str(Path(__file__).resolve().parents[1])
         # launchd job_export() omits WorkingDirectory and environment settings.
-        config = {"Label": "com.autocompany.loop", "PID": 123, "LastExitStatus": 0,
+        config = {"Label": "com.autonomouscompany.loop", "PID": 123, "LastExitStatus": 0,
                   "ProgramArguments": ["/bin/bash", project + "/scripts/core/auto-loop.sh", "--daemon"]}
         return project, config
 
@@ -50,7 +50,7 @@ class LaunchdConfigTests(unittest.TestCase):
     def test_runtime_budget_and_timeout_survive_install(self):
         env = {
             "HOME": "/Users/test", "ENGINE": "codex",
-            "AUTO_COMPANY_LANGUAGE": "en",
+            "AUTONOMOUS_COMPANY_LANGUAGE": "en",
             "CODEX_SANDBOX_MODE": "workspace-write", "CYCLE_TIMEOUT_SECONDS": "80",
             "CYCLE_TERM_GRACE_SECONDS": "2", "USAGE_BUDGET_PERIOD": "week",
             "USAGE_HARD_LIMIT_TOKENS": "10000", "USAGE_WARNING_USD": "2",
@@ -59,7 +59,7 @@ class LaunchdConfigTests(unittest.TestCase):
         }
         raw = MODULE.render("/Users/test/repo", "/bin", env)
         actual = plistlib.loads(raw)["EnvironmentVariables"]
-        for key in ("ENGINE", "AUTO_COMPANY_LANGUAGE", "CODEX_SANDBOX_MODE", "CYCLE_TIMEOUT_SECONDS",
+        for key in ("ENGINE", "AUTONOMOUS_COMPANY_LANGUAGE", "CODEX_SANDBOX_MODE", "CYCLE_TIMEOUT_SECONDS",
                     "CYCLE_TERM_GRACE_SECONDS", "USAGE_BUDGET_PERIOD",
                     "USAGE_HARD_LIMIT_TOKENS", "USAGE_WARNING_USD"):
             self.assertEqual(actual[key], env[key])

@@ -320,13 +320,13 @@ test("product detail labels recorded request states without claiming product com
 
 test("cross-product running context includes the queued-plan identity", () => {
   const { state, requestContextLabel, centerRuntimeContextValue } = journalHelpers();
-  assert.equal(requestContextLabel({ displayName: "Auto Company", config: { model: "gpt-5.6-luna", effort: "high" } }), "Auto Company · gpt-5.6-luna · high");
-  assert.equal(requestContextLabel({ displayName: "Auto Company", sourceId: "source_1234567890" }), "Auto Company · …34567890");
+  assert.equal(requestContextLabel({ displayName: "Autonomous Company", config: { model: "gpt-5.6-luna", effort: "high" } }), "Autonomous Company · gpt-5.6-luna · high");
+  assert.equal(requestContextLabel({ displayName: "Autonomous Company", sourceId: "source_1234567890" }), "Autonomous Company · …34567890");
   const now = Date.now(); state.statusFailed = false;
-  state.centerSummary = { currentRequest: { requestId: "other", entryId: "entry-b", state: "starting", liveConfirmedAt: new Date(now - 1000).toISOString(), displayName: "Auto Company", config: { model: "gpt-5.6-luna", effort: "high" } } };
-  assert.equal(centerRuntimeContextValue(state.centerSummary, now), "Other work · Starting: Auto Company · gpt-5.6-luna · high");
+  state.centerSummary = { currentRequest: { requestId: "other", entryId: "entry-b", state: "starting", liveConfirmedAt: new Date(now - 1000).toISOString(), displayName: "Autonomous Company", config: { model: "gpt-5.6-luna", effort: "high" } } };
+  assert.equal(centerRuntimeContextValue(state.centerSummary, now), "Other work · Starting: Autonomous Company · gpt-5.6-luna · high");
   state.centerSummary.currentRequest.state = "stopping";
-  assert.equal(centerRuntimeContextValue(state.centerSummary, now), "Other work · Stopping: Auto Company · gpt-5.6-luna · high");
+  assert.equal(centerRuntimeContextValue(state.centerSummary, now), "Other work · Stopping: Autonomous Company · gpt-5.6-luna · high");
 });
 
 test("product detail shows only fresh matching unresolved-P1 protection", () => {

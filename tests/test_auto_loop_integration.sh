@@ -112,6 +112,7 @@ cp "$SOURCE_ROOT/scripts/core/consensus-format.py" "$FRAMEWORK/scripts/core/"
 cp "$SOURCE_ROOT/scripts/core/project-context.py" "$FRAMEWORK/scripts/core/"
 cp "$SOURCE_ROOT/scripts/core/product_identity.py" "$FRAMEWORK/scripts/core/"
 cp "$SOURCE_ROOT/scripts/core/localization.py" "$FRAMEWORK/scripts/core/"
+cp "$SOURCE_ROOT/scripts/core/namespace_guard.py" "$FRAMEWORK/scripts/core/"
 cp "$SOURCE_ROOT/scripts/core/ui-messages.sh" "$FRAMEWORK/scripts/core/"
 cp "$SOURCE_ROOT/i18n/messages.json" "$FRAMEWORK/i18n/"
 cp "$SOURCE_ROOT/scripts/core/engine-adapters.sh" "$FRAMEWORK/scripts/core/"
@@ -127,7 +128,7 @@ cp "$SOURCE_ROOT/.gitignore" "$FRAMEWORK/"
 python3 "$SOURCE_ROOT/tests/isolation_fixture.py" "$FRAMEWORK"
 printf '# Integration prompt\n\nUpdate consensus safely.\n' > "$FRAMEWORK/PROMPT.md"
 
-AUTO_COMPANY_ROOT="$FRAMEWORK" "$FRAMEWORK/scripts/core/consensus-guard.sh" init
+AUTONOMOUS_COMPANY_ROOT="$FRAMEWORK" "$FRAMEWORK/scripts/core/consensus-guard.sh" init
 sed -i 's/- (none)/- Keep billing disabled./' "$FRAMEWORK/memories/consensus.md"
 
 FAKE_CLI="$TMP_ROOT/fake-claude"

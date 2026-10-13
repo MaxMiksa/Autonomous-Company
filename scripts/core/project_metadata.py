@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 LIMIT = 4096
-FILENAME = ".auto-company-project.json"
+FILENAME = ".autonomous-company-project.json"
 KEYS = {"version", "project", "displayName", "description", "recordedAt", "source"}
 
 
@@ -76,7 +76,7 @@ def write_metadata(root, project, display_name, description):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=os.environ.get("AUTO_COMPANY_ROOT") or Path(__file__).resolve().parents[2])
+    parser.add_argument("--root", type=Path, default=os.environ.get("AUTONOMOUS_COMPANY_ROOT") or Path(__file__).resolve().parents[2])
     parser.add_argument("--project", default=os.environ.get("ACTIVE_PROJECT"))
     parser.add_argument("--display-name", required=True)
     parser.add_argument("--description", default="")

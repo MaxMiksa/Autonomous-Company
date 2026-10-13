@@ -236,6 +236,7 @@
   "scripts/core/isolation-runtime-files.json",
   "scripts/core/launchd-config.py",
   "scripts/core/localization.py",
+  "scripts/core/namespace_guard.py",
   "scripts/core/loop-lock.py",
   "scripts/core/monitor.sh",
   "scripts/core/openai-compatible-agent.py",

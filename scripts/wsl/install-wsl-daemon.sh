@@ -1,9 +1,9 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Install WSL/Linux systemd user daemon
+# Autonomous Company — Install WSL/Linux systemd user daemon
 # ============================================================
 # Installs a per-user systemd service:
-#   ~/.config/systemd/user/auto-company.service
+#   ~/.config/systemd/user/autonomous-company.service
 # ============================================================
 
 set -euo pipefail
@@ -11,13 +11,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_DIR/scripts/core/ui-messages.sh"
-if [ -e "$PROJECT_DIR/.auto-company-center.json" ] || [ -L "$PROJECT_DIR/.auto-company-center.json" ]; then
+if [ -e "$PROJECT_DIR/.autonomous-company-center.json" ] || [ -L "$PROJECT_DIR/.autonomous-company-center.json" ]; then
     ui_message center.managed >&2
     exit 1
 fi
-SERVICE_NAME="auto-company.service"
+SERVICE_NAME="autonomous-company.service"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 SERVICE_PATH="$SYSTEMD_USER_DIR/$SERVICE_NAME"
+python3 "$PROJECT_DIR/scripts/core/namespace_guard.py" --root "$PROJECT_DIR"
+if [ -e "$SYSTEMD_USER_DIR/auto-company.service" ]; then
+    echo 'Old Auto-Company service exists; migrate it with scripts/migrate-service-name.py first.' >&2
+    exit 1
+fi
 CURRENT_USER="$(id -un)"
 
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -43,7 +48,7 @@ UNIT_PROJECT_DIR="${PROJECT_DIR//%/%%}"
 
 cat > "$SERVICE_PATH" << EOF
 [Unit]
-Description=Auto Company Loop
+Description=Autonomous Company Loop
 After=default.target
 
 [Service]

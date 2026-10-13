@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-ROOT = Path(os.environ.get('AUTO_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get('AUTONOMOUS_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
 sys.path[:0] = [str(ROOT / 'dashboard'), str(ROOT / 'scripts/core')]
 from center_readonly import PROC_READER, ReadOnlyObserver, scoped_observation
 

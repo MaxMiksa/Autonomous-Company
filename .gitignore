@@ -139,10 +139,10 @@ logs/
 .auto-loop-budget-paused
 .auto-loop-budget-paused.*
 .auto-loop.env
-.auto-company.local
-.auto-company/
-.auto-company.local.*
-.auto-company-migrations/
+.autonomous-company.local
+.autonomous-company/
+.autonomous-company.local.*
+.autonomous-company-migrations/
 .auto-loop-awake.pid
 .auto-loop-awake.stop
 .auto-loop-wsl-anchor.pid
@@ -219,7 +219,8 @@ docs/*/*
 !docs/product-cycles.md
 !docs/product-center.md
 !docs/project-isolation.md
-.auto-company-center.json
+!docs/rename-migration.md
+.autonomous-company-center.json
 # Ignore all memories (keep folder marker only)
 memories/*
 !memories/.gitkeep

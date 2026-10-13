@@ -42,6 +42,6 @@ Use real input and inspect the resulting interface at desktop and narrow widths.
 
 ## Source and modifications
 
-Adapted by Auto Company on 2026-10-02 from Anthropic's [frontend-design skill](https://github.com/anthropics/skills/blob/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/frontend-design/SKILL.md), distributed under [Apache License 2.0](frontend-design.LICENSE.txt). The original skill in this repository has been rewritten for task-led products, existing-product refinement, readable copy and functional verification. This is a project adaptation, not an unchanged upstream copy or an endorsement.
+Adapted by Autonomous Company on 2026-10-02 from Anthropic's [frontend-design skill](https://github.com/anthropics/skills/blob/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/frontend-design/SKILL.md), distributed under [Apache License 2.0](frontend-design.LICENSE.txt). The original skill in this repository has been rewritten for task-led products, existing-product refinement, readable copy and functional verification. This is a project adaptation, not an unchanged upstream copy or an endorsement.
 
 Additional design reference: OpenAI's [frontend prompt guidance](https://developers.openai.com/api/docs/guides/frontend-prompt). The local guidance does not require a particular model, framework, color scheme or template.

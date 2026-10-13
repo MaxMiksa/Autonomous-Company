@@ -38,9 +38,9 @@ class IsolationError(ValueError):
 def runtime_binary():
     if sys.platform != "linux":
         raise IsolationError("Project isolation requires Linux/WSL2; native Windows and macOS execution is unavailable")
-    candidate = os.environ.get("AUTO_COMPANY_BWRAP") or shutil.which("bwrap")
+    candidate = os.environ.get("AUTONOMOUS_COMPANY_BWRAP") or shutil.which("bwrap")
     if not candidate or not Path(candidate).is_file():
-        raise IsolationError("bubblewrap >= 0.9 is required (install it or set AUTO_COMPANY_BWRAP); unisolated execution is forbidden")
+        raise IsolationError("bubblewrap >= 0.9 is required (install it or set AUTONOMOUS_COMPANY_BWRAP); unisolated execution is forbidden")
     path = Path(candidate).resolve()
     result = subprocess.run([str(path), "--help"], capture_output=True, text=True)
     if result.returncode or "--disable-userns" not in result.stdout or "--assert-userns-disabled" not in result.stdout:
@@ -50,7 +50,7 @@ def runtime_binary():
 
 def inside_boundary():
     """Recognize our read-only kernel-mounted entry manifest, never an env flag."""
-    marker = Path("/run/auto-company/command.json")
+    marker = Path("/run/autonomous-company/command.json")
     try:
         if not os.statvfs(marker).f_flag & os.ST_RDONLY:
             return False
@@ -173,7 +173,7 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
         raise IsolationError("Workspace and its ancestors must not be symlinks")
     workspace = workspace.resolve()
     checked_tree(workspace)
-    with tempfile.TemporaryDirectory(prefix="auto-company-isolation-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="autonomous-company-isolation-") as temporary:
         temporary = Path(temporary)
         local_home = Path(home) if home else temporary / "home"
         local_home.mkdir(parents=True, exist_ok=True)
@@ -191,7 +191,7 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
                 command = ["/opt/runtime/node", *command[1:]]
         if interactive:
             env["TERM"] = os.environ.get("TERM", "xterm-256color")
-        libraries = os.environ.get("AUTO_COMPANY_LIBRARY_RUNTIME")
+        libraries = os.environ.get("AUTONOMOUS_COMPANY_LIBRARY_RUNTIME")
         if libraries:
             library_root = Path(libraries).resolve()
             checked_tree(library_root)
@@ -207,7 +207,7 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
         args = [bwrap, "--unshare-all", "--unshare-user", "--disable-userns", "--assert-userns-disabled", "--die-with-parent",
                 "--new-session", "--cap-drop", "ALL", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin",
                 "--setenv", "LANG", "C.UTF-8", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-                "--tmpfs", "/run", "--dir", "/home", "--dir", "/etc", "--hostname", "auto-company"]
+                "--tmpfs", "/run", "--dir", "/home", "--dir", "/etc", "--hostname", "autonomous-company"]
         for source in RUNTIME_PATHS:
             if Path(source).exists():
                 args += ["--ro-bind", str(Path(source).resolve()), source]
@@ -221,11 +221,11 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
             if Path(name).exists():
                 args += ["--symlink", target, name]
         args += ["--bind", str(workspace), "/workspace", "--bind", str(local_home), "/home/agent",
-                 "--dir", "/run/auto-company", "--ro-bind", str(socket_path), "/run/auto-company/egress.sock",
-                 "--bind", str(launch), "/run/auto-company/launch.json",
-                 "--ro-bind", str(settings), "/run/auto-company/command.json"]
+                 "--dir", "/run/autonomous-company", "--ro-bind", str(socket_path), "/run/autonomous-company/egress.sock",
+                 "--bind", str(launch), "/run/autonomous-company/launch.json",
+                 "--ro-bind", str(settings), "/run/autonomous-company/command.json"]
         for name in ("isolation_entry.py", "isolation_proxy.py"):
-            args += ["--ro-bind", str(HERE / name), "/run/auto-company/" + name]
+            args += ["--ro-bind", str(HERE / name), "/run/autonomous-company/" + name]
         if engine:
             source = native_engine(engine)
             args += ["--dir", "/opt/engine", "--ro-bind", str(source), "/opt/engine/agent"]
@@ -245,7 +245,7 @@ def run_isolated(command, workspace, *, cwd="/workspace", home=None, readonly=()
         previous = {}
         try:
             with policy.open("rb") as descriptor:
-                args += ["--seccomp", str(descriptor.fileno()), "--", "/usr/bin/python3", "/run/auto-company/isolation_entry.py"]
+                args += ["--seccomp", str(descriptor.fileno()), "--", "/usr/bin/python3", "/run/autonomous-company/isolation_entry.py"]
                 process = subprocess.Popen(args, pass_fds=(descriptor.fileno(),), stdout=output, stderr=output,
                                            stdin=None if interactive else subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin"})
                 if threading.current_thread() is threading.main_thread():
@@ -281,7 +281,7 @@ def git_status(project, output=None):
     # Keep product-local filter behavior, but execute it only in a disposable
     # copy under the same kernel boundary. Never collect inspection side effects.
     from isolation_workspace import copy_tree
-    with tempfile.TemporaryDirectory(prefix="auto-company-git-status-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="autonomous-company-git-status-") as temporary:
         snapshot = Path(temporary) / "project"
         copy_tree(project, snapshot)
         return run_isolated(command, snapshot, output=output)
@@ -314,8 +314,8 @@ def main():
     readonly = []
     helper = str(HERE / "check_adapters.py")
     if helper in command:
-        command = ["/run/auto-company/check_adapters.py" if part == helper else part for part in command]
-        readonly.append((helper, "/run/auto-company/check_adapters.py"))
+        command = ["/run/autonomous-company/check_adapters.py" if part == helper else part for part in command]
+        readonly.append((helper, "/run/autonomous-company/check_adapters.py"))
     environment = {}
     report = os.environ.get("PLAYWRIGHT_JSON_OUTPUT_FILE")
     if report:

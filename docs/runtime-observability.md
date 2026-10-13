@@ -71,7 +71,7 @@ display bound; `commandTruncated` signals omitted text. The executed argv is
 unchanged. This is not a general secret detector for arbitrary arguments.
 
 Native adapters write unique reports below the product's
-`.auto-company/checks/`. New product repositories ignore that generated folder.
+`.autonomous-company/checks/`. New product repositories ignore that generated folder.
 Reports are bounded to 1 MiB and hashed. `reportStatus` distinguishes `pending`,
 `fresh`, `missing_or_stale`, `unsupported` and `unavailable`. A zero command exit
 with no fresh supported report is not evidence of passing tests. Class-fixture
@@ -124,7 +124,7 @@ UTC timestamp and `source: runtime_context`. This is program-owned identity;
 the dashboard does not derive cycle ownership from a model's title or consensus.
 Historical cycles without a reliable project binding remain unknown.
 
-`project-new` creates `projects/<slug>/.auto-company-project.json`, defaulting
+`project-new` creates `projects/<slug>/.autonomous-company-project.json`, defaulting
 the display name to the slug and leaving the description empty. The normal
 cycle prompt asks the coordinator to describe a new/default product once:
 

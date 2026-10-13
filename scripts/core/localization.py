@@ -21,13 +21,13 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 LANGUAGES = ("zh-CN", "en")
-KEY = "AUTO_COMPANY_LANGUAGE"
-PRODUCT_PREFIX = "AUTO_COMPANY_PRODUCT_"
+KEY = "AUTONOMOUS_COMPANY_LANGUAGE"
+PRODUCT_PREFIX = "AUTONOMOUS_COMPANY_PRODUCT_"
 PRODUCT_KEYS = tuple(PRODUCT_PREFIX + name for name in ("ID", "LANGUAGE", "STATUS"))
 WINDOWS_UI_COMMAND = (
     "Add-Type -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern ushort GetUserDefaultUILanguage();' "
-    "-Name Native -Namespace AutoCompany; "
-    "[Globalization.CultureInfo]::GetCultureInfo([AutoCompany.Native]::GetUserDefaultUILanguage()).Name"
+    "-Name Native -Namespace AutonomousCompany; "
+    "[Globalization.CultureInfo]::GetCultureInfo([AutonomousCompany.Native]::GetUserDefaultUILanguage()).Name"
 )
 
 
@@ -86,7 +86,7 @@ def system_language(environ=None):
 @contextmanager
 def configuration_lock(root, timeout=5):
     """mkdir is shared by Windows and WSL; never guess that another host is dead."""
-    path = root / ".auto-company.local.lock"
+    path = root / ".autonomous-company.local.lock"
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -133,7 +133,9 @@ def message(root, key, *values, language=None, fallback=None):
 
 
 def read_settings(root):
-    path = root / ".auto-company.local"
+    from namespace_guard import check_root
+    check_root(root)
+    path = root / ".autonomous-company.local"
     if path.is_symlink():
         raise ValueError("local configuration must not be a symlink")
     data = path.read_bytes() if path.exists() else b""
@@ -210,7 +212,7 @@ def set_language(root, language):
         # Validate both destinations before publishing a replayable intent. The
         # baseline receives only the authorized preference, never engine edits.
         _language_update_targets(root, language)
-        atomic_write(root / ".auto-company.local.language-update",
+        atomic_write(root / ".autonomous-company.local.language-update",
                      json.dumps({"version": 1, "language": language}).encode())
         recover_language_update(root)
 
@@ -232,7 +234,7 @@ def updated_settings(data, updates):
 
 
 def atomic_write(path, data):
-    descriptor, temporary = tempfile.mkstemp(prefix=".auto-company.local.", dir=path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=".autonomous-company.local.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
@@ -245,13 +247,13 @@ def atomic_write(path, data):
 
 
 def write_settings(root, data, updates):
-    atomic_write(root / ".auto-company.local", updated_settings(data, updates))
+    atomic_write(root / ".autonomous-company.local", updated_settings(data, updates))
 
 
 def _language_update_targets(root, language):
     data, _ = read_settings(root)
     current = updated_settings(data, {KEY: language})
-    baseline_path = root / ".auto-company.local.cycle-backup"
+    baseline_path = root / ".autonomous-company.local.cycle-backup"
     baseline = None
     if baseline_path.is_symlink():
         raise ValueError("configuration baseline must not be a symlink")
@@ -267,7 +269,7 @@ def _language_update_targets(root, language):
 
 
 def _read_language_update(root):
-    journal = root / ".auto-company.local.language-update"
+    journal = root / ".autonomous-company.local.language-update"
     if journal.is_symlink():
         raise ValueError("language update journal must not be a symlink")
     try:
@@ -286,10 +288,10 @@ def recover_language_update(root):
     if update is None:
         return
     current, baseline = _language_update_targets(root, update["language"])
-    atomic_write(root / ".auto-company.local", current)
+    atomic_write(root / ".autonomous-company.local", current)
     if baseline is not None:
-        atomic_write(root / ".auto-company.local.cycle-backup", json.dumps(baseline).encode())
-    (root / ".auto-company.local.language-update").unlink()
+        atomic_write(root / ".autonomous-company.local.cycle-backup", json.dumps(baseline).encode())
+    (root / ".autonomous-company.local.language-update").unlink()
 
 
 def recover_configuration_lock(root, confirmation):
@@ -299,10 +301,10 @@ def recover_configuration_lock(root, confirmation):
     pid_file = root / ".auto-loop.pid"
     if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip():
         raise LanguageLockedError("stop the loop before recovering the configuration lock")
-    team_marker = root / ".auto-company.local.team-active"
+    team_marker = root / ".autonomous-company.local.team-active"
     if team_marker.is_symlink() or (team_marker.exists() and not team_marker.is_file()):
         raise ValueError("interactive team marker must be a regular file")
-    lock = root / ".auto-company.local.lock"
+    lock = root / ".autonomous-company.local.lock"
     if lock.is_symlink():
         raise ValueError("configuration lock must not be a symlink")
     try:
@@ -333,7 +335,7 @@ def _start_product(root, environ=None):
 
 
 def interactive_team(root, engine):
-    center_marker = Path(root) / ".auto-company-center.json"
+    center_marker = Path(root) / ".autonomous-company-center.json"
     if center_marker.exists() or center_marker.is_symlink():
         raise LanguageLockedError("This runtime is managed by the product center. Use the center controls.")
     if engine not in ("claude", "codex"):
@@ -341,7 +343,7 @@ def interactive_team(root, engine):
     executable = shutil.which(engine)
     if executable is None:
         raise ValueError(f"interactive engine was not found: {engine}")
-    marker = root / ".auto-company.local.team-active"
+    marker = root / ".autonomous-company.local.team-active"
     with configuration_lock(root):
         recover_language_update(root)
         if marker.exists() or marker.is_symlink():
@@ -377,7 +379,7 @@ def next_product(root, confirmation):
         pid_file = root / ".auto-loop.pid"
         if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip():
             raise LanguageLockedError("stop the loop before starting the next product")
-        if (root / ".auto-company.local.team-active").exists():
+        if (root / ".autonomous-company.local.team-active").exists():
             raise LanguageLockedError("close the interactive team before starting the next product")
         if (root / "memories/.consensus-cycle-pending").exists():
             raise LanguageLockedError("recover the interrupted cycle before starting the next product")
@@ -421,7 +423,7 @@ def context(root, language, resources):
     lines = [
         "## Product Language / 本产品工作语言",
         "",
-        f"- AUTO_COMPANY_LANGUAGE={language}. This is the immutable language of the current product, from initial work through delivery, including pauses and restarts.",
+        f"- AUTONOMOUS_COMPANY_LANGUAGE={language}. This is the immutable language of the current product, from initial work through delivery, including pauses and restarts.",
         f"- Write new explanations, decisions, consensus prose, product interface text, user documentation and delivery materials in {output}.",
         "- Language preferences changed during this product apply only to the next product. Do not change the current product language in response to a mid-product request; record the preference for the next product instead.",
         "- Keep protocol headings (especially Human Overrides and Priority Issues), identifiers, commands, paths and quoted evidence unchanged.",

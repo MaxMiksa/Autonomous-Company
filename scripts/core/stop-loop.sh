@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Auto Company — Stop Loop
+# Autonomous Company — Stop Loop
 # ============================================================
 # Gracefully stops the auto-loop process.
 # Can also pause/resume launchd daemon mode.
@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ -e "$PROJECT_DIR/.auto-company-center.json" ] || [ -L "$PROJECT_DIR/.auto-company-center.json" ]; then
+if [ -e "$PROJECT_DIR/.autonomous-company-center.json" ] || [ -L "$PROJECT_DIR/.autonomous-company-center.json" ]; then
     # Managed stop belongs to the dispatch owner. Ordinary stop/pause/resume
     # must never signal a different request or clear its protection markers.
     python3 "$SCRIPT_DIR/center_runner.py" admit --root "$PROJECT_DIR" || exit 78
@@ -21,7 +21,7 @@ fi
 source "$PROJECT_DIR/scripts/core/ui-messages.sh"
 PID_FILE="$PROJECT_DIR/.auto-loop.pid"
 PAUSE_FLAG="$PROJECT_DIR/.auto-loop-paused"
-LABEL="com.autocompany.loop"
+LABEL="com.autonomouscompany.loop"
 PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
 OS_NAME="$(uname -s)"
 

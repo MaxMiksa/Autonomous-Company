@@ -15,7 +15,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'tests'))
 from isolation_fixture import install as install_fixture_boundary
-LABEL = "com.autocompany.loop"
+LABEL = "com.autonomouscompany.loop"
 SETTINGS = {"ENGINE": "codex", "MODEL": "custom-model", "CYCLE_TIMEOUT_SECONDS": "77",
             "LOOP_INTERVAL": "91", "USAGE_BUDGET_PERIOD": "week", "USAGE_WARNING_USD": "2",
             "USAGE_HARD_LIMIT_USD": "3", "USAGE_HARD_LIMIT_TOKENS": "9876",
@@ -25,7 +25,7 @@ SETTINGS = {"ENGINE": "codex", "MODEL": "custom-model", "CYCLE_TIMEOUT_SECONDS":
 @unittest.skipIf(os.name == "nt", "macOS shell contracts execute in POSIX/WSL CI")
 class MacosStartTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="auto-company-macos-start-")
+        self.temp = tempfile.TemporaryDirectory(prefix="autonomous-company-macos-start-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.project = self.root / 'Repo & "trial"'
@@ -65,7 +65,7 @@ case "$1" in
   list)
     [ "${FAIL_LIST:-}" != 1 ] || exit 5
     if [ "$#" = 1 ]; then
-      [ ! -f "$LOADED" ] || printf '123 0 com.autocompany.loop\\n'
+      [ ! -f "$LOADED" ] || printf '123 0 com.autonomouscompany.loop\\n'
     elif [ "$2" = -x ]; then
       exit 113 ; # Current macOS treats -x as a label, not an XML option.
     else

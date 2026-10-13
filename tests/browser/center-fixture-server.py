@@ -38,7 +38,7 @@ try:
         row.update(started_at=f'2026-09-26T01:{number:02d}:00+00:00',
                    ended_at=f'2026-09-26T01:{number:02d}:30+00:00')
     ledger.write_text(''.join(json.dumps(row) + '\n' for row in rows))
-    case.write('.auto-company.local', 'ACTIVE_PROJECT=projects/one\nAUTO_COMPANY_LANGUAGE=en\n')
+    case.write('.autonomous-company.local', 'ACTIVE_PROJECT=projects/one\nAUTONOMOUS_COMPANY_LANGUAGE=en\n')
     entry = next(row for row in case.import_root() if case.catalog.get_entry(row['entryId'])['kind'] == 'product')
     preview = base_record('projects/one', 'preview', case.root)
     preview.update(cycleId=None, state='running', lifetime='operator',

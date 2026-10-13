@@ -31,7 +31,7 @@ preview health are injected. These fixtures do not verify a live model or previe
 process and are not product showcase screenshots.
 
 Python defaults to `python` on Windows and `python3` elsewhere. Set
-`AUTO_COMPANY_BROWSER_PYTHON` to an executable path if needed. Tests run serially
+`AUTONOMOUS_COMPANY_BROWSER_PYTHON` to an executable path if needed. Tests run serially
 without automatic retries. Failures retain screenshots, traces and server logs
 under `test-results/`; the HTML report is in `playwright-report/`. CI should upload
 both directories on failure.

@@ -10,7 +10,7 @@ from xml.parsers.expat import ExpatError
 
 # Only non-secret runtime settings may cross the service-manager boundary.
 RUNTIME_SETTINGS = (
-    "ENGINE", "MODEL", "AUTO_COMPANY_LANGUAGE", "CLAUDE_BIN", "CLAUDE_PERMISSION_MODE", "CODEX_BIN",
+    "ENGINE", "MODEL", "AUTONOMOUS_COMPANY_LANGUAGE", "CLAUDE_BIN", "CLAUDE_PERMISSION_MODE", "CODEX_BIN",
     "CODEX_SANDBOX_MODE", "CURSOR_BIN", "CURSOR_ADAPTER_ENABLED",
     "CURSOR_SANDBOX_MODE", "CURSOR_FORCE", "CURSOR_ALLOW_UNSANDBOXED",
     "OPENAI_COMPATIBLE_ADAPTER_ENABLED", "OPENAI_COMPATIBLE_ENDPOINT",
@@ -29,7 +29,7 @@ def render(project: str, path: str, environ: dict[str, str]) -> bytes:
     settings = {key: environ[key] for key in RUNTIME_SETTINGS if key in environ}
     settings.update({"PATH": path, "HOME": environ["HOME"]})
     return plistlib.dumps({
-        "Label": "com.autocompany.loop",
+        "Label": "com.autonomouscompany.loop",
         "ProgramArguments": ["/bin/bash", f"{project}/scripts/core/auto-loop.sh", "--daemon"],
         "WorkingDirectory": project,
         "KeepAlive": {"PathState": {f"{project}/.auto-loop-paused": False}},
@@ -43,8 +43,8 @@ def render(project: str, path: str, environ: dict[str, str]) -> bytes:
 
 def validate(project: str, config: object, loaded: bool = False) -> None:
     """Reject malformed or foreign agents without rewriting their settings."""
-    if not isinstance(config, dict) or config.get("Label") != "com.autocompany.loop":
-        raise ValueError("invalid Auto Company LaunchAgent label")
+    if not isinstance(config, dict) or config.get("Label") != "com.autonomouscompany.loop":
+        raise ValueError("invalid Autonomous Company LaunchAgent label")
     root = Path(project).resolve()
     directory = config.get("WorkingDirectory")
     arguments = config.get("ProgramArguments")

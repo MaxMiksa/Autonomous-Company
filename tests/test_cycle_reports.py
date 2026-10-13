@@ -111,14 +111,14 @@ class CycleReportTests(unittest.TestCase):
         self.assertEqual(cycle["usage"]["status"], "unavailable")
 
     def test_cli_uses_runtime_context_and_reports_error_without_writing(self):
-        env = {**os.environ, "AUTO_COMPANY_ROOT": str(self.root),
-               "AUTO_COMPANY_CYCLE_ID": "cycle-test", "ACTIVE_PROJECT": "projects/probe"}
+        env = {**os.environ, "AUTONOMOUS_COMPANY_ROOT": str(self.root),
+               "AUTONOMOUS_COMPANY_CYCLE_ID": "cycle-test", "ACTIVE_PROJECT": "projects/probe"}
         command = [sys.executable, str(ROOT / "scripts/core/cycle_reports.py"), "write",
                    "--title", "Quote ' and 中文", "--summary", "Fixture", "--phase", "review", "--final"]
         outcome = subprocess.run(command, env=env, capture_output=True)
         self.assertEqual(outcome.returncode, 0, outcome.stderr)
         self.assertEqual(read_report(self.source, self.cycle)["workReport"]["title"], "Quote ' and 中文")
-        env["AUTO_COMPANY_CYCLE_ID"] = "../../outside"
+        env["AUTONOMOUS_COMPANY_CYCLE_ID"] = "../../outside"
         self.assertEqual(subprocess.run(command, env=env, capture_output=True).returncode, 2)
         self.assertEqual(len(list((self.root / "logs").iterdir())), 1)
 

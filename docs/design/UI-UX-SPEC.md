@@ -1,4 +1,4 @@
-# Auto Company 界面与交互规范
+# Autonomous Company 界面与交互规范
 
 本规范以 D 精修版为基准，规定管理中心、产品工作记录及后续新增界面的信息、视觉和交互标准；shadcn 迁移与日常增改均按此执行。
 
@@ -470,7 +470,7 @@
 
 ### 7.2 组件映射
 
-| 界面需求 | shadcn基础组件 | Auto Company 定制要求 |
+| 界面需求 | shadcn基础组件 | Autonomous Company 定制要求 |
 |---|---|---|
 | 主次动作、文本动作、图标按钮 | Button | 使用官方default/outline/ghost/destructive及size变体；品牌色与触屏最小44集中定义 |
 | 搜索、模型、方向等表单 | Input、Textarea、Label/Field | 固定可见标签、关联错误；不得复制大卡片表单模板 |

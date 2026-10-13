@@ -92,7 +92,7 @@ def durable_json(path, data):
 
 def collect_transaction(root, ready, replacements):
     """Journal each rename. Interrupted collection blocks further execution."""
-    marker = safe_path(root, ".auto-company/isolation-pending.json")
+    marker = safe_path(root, ".autonomous-company/isolation-pending.json")
     if marker.exists():
         raise IsolationError("Interrupted isolation collection requires recovery after stopping writers")
     operations = []
@@ -133,7 +133,7 @@ def recover_collection(root):
             pass
         else:
             raise IsolationError("Stop the loop before recovering isolated output")
-    marker = safe_path(root, ".auto-company/isolation-pending.json")
+    marker = safe_path(root, ".autonomous-company/isolation-pending.json")
     if not marker.exists():
         return
     journal = json.loads(regular_bytes(marker))
@@ -146,7 +146,7 @@ def recover_collection(root):
         # Sources/backups are always in the private collection store. Refuse
         # a malformed journal instead of treating it as filesystem authority.
         for path in (source, backup):
-            path.relative_to(root / ".auto-company/isolation")
+            path.relative_to(root / ".autonomous-company/isolation")
         if backup.exists():
             if target.exists():
                 target.rename(source.with_name(source.name + ".rejected"))
@@ -154,7 +154,7 @@ def recover_collection(root):
         elif not operation["existed"] and target.exists() and not source.exists():
             target.rename(source)
     marker.rename(marker.with_name("isolation-recovered-" + str(os.getpid()) + ".json"))
-    lock = safe_path(root, ".auto-company/product-state.lock")
+    lock = safe_path(root, ".autonomous-company/product-state.lock")
     if lock.is_dir():
         lock.rmdir()
 
@@ -195,7 +195,7 @@ def sanitize_git(project):
 class CompanyView:
     def __init__(self, root, project, cycle):
         self.root = Path(root).resolve()
-        if safe_path(self.root, ".auto-company/isolation-pending.json").exists():
+        if safe_path(self.root, ".autonomous-company/isolation-pending.json").exists():
             raise IsolationError("Interrupted isolation collection requires stopped-writer recovery")
         if project and not re.fullmatch(r"projects/[a-z0-9][a-z0-9-]*", project):
             raise IsolationError("Invalid selected project")
@@ -205,7 +205,7 @@ class CompanyView:
         self.state = read_state(root)
         identity = self.state["paths"].get(project) if project else self.state.get("explorationId")
         self.scope = identity or hashlib.sha256(project.encode()).hexdigest()[:32]
-        self.store = safe_path(self.root, ".auto-company/isolation/" + self.scope)
+        self.store = safe_path(self.root, ".autonomous-company/isolation/" + self.scope)
         self.store.mkdir(parents=True, exist_ok=True)
         self.active_record = self.store / "active-run.json"
         if self.active_record.exists():
@@ -223,7 +223,7 @@ class CompanyView:
             self.active_record.rename(self.store / ("retained-" + str(prior.get("pid")) + "-" + str(self.active_record.stat().st_mtime_ns) + ".json"))
         # Native Linux temporary storage avoids a shared Windows drive-backed
         # /tmp, retains files for interrupted collection, and has mode 0700.
-        self.folder = Path(tempfile.mkdtemp(prefix="auto-company-view-"))
+        self.folder = Path(tempfile.mkdtemp(prefix="autonomous-company-view-"))
         self.workspace = self.folder / "workspace"
         self.workspace.mkdir()
         self.home = self.folder / "home"
@@ -247,7 +247,7 @@ class CompanyView:
                 raise IsolationError("Runtime template is incomplete: " + name)
         # Do not load repository-authored Codex MCP/hook/plugin configuration.
         # Role prompts are public framework resources, not user plugin config.
-        for name in ("projects", "memories", "docs", "logs", ".auto-company"):
+        for name in ("projects", "memories", "docs", "logs", ".autonomous-company"):
             (self.workspace / name).mkdir(exist_ok=True)
         registry = self.root / "projects/registry.tsv"
         lines = regular_bytes(registry).decode().splitlines() if registry.exists() else ["name\tpath\tlifecycle\tcreated_at_utc"]
@@ -277,7 +277,7 @@ class CompanyView:
                 # Human constraints and unresolved governance remain exact.
                 # Unattributed legacy product prose is never guessed to belong
                 # to a newly selected product.
-                body = regular_bytes(scoped) if scoped.exists() else b"# Auto Company Consensus\n\n## Current Phase\nIsolated project start\n\n"
+                body = regular_bytes(scoped) if scoped.exists() else b"# Autonomous Company Consensus\n\n## Current Phase\nIsolated project start\n\n"
                 if scoped.exists():
                     old = rules.sections(scoped)
                     for heading in rules.HEADINGS:
@@ -292,17 +292,17 @@ class CompanyView:
         # Only this product's previously collected working documents return.
         if (self.store / "docs").is_dir():
             copy_tree(self.store / "docs", self.workspace / "docs")
-        write_json(self.workspace / ".auto-company/product-state.json", self.initial)
+        write_json(self.workspace / ".autonomous-company/product-state.json", self.initial)
         configuration = []
         if self.project:
             configuration.append("ACTIVE_PROJECT=" + self.project)
         from localization import read_settings
         _, settings = read_settings(self.root)
         for key, value in settings.items():
-            if key in ("AUTO_COMPANY_LANGUAGE", "AUTO_COMPANY_PRODUCT_ID", "AUTO_COMPANY_PRODUCT_LANGUAGE", "AUTO_COMPANY_PRODUCT_STATUS"):
+            if key in ("AUTONOMOUS_COMPANY_LANGUAGE", "AUTONOMOUS_COMPANY_PRODUCT_ID", "AUTONOMOUS_COMPANY_PRODUCT_LANGUAGE", "AUTONOMOUS_COMPANY_PRODUCT_STATUS"):
                 configuration.append(f"{key}={value}")
-        (self.workspace / ".auto-company.local").write_text("\n".join(configuration) + "\n")
-        (self.workspace / ".gitignore").write_text("projects/*\n.auto-company/\nlogs/\n")
+        (self.workspace / ".autonomous-company.local").write_text("\n".join(configuration) + "\n")
+        (self.workspace / ".gitignore").write_text("projects/*\n.autonomous-company/\nlogs/\n")
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True, env={"PATH": "/usr/bin:/bin", "HOME": str(self.home), "GIT_CONFIG_NOSYSTEM": "1"})
         if self.cycle:
             context = self.root / "logs" / f"{self.cycle}.context.json"
@@ -329,7 +329,7 @@ class CompanyView:
     def collect(self):
         checked_tree(self.workspace)
         expected_roots = {Path(name).parts[0] for name in TEMPLATES} | {
-            "projects", "memories", "docs", "logs", ".auto-company", ".auto-company.local", ".git", ".gitignore", "prompt.txt"}
+            "projects", "memories", "docs", "logs", ".autonomous-company", ".autonomous-company.local", ".git", ".gitignore", "prompt.txt"}
         uncollected = sorted(path.name for path in self.workspace.iterdir() if path.name not in expected_roots)
         self.retain_view = bool(uncollected)
         incoming = read_state(self.workspace)
@@ -447,8 +447,8 @@ class CompanyView:
                    "project": self.project, "sessions": str(session_target), "uncollectedRootOutputs": uncollected})
         write_json(ready / "product-state.json", state)
         replacements += [(ready / "last-run.json", self.store / "last-run.json"),
-                         (ready / "product-state.json", self.root / ".auto-company/product-state.json")]
-        lock = safe_path(self.root, ".auto-company/product-state.lock")
+                         (ready / "product-state.json", self.root / ".autonomous-company/product-state.json")]
+        lock = safe_path(self.root, ".autonomous-company/product-state.lock")
         lock.mkdir()
         try:
             if read_state(self.root) != self.state:
@@ -463,7 +463,7 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
     runtime_binary()  # Refuse before making a view when the boundary is absent.
     if engine not in ("codex", "claude", "cursor", "openai-compatible"):
         raise IsolationError("Unsupported engine")
-    cycle = os.environ.get("AUTO_COMPANY_CYCLE_ID", "")
+    cycle = os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID", "")
     view = CompanyView(root, project, cycle)
     try:
         view.prepare()
@@ -474,12 +474,12 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
         if view.consensus_before is not None:
             prompt = prompt.replace(view.consensus_before.decode(), view.consensus_input.decode())
         env = {key: value for key, value in os.environ.items() if key in
-               ("AUTO_COMPANY_CYCLE", "AUTO_COMPANY_CYCLE_ID", "AUTO_COMPANY_LANGUAGE",
-                "AUTO_COMPANY_STABLE_PRODUCT_ID", "AUTO_COMPANY_PRODUCT_CYCLE_NUMBER")}
-        env.update(AUTO_COMPANY_ROOT="/workspace", ACTIVE_PROJECT=project,
+               ("AUTONOMOUS_COMPANY_CYCLE", "AUTONOMOUS_COMPANY_CYCLE_ID", "AUTONOMOUS_COMPANY_LANGUAGE",
+                "AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID", "AUTONOMOUS_COMPANY_PRODUCT_CYCLE_NUMBER")}
+        env.update(AUTONOMOUS_COMPANY_ROOT="/workspace", ACTIVE_PROJECT=project,
                    ACTIVE_PROJECT_PATH="/workspace/" + project if project else "")
         if language is not None:
-            env["AUTO_COMPANY_LANGUAGE"] = language
+            env["AUTONOMOUS_COMPANY_LANGUAGE"] = language
         native = binary
         if engine == "codex":
             command = ["/opt/engine/agent"]
@@ -521,12 +521,12 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
             for key, value in os.environ.items():
                 if key.startswith("OPENAI_COMPATIBLE_"):
                     env[key] = value
-        readonly = [(view.workspace / name, "/workspace/" + name) for name in ("scripts", ".claude", "i18n", "Makefile", ".auto-company.local") if (view.workspace / name).exists()]
+        readonly = [(view.workspace / name, "/workspace/" + name) for name in ("scripts", ".claude", "i18n", "Makefile", ".autonomous-company.local") if (view.workspace / name).exists()]
         dependencies = Path(root) / "scripts/media/node_modules"
         if dependencies.is_dir():
             (view.workspace / "scripts/media/node_modules").mkdir(parents=True, exist_ok=True)
             readonly.append((dependencies, "/workspace/scripts/media/node_modules"))
-        browsers = os.environ.get("AUTO_COMPANY_BROWSER_RUNTIME")
+        browsers = os.environ.get("AUTONOMOUS_COMPANY_BROWSER_RUNTIME")
         if browsers:
             for child in Path(browsers).iterdir():
                 if child.is_dir() and re.fullmatch(r"(?:chromium|chromium_headless_shell|ffmpeg)-[0-9]+", child.name):
@@ -537,7 +537,7 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
         last_message = view.workspace / "logs/last-message.txt"
         if engine == "codex" and last_message.exists():
             message = regular_bytes(last_message).decode("utf-8", errors="replace")
-            print(json.dumps({"type": "item.completed", "item": {"id": "auto-company-last-message",
+            print(json.dumps({"type": "item.completed", "item": {"id": "autonomous-company-last-message",
                   "type": "agent_message", "text": message}}, ensure_ascii=False), flush=True)
         view.collect()
         return code

@@ -12,7 +12,7 @@ The existing [SnapOG](snapog/) asset remains tracked here. Its files and migrati
 
 Newly generated products live under this directory for local convenience, but
 every new product is its own Git repository. Product commits, remotes, and pushes
-do not belong to the Auto Company framework repository by default. Public snapshots under `examples/` are explicit human-authorized publications; autonomous cycles must not add tracked product source here or in `examples/`.
+do not belong to the Autonomous Company framework repository by default. Public snapshots under `examples/` are explicit human-authorized publications; autonomous cycles must not add tracked product source here or in `examples/`.
 
 Use the explicit lifecycle commands from the framework root:
 
@@ -22,7 +22,7 @@ Use the explicit lifecycle commands from the framework root:
 | Inspect selected project | `make project-status` |
 | Publish to an existing remote | `make project-publish REMOTE_URL=<url> CONFIRM=PUBLISH` |
 
-The gitignored `.auto-company.local` file stores `ACTIVE_PROJECT`. Creation never
+The gitignored `.autonomous-company.local` file stores `ACTIVE_PROJECT`. Creation never
 adds a remote or pushes. Publishing requires a local commit, a clean worktree,
 an explicit remote URL when `origin` is absent, and the exact confirmation token.
 
@@ -40,7 +40,7 @@ reviewable migration:
 | Stage migration | `make project-migrate-legacy NAME=snapog CONFIRM=MIGRATE` |
 | Verify product | `make project-status PROJECT=snapog` and inspect the local project commit |
 | Verify framework | `git diff --cached --stat` shows staged untracking plus registry lifecycle change |
-| Verify recovery | `.auto-company-migrations/snapog/project.bundle` exists locally |
+| Verify recovery | `.autonomous-company-migrations/snapog/project.bundle` exists locally |
 | Roll back before framework commit | `make project-migrate-rollback NAME=snapog CONFIRM=ROLLBACK` |
 
 The migration keeps working files in place, creates an independent local commit

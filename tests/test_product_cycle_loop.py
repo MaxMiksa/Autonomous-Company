@@ -33,26 +33,26 @@ class ProductCycleLoopTests(unittest.TestCase):
         self.fake.write_text('''#!/bin/bash
 if [ "${1:-}" = "--version" ]; then exit 0; fi
 count=0
-[ ! -f "$AUTO_COMPANY_ROOT/invocations" ] || count=$(cat "$AUTO_COMPANY_ROOT/invocations")
+[ ! -f "$AUTONOMOUS_COMPANY_ROOT/invocations" ] || count=$(cat "$AUTONOMOUS_COMPANY_ROOT/invocations")
 count=$((count + 1))
-printf '%s' "$count" > "$AUTO_COMPANY_ROOT/invocations"
-printf '%s\\n' "$*" > "$AUTO_COMPANY_ROOT/prompt-$count"
+printf '%s' "$count" > "$AUTONOMOUS_COMPANY_ROOT/invocations"
+printf '%s\\n' "$*" > "$AUTONOMOUS_COMPANY_ROOT/prompt-$count"
 if [ "${CREATE_PRODUCT:-0}" = 1 ] && [ "$count" = 1 ]; then
-  "$AUTO_COMPANY_ROOT/scripts/core/project.sh" new --name created-product
+  "$AUTONOMOUS_COMPANY_ROOT/scripts/core/project.sh" new --name created-product
 fi
 printf '{"type":"result","subtype":"success","result":"Recorded offline invocation","usage":{"input_tokens":2,"output_tokens":2}}\\n'
 if [ "${INTERRUPT_FIXTURE:-0}" = 1 ]; then
-  touch "$AUTO_COMPANY_ROOT/provider-running"
+  touch "$AUTONOMOUS_COMPANY_ROOT/provider-running"
   sleep 30
 fi
-if [ "$count" -ge "${STOP_AFTER:-1}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loop-stop"; fi
+if [ "$count" -ge "${STOP_AFTER:-1}" ]; then touch "$AUTONOMOUS_COMPANY_ROOT/.auto-loop-stop"; fi
 ''')
         self.fake.chmod(0o755)
         self.env = dict(os.environ, ENGINE="claude", CLAUDE_BIN=str(self.fake),
-                        CLAUDE_PERMISSION_MODE="default", AUTO_COMPANY_LANGUAGE="en",
+                        CLAUDE_PERMISSION_MODE="default", AUTONOMOUS_COMPANY_LANGUAGE="en",
                         LOOP_INTERVAL="0", CYCLE_TIMEOUT_SECONDS="15", CYCLE_TERM_GRACE_SECONDS="1",
                         CYCLE_KILL_WAIT_SECONDS="1", MAX_LOGS="1")
-        for key in ("AUTO_COMPANY_CYCLE", "AUTO_COMPANY_CYCLE_ID", "AUTO_COMPANY_LOCK_PID", "ACTIVE_PROJECT"):
+        for key in ("AUTONOMOUS_COMPANY_CYCLE", "AUTONOMOUS_COMPANY_CYCLE_ID", "AUTONOMOUS_COMPANY_LOCK_PID", "ACTIVE_PROJECT"):
             self.env.pop(key, None)
         self.loop = self.root / "scripts/core/auto-loop.sh"
 
@@ -62,12 +62,12 @@ if [ "$count" -ge "${STOP_AFTER:-1}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         return self.state()
 
     def state(self):
-        return json.loads((self.root / ".auto-company/product-state.json").read_text())
+        return json.loads((self.root / ".autonomous-company/product-state.json").read_text())
 
     def create_selected(self):
         tool = self.root / "scripts/core/project.sh"
         for args in (("new", "--name", "test-product"), ("select", "--project", "test-product", "--confirm", "SELECT")):
-            result = subprocess.run(["bash", str(tool), *args], env={**self.env, "AUTO_COMPANY_ROOT": str(self.root)}, capture_output=True, text=True)
+            result = subprocess.run(["bash", str(tool), *args], env={**self.env, "AUTONOMOUS_COMPANY_ROOT": str(self.root)}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_real_loop_resumes_1_2_then_3_and_rotates_logs(self):
@@ -86,7 +86,7 @@ if [ "$count" -ge "${STOP_AFTER:-1}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         result = subprocess.run(["bash", str(self.loop)], env={**self.env, "USAGE_HARD_LIMIT_TOKENS": "invalid"}, capture_output=True, text=True, timeout=20)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("usage budget preflight failed", result.stdout)
-        self.assertFalse((self.root / ".auto-company/product-state.json").exists())
+        self.assertFalse((self.root / ".autonomous-company/product-state.json").exists())
         self.assertFalse((self.root / "invocations").exists())
 
     def test_creation_registration_failure_rolls_back_source_and_registry(self):
@@ -94,17 +94,17 @@ if [ "$count" -ge "${STOP_AFTER:-1}" ]; then touch "$AUTO_COMPANY_ROOT/.auto-loo
         registry = self.root / "projects/registry.tsv"
         original = b"name\tpath\tlifecycle\tcreated_at_utc\n"
         registry.write_bytes(original)
-        (self.root / ".auto-company").mkdir()
-        (self.root / ".auto-company/product-state.json").write_text("invalid state")
+        (self.root / ".autonomous-company").mkdir()
+        (self.root / ".autonomous-company/product-state.json").write_text("invalid state")
         result = subprocess.run(["bash", str(self.root / "scripts/core/project.sh"), "new", "--name", "failed-project"],
-                                env={**self.env, "AUTO_COMPANY_ROOT": str(self.root)}, capture_output=True, text=True)
+                                env={**self.env, "AUTONOMOUS_COMPANY_ROOT": str(self.root)}, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / "projects/failed-project").exists())
         self.assertEqual(registry.read_bytes(), original)
 
     def test_normal_creation_links_exploration_without_editing_selection(self):
         self.run_loop(STOP_AFTER="1", CREATE_PRODUCT="1")
-        self.assertNotIn("ACTIVE_PROJECT=", (self.root / ".auto-company.local").read_text())
+        self.assertNotIn("ACTIVE_PROJECT=", (self.root / ".autonomous-company.local").read_text())
         state = self.run_loop(STOP_AFTER="2")
         rows = list(state["cycles"].values())
         self.assertEqual(sorted(row["productCycleNumber"] for row in rows), [1, 1])

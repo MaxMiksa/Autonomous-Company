@@ -7,7 +7,7 @@ source version/time and explicit missing, failed or stale states. Captures are
 appearance records, not business completion or functional verification.
 
 For a static product, a root `index.html` is enough. Other web roots and the
-explicit Node development-server contract use `.auto-company/media.json`.
+explicit Node development-server contract use `.autonomous-company/media.json`.
 Nonvisual products can declare `{"version":1,"type":"none"}`. Unknown frameworks,
 external/login-dependent resources and arbitrary startup commands are not guessed.
 

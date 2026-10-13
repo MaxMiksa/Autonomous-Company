@@ -76,7 +76,7 @@ def main() -> int:
         print("Auto loop already running for this checkout. Stop it first.", file=sys.stderr)
         return 1
     os.set_inheritable(descriptor, True)
-    os.environ["AUTO_COMPANY_LOCK_PID"] = str(os.getpid())
+    os.environ["AUTONOMOUS_COMPANY_LOCK_PID"] = str(os.getpid())
     os.execv("/bin/bash", ["/bin/bash", str(Path(script).resolve()), *args])
     return 1
 

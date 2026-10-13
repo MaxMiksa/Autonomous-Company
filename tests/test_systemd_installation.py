@@ -1,8 +1,8 @@
 """Validate generated units with systemd, using only isolated probe services.
 
 Parser checks need systemd-analyze. Runtime checks additionally require a user
-manager and AUTO_COMPANY_TEST_SYSTEMD_USER=1 (missing prerequisites then fail).
-They never install or start the host's auto-company.service and never execute
+manager and AUTONOMOUS_COMPANY_TEST_SYSTEMD_USER=1 (missing prerequisites then fail).
+They never install or start the host's autonomous-company.service and never execute
 an actual company loop.
 """
 
@@ -22,10 +22,10 @@ PATHS = ("repo", "repo with spaces", "repo%data", 'Repo & "trial" %data')
 class SystemdFixture(unittest.TestCase):
     def setUp(self):
         if os.name == "nt" or not shutil.which("systemd-analyze"):
-            if os.environ.get("AUTO_COMPANY_TEST_SYSTEMD_USER") == "1":
+            if os.environ.get("AUTONOMOUS_COMPANY_TEST_SYSTEMD_USER") == "1":
                 self.fail("requested systemd checks require Linux/WSL with systemd-analyze")
             self.skipTest("real systemd parser requires Linux/WSL with systemd-analyze")
-        self.temp = tempfile.TemporaryDirectory(prefix="auto-company-systemd-")
+        self.temp = tempfile.TemporaryDirectory(prefix="autonomous-company-systemd-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.home = self.root / "home"
@@ -45,28 +45,28 @@ class SystemdFixture(unittest.TestCase):
         (project / "scripts/core").mkdir()
         installer = project / "scripts/wsl/install-wsl-daemon.sh"
         shutil.copy2(REPO / "scripts/wsl/install-wsl-daemon.sh", installer)
-        for filename in ("ui-messages.sh", "localization.py"):
+        for filename in ("ui-messages.sh", "localization.py", "namespace_guard.py"):
             shutil.copy2(REPO / "scripts/core" / filename, project / "scripts/core" / filename)
         shutil.copytree(REPO / "i18n", project / "i18n")
         (project / "scripts/core/auto-loop.sh").write_text(
             '#!/bin/bash\nset -eu\nprintf "%s\\n" "$PWD" '
-            '"${AUTO_COMPANY_SYSTEMD_SENTINEL-missing}" > probe-result\n',
+            '"${AUTONOMOUS_COMPANY_SYSTEMD_SENTINEL-missing}" > probe-result\n',
             encoding="utf-8")
         if with_env:
             (project / ".auto-loop.env").write_text(
-                'AUTO_COMPANY_SYSTEMD_SENTINEL="loaded from env % with spaces"\n',
+                'AUTONOMOUS_COMPANY_SYSTEMD_SENTINEL="loaded from env % with spaces"\n',
                 encoding="utf-8")
         result = subprocess.run(["bash", str(installer)], env=self.env,
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        unit = (self.home / ".config/systemd/user/auto-company.service").read_text()
+        unit = (self.home / ".config/systemd/user/autonomous-company.service").read_text()
         return project, unit
 
 
 class SystemdParserTests(SystemdFixture):
     def verify_path(self, name):
         _, unit = self.generate_unit(name)
-        path = self.root / "auto-company-parser-probe.service"
+        path = self.root / "autonomous-company-parser-probe.service"
         path.write_text(unit, encoding="utf-8")
         # The offline user-unit parser needs a runtime directory, not a login
         # session. Keep its lookup paths separate from any real user manager.
@@ -95,8 +95,8 @@ class SystemdParserTests(SystemdFixture):
         self.verify_path(PATHS[3])
 
 
-@unittest.skipUnless(os.environ.get("AUTO_COMPANY_TEST_SYSTEMD_USER") == "1",
-                     "set AUTO_COMPANY_TEST_SYSTEMD_USER=1 for isolated user-service probes")
+@unittest.skipUnless(os.environ.get("AUTONOMOUS_COMPANY_TEST_SYSTEMD_USER") == "1",
+                     "set AUTONOMOUS_COMPANY_TEST_SYSTEMD_USER=1 for isolated user-service probes")
 class SystemdRuntimeTests(SystemdFixture):
     def setUp(self):
         super().setUp()
@@ -124,7 +124,7 @@ class SystemdRuntimeTests(SystemdFixture):
 
     def run_probe(self, name, with_env=True):
         project, unit = self.generate_unit(name, with_env)
-        unit_name = "auto-company-probe-" + uuid.uuid4().hex + ".service"
+        unit_name = "autonomous-company-probe-" + uuid.uuid4().hex + ".service"
         unit_dir = Path(os.environ["XDG_RUNTIME_DIR"]) / "systemd/user"
         created_dirs = [p for p in (unit_dir.parent, unit_dir) if not p.exists()]
         unit_dir.mkdir(parents=True, exist_ok=True)

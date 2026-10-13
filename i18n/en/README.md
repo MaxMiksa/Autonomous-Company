@@ -19,7 +19,7 @@ On Windows without make:
 python scripts/core/localization.py set --language en
 ```
 
-Windows `start-win.ps1 -Language en` saves the same preference. A saved choice takes precedence over an old service's `AUTO_COMPANY_LANGUAGE` environment variable; that variable only supplies the initial choice when no preference exists. The Dashboard no longer keeps a separate browser preference, so there is no second setting to synchronize.
+Windows `start-win.ps1 -Language en` saves the same preference. A saved choice takes precedence over an old service's `AUTONOMOUS_COMPANY_LANGUAGE` environment variable; that variable only supplies the initial choice when no preference exists. The Dashboard no longer keeps a separate browser preference, so there is no second setting to synchronize.
 
 ## Keep one language throughout a product cycle
 

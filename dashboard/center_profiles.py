@@ -25,11 +25,11 @@ def validate(config):
 
 def installation_defaults(root, language):
     names = {"ENGINE": "engine", "MODEL": "model", "CODEX_REASONING_EFFORT": "effort",
-             "AUTO_COMPANY_LANGUAGE": "productLanguage"}
+             "AUTONOMOUS_COMPANY_LANGUAGE": "productLanguage"}
     selected = {name: os.environ[name] for name in names if name in os.environ}
     # These files contain the choices saved by the existing launch/install flow.
     # Read only known values as data, never source a shell file or expose secrets.
-    for name in (".auto-loop.env", ".auto-company.local"):
+    for name in (".auto-loop.env", ".autonomous-company.local"):
         path = Path(root) / name
         if not path.is_file() or path.is_symlink() or path.stat().st_size > 65536:
             continue

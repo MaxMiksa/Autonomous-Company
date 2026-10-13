@@ -81,7 +81,9 @@ def empty_state():
 
 
 def read_state(root):
-    path = safe_path(root, ".auto-company/product-state.json")
+    from namespace_guard import check_root
+    check_root(root)
+    path = safe_path(root, ".autonomous-company/product-state.json")
     if not path.exists():
         return empty_state()
     try:
@@ -131,7 +133,7 @@ def state_hash(state):
 
 def recover_transaction(root):
     """Redo a committed transaction intent after a stopped-writer lock recovery."""
-    path = safe_path(root, ".auto-company/product-state.transaction.json")
+    path = safe_path(root, ".autonomous-company/product-state.transaction.json")
     if not path.exists():
         return
     intent = json.loads(path.read_text(encoding="utf-8"))
@@ -150,12 +152,12 @@ def recover_transaction(root):
         target = _marker(root, project)
         target.parent.mkdir(exist_ok=True)
         atomic_write(target, {"schemaVersion": 1, "id": marker["id"]})
-    atomic_write(safe_path(root, ".auto-company/product-state.json"), state)
+    atomic_write(safe_path(root, ".autonomous-company/product-state.json"), state)
     path.unlink()
 
 
 def commit_transaction(root, before, state, markers):
-    path = safe_path(root, ".auto-company/product-state.transaction.json")
+    path = safe_path(root, ".autonomous-company/product-state.transaction.json")
     committed = False
     try:
         # Stage marker changes and the complete reservation together before any
@@ -166,7 +168,7 @@ def commit_transaction(root, before, state, markers):
             target = _marker(root, marker["project"])
             target.parent.mkdir(exist_ok=True)
             atomic_write(target, {"schemaVersion": 1, "id": marker["id"]})
-        atomic_write(safe_path(root, ".auto-company/product-state.json"), state)
+        atomic_write(safe_path(root, ".autonomous-company/product-state.json"), state)
         committed = True
         path.unlink()
     except Exception:
@@ -183,9 +185,11 @@ def commit_transaction(root, before, state, markers):
 
 @contextmanager
 def transaction(root, timeout=5):
-    folder = safe_path(root, ".auto-company")
+    from namespace_guard import check_root
+    check_root(root)
+    folder = safe_path(root, ".autonomous-company")
     folder.mkdir(exist_ok=True)
-    lock = safe_path(root, ".auto-company/product-state.lock")
+    lock = safe_path(root, ".autonomous-company/product-state.lock")
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -209,7 +213,7 @@ def transaction(root, timeout=5):
 
 
 def _marker(root, project):
-    return safe_path(root, project + "/.auto-company/identity.json")
+    return safe_path(root, project + "/.autonomous-company/identity.json")
 
 
 def _marker_id(root, project):
@@ -447,7 +451,7 @@ def update_cycle(root, cycle_id, status, reason=""):
 
 def recover_cycles(root):
     """Caller holds the loop ownership lock; never replay an uncertain attempt."""
-    if not any(safe_path(root, ".auto-company/" + name).exists()
+    if not any(safe_path(root, ".autonomous-company/" + name).exists()
                for name in ("product-state.json", "product-state.transaction.json")):
         return []
     recovered = []
@@ -528,9 +532,9 @@ def main():
         elif args.command == "relocate":
             result = relocate_identity(args.root, args.id, args.project)
         else:
-            if args.confirm != "STOPPED" or os.environ.get("AUTO_COMPANY_CYCLE") == "1":
+            if args.confirm != "STOPPED" or os.environ.get("AUTONOMOUS_COMPANY_CYCLE") == "1":
                 raise ValueError("Confirm every loop, Dashboard, team and product-state writer is stopped")
-            lock = safe_path(args.root, ".auto-company/product-state.lock")
+            lock = safe_path(args.root, ".autonomous-company/product-state.lock")
             if lock.exists():
                 lock.rmdir()
             with transaction(args.root):

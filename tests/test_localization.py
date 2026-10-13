@@ -30,27 +30,27 @@ class LocalizationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.local = self.root / ".auto-company.local"
+        self.local = self.root / ".autonomous-company.local"
 
     def test_precedence_and_explicit_invalid_values(self):
         with mock.patch.object(LOCALIZATION, "system_language", return_value="en"):
             self.assertEqual(LOCALIZATION.resolve_language(self.root, {}), "en")
-        self.assertEqual(LOCALIZATION.resolve_language(self.root, {"AUTO_COMPANY_LANGUAGE": "zh-CN"}), "zh-CN")
+        self.assertEqual(LOCALIZATION.resolve_language(self.root, {"AUTONOMOUS_COMPANY_LANGUAGE": "zh-CN"}), "zh-CN")
         for value in ("", "fr", "../../en", "EN"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                LOCALIZATION.resolve_language(self.root, {"AUTO_COMPANY_LANGUAGE": value})
-        self.local.write_text("AUTO_COMPANY_LANGUAGE=en\n", encoding="utf-8")
+                LOCALIZATION.resolve_language(self.root, {"AUTONOMOUS_COMPANY_LANGUAGE": value})
+        self.local.write_text("AUTONOMOUS_COMPANY_LANGUAGE=en\n", encoding="utf-8")
         self.assertEqual(LOCALIZATION.resolve_language(self.root, {}), "en")
         for value in ("zh-CN", "invalid"):
-            self.assertEqual(LOCALIZATION.resolve_language(self.root, {"AUTO_COMPANY_LANGUAGE": value}), "en")
+            self.assertEqual(LOCALIZATION.resolve_language(self.root, {"AUTONOMOUS_COMPANY_LANGUAGE": value}), "en")
 
     def test_set_preserves_selection_comments_and_line_endings(self):
-        before = b"# human-owned\r\nACTIVE_PROJECT=projects/example\r\nAUTO_COMPANY_LANGUAGE=zh-CN\r\nCUSTOM_SETTING=keep"
+        before = b"# human-owned\r\nACTIVE_PROJECT=projects/example\r\nAUTONOMOUS_COMPANY_LANGUAGE=zh-CN\r\nCUSTOM_SETTING=keep"
         self.local.write_bytes(before)
         LOCALIZATION.set_language(self.root, "en")
         self.assertEqual(self.local.read_bytes(), before.replace(b"LANGUAGE=zh-CN", b"LANGUAGE=en"))
         LOCALIZATION.set_language(self.root, "en")
-        self.assertEqual(self.local.read_bytes().count(b"AUTO_COMPANY_LANGUAGE="), 1)
+        self.assertEqual(self.local.read_bytes().count(b"AUTONOMOUS_COMPANY_LANGUAGE="), 1)
 
     def test_running_loop_can_save_next_product_preference_without_changing_pin(self):
         LOCALIZATION.set_language(self.root, "en")
@@ -69,7 +69,7 @@ class LocalizationTests(unittest.TestCase):
         self.assertNotEqual(second["productId"], first["productId"])
 
     def test_malformed_config_is_not_overwritten(self):
-        for raw in (b"AUTO_COMPANY_LANGUAGE=en\nAUTO_COMPANY_LANGUAGE=zh-CN\n", b"$(touch sentinel)\n"):
+        for raw in (b"AUTONOMOUS_COMPANY_LANGUAGE=en\nAUTONOMOUS_COMPANY_LANGUAGE=zh-CN\n", b"$(touch sentinel)\n"):
             self.local.write_bytes(raw)
             with self.assertRaises(ValueError):
                 LOCALIZATION.set_language(self.root, "en")
@@ -102,7 +102,7 @@ class LocalizationTests(unittest.TestCase):
         return result.returncode
 
     def test_preference_update_preserves_governance_and_recovers_interrupted_transaction(self):
-        self.local.write_bytes(b"# keep\r\nACTIVE_PROJECT=projects/original\r\nAUTO_COMPANY_LANGUAGE=en\r\n")
+        self.local.write_bytes(b"# keep\r\nACTIVE_PROJECT=projects/original\r\nAUTONOMOUS_COMPANY_LANGUAGE=en\r\n")
         LOCALIZATION.start_product(self.root)
         self.project_config("capture")
         self.local.write_bytes(self.local.read_bytes().replace(b"projects/original", b"projects/engine-edit"))
@@ -115,12 +115,12 @@ class LocalizationTests(unittest.TestCase):
 
         with mock.patch.object(LOCALIZATION, "atomic_write", side_effect=interrupted_write), self.assertRaises(OSError):
             LOCALIZATION.set_language(self.root, "zh-CN")
-        self.assertTrue((self.root / ".auto-company.local.language-update").exists())
+        self.assertTrue((self.root / ".autonomous-company.local.language-update").exists())
         self.assertEqual(self.project_config("verify"), 42)
         state = LOCALIZATION.language_state(self.root)
         self.assertEqual((state["language"], state["nextLanguage"]), ("en", "zh-CN"))
         self.assertIn(b"ACTIVE_PROJECT=projects/original\r\n", self.local.read_bytes())
-        self.assertFalse((self.root / ".auto-company.local.language-update").exists())
+        self.assertFalse((self.root / ".autonomous-company.local.language-update").exists())
 
     def test_corrupt_state_and_journal_fail_closed(self):
         LOCALIZATION.set_language(self.root, "en")
@@ -133,7 +133,7 @@ class LocalizationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 operation()
         self.local.write_bytes(original)
-        (self.root / ".auto-company.local.language-update").write_text('{"language":"bad"}')
+        (self.root / ".autonomous-company.local.language-update").write_text('{"language":"bad"}')
         with self.assertRaises(ValueError):
             LOCALIZATION.language_state(self.root)
         self.assertEqual(self.local.read_bytes(), original)
@@ -164,7 +164,7 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(LOCALIZATION.start_product(self.root), state)
 
     def test_managed_root_blocks_interactive_team_before_config_or_engine(self):
-        (self.root / ".auto-company-center.json").write_text("{}")
+        (self.root / ".autonomous-company-center.json").write_text("{}")
         before = {str(path.relative_to(self.root)): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
         with mock.patch.object(LOCALIZATION.shutil, "which") as executable, \
                 mock.patch.object(LOCALIZATION.subprocess, "run") as run:
@@ -182,7 +182,7 @@ class LocalizationTests(unittest.TestCase):
             self.assertEqual(engine, 'claude')
             self.assertTrue(kwargs['interactive'])
             self.assertEqual(kwargs['language'], 'en')
-            self.assertIn("AUTO_COMPANY_LANGUAGE=en", prompt)
+            self.assertIn("AUTONOMOUS_COMPANY_LANGUAGE=en", prompt)
             LOCALIZATION.set_language(self.root, "zh-CN")
             with self.assertRaises(LOCALIZATION.LanguageLockedError):
                 LOCALIZATION.next_product(self.root, "NEXT")
@@ -191,7 +191,7 @@ class LocalizationTests(unittest.TestCase):
         with mock.patch.object(LOCALIZATION.shutil, "which", return_value="fake-claude"), \
                 mock.patch('isolation_workspace.run_engine', side_effect=interactive):
             self.assertEqual(LOCALIZATION.interactive_team(self.root, "claude"), 0)
-        self.assertFalse((self.root / ".auto-company.local.team-active").exists())
+        self.assertFalse((self.root / ".autonomous-company.local.team-active").exists())
         self.assertEqual(LOCALIZATION.language_state(self.root)["language"], "en")
         self.assertEqual(LOCALIZATION.next_product(self.root, "NEXT")["language"], "zh-CN")
 
@@ -204,7 +204,7 @@ class LocalizationTests(unittest.TestCase):
             "s=importlib.util.spec_from_file_location('l', sys.argv[1]); "
             "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
             "root=pathlib.Path(sys.argv[2]); lease=m.configuration_lock(root); lease.__enter__(); "
-            "m.atomic_write(root/'.auto-company.local.language-update', json.dumps({'version':1,'language':'zh-CN'}).encode()); "
+            "m.atomic_write(root/'.autonomous-company.local.language-update', json.dumps({'version':1,'language':'zh-CN'}).encode()); "
             "(root/'writer-ready').touch(); time.sleep(60)"
         )
         process = subprocess.Popen([sys.executable, "-c", script, str(ROOT / "scripts/core/localization.py"), str(self.root)])
@@ -222,13 +222,13 @@ class LocalizationTests(unittest.TestCase):
                 self.fail("a dead lease must not be stolen automatically")
             with self.assertRaises(ValueError):
                 LOCALIZATION.recover_configuration_lock(self.root, "")
-            (self.root / ".auto-company.local.team-active").write_text("12345")
+            (self.root / ".autonomous-company.local.team-active").write_text("12345")
             recovered = LOCALIZATION.recover_configuration_lock(self.root, "RECOVER")
             self.assertEqual(recovered["productId"], original["productId"])
             self.assertEqual((recovered["language"], recovered["nextLanguage"]), ("en", "zh-CN"))
             self.assertEqual(self.project_config("verify"), 0)
-            self.assertFalse((self.root / ".auto-company.local.team-active").exists())
-            self.assertFalse((self.root / ".auto-company.local.language-update").exists())
+            self.assertFalse((self.root / ".autonomous-company.local.team-active").exists())
+            self.assertFalse((self.root / ".autonomous-company.local.language-update").exists())
         finally:
             if process.poll() is None:
                 process.kill()
@@ -294,13 +294,13 @@ class LocalizationTests(unittest.TestCase):
                 shutil.copy2(ROOT / "memories/consensus.template.md", root / "memories")
                 shutil.copy2(ROOT / "PROMPT.md", root)
                 shutil.copy2(ROOT / "CLAUDE.md", root)
-                config = f"AUTO_COMPANY_LANGUAGE={language}\n".encode()
-                (root / ".auto-company.local").write_bytes(config)
+                config = f"AUTONOMOUS_COMPANY_LANGUAGE={language}\n".encode()
+                (root / ".autonomous-company.local").write_bytes(config)
                 fake = root / "fake-engine"
                 fake.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys, time\n"
                                 "if '--version' in sys.argv: print('fake 1'); sys.exit(0)\n"
                                 "pathlib.Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv), encoding='utf-8')\n"
-                                "pathlib.Path(os.environ['CAPTURE'] + '.language').write_text(os.environ.get('AUTO_COMPANY_LANGUAGE', ''))\n"
+                                "pathlib.Path(os.environ['CAPTURE'] + '.language').write_text(os.environ.get('AUTONOMOUS_COMPANY_LANGUAGE', ''))\n"
                                 "while not pathlib.Path(os.environ['RELEASE']).exists(): time.sleep(0.02)\n"
                                 "print(json.dumps({'result':'ok','usage':{'input_tokens':2,'output_tokens':2}}))\n")
                 fake.chmod(0o755)
@@ -308,7 +308,7 @@ class LocalizationTests(unittest.TestCase):
                            CAPTURE=str(root / "captured.json"), USAGE_HARD_LIMIT_TOKENS="1",
                            RELEASE=str(root / "release-engine"),
                            LOOP_INTERVAL="60", BUDGET_PAUSE_POLL_SECONDS="60", CYCLE_TIMEOUT_SECONDS="10")
-                env.pop("AUTO_COMPANY_LANGUAGE", None)
+                env.pop("AUTONOMOUS_COMPANY_LANGUAGE", None)
                 with (root / "output").open("w") as stream:
                     process = subprocess.Popen(["bash", str(root / "scripts/core/auto-loop.sh")],
                                                env=env, stdout=stream, stderr=stream)
@@ -327,7 +327,7 @@ class LocalizationTests(unittest.TestCase):
                             time.sleep(0.05)
                         args = json.loads((root / "captured.json").read_text())
                         prompt = args[-1]
-                        self.assertIn(f"AUTO_COMPANY_LANGUAGE={language}", prompt)
+                        self.assertIn(f"AUTONOMOUS_COMPANY_LANGUAGE={language}", prompt)
                         self.assertIn(".claude/skills/team/SKILL.md", prompt)
                         self.assertIn("## Human Overrides", prompt)
                         self.assertIn("product interface text", prompt)

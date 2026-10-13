@@ -1,4 +1,4 @@
-# Auto Company 索引
+# Autonomous Company 索引
 
 [中文](INDEX.md) | [English](i18n/en/INDEX.md) · [文档与语言设置](i18n/README.md)
 
@@ -30,7 +30,7 @@
 
 调用链（默认）：
 
-`scripts/windows/start-win.ps1` -> WSL `systemd --user auto-company.service` -> `scripts/core/auto-loop.sh`
+`scripts/windows/start-win.ps1` -> WSL `systemd --user autonomous-company.service` -> `scripts/core/auto-loop.sh`
 
 说明：
 - 默认引擎是 `ENGINE=claude`
@@ -41,7 +41,7 @@
 
 停止链路：
 
-`scripts/windows/stop-win.ps1` -> 停止 `auto-company.service` + 停止 `awake guardian` + 停止 `wsl anchor`
+`scripts/windows/stop-win.ps1` -> 停止 `autonomous-company.service` + 停止 `awake guardian` + 停止 `wsl anchor`
 
 ## 脚本职责表（入口 / 守护 / 自启 / 诊断）
 
@@ -59,7 +59,7 @@
 | 自启 | `scripts/windows/enable-autostart-win.ps1` | 创建登录自启任务 |
 | 自启 | `scripts/windows/disable-autostart-win.ps1` | 删除登录自启任务 |
 | 自启 | `scripts/windows/autostart-status-win.ps1` | 查询自启任务状态 |
-| 守护 | `scripts/wsl/install-wsl-daemon.sh` | 安装并启用 `auto-company.service` |
+| 守护 | `scripts/wsl/install-wsl-daemon.sh` | 安装并启用 `autonomous-company.service` |
 | 守护 | `scripts/wsl/uninstall-wsl-daemon.sh` | 卸载 WSL daemon |
 | 守护 | `scripts/wsl/wsl-daemon-status.sh` | 查询 WSL daemon 状态 |
 | 守护 | `scripts/wsl/dashboard-wsl.sh` | 为 Linux/WSL Dashboard 查询及启停 `systemd --user` 服务 |

@@ -6,12 +6,12 @@ stage or a completion threshold. Existing objectives, budgets, governance and
 stop controls still apply. This feature does not impose a local-MVP stop or a
 fixed number of cycles before delivery.
 
-The program owns `.auto-company/product-state.json`: stable identities, counters,
+The program owns `.autonomous-company/product-state.json`: stable identities, counters,
 cycle IDs and pending/terminal attempts are committed together. Product source
 markers detect replaced directories; their names and paths are not identity.
-The language-period `AUTO_COMPANY_PRODUCT_ID` remains separate. Cycle processes
-receive the new `AUTO_COMPANY_STABLE_PRODUCT_ID` and
-`AUTO_COMPANY_PRODUCT_CYCLE_NUMBER` context.
+The language-period `AUTONOMOUS_COMPANY_PRODUCT_ID` remains separate. Cycle processes
+receive the new `AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID` and
+`AUTONOMOUS_COMPANY_PRODUCT_CYCLE_NUMBER` context.
 
 New records count from 1. Legacy usage records retain their original IDs and
 run-local numbers under “Legacy runs”; their history is never silently rewritten
