@@ -20,6 +20,8 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 LANGUAGES = ("zh-CN", "en")
 KEY = "AUTONOMOUS_COMPANY_LANGUAGE"
 PRODUCT_PREFIX = "AUTONOMOUS_COMPANY_PRODUCT_"

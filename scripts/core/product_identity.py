@@ -19,6 +19,9 @@ import tempfile
 import time
 import uuid
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 ID = re.compile(r"[0-9a-f]{32}\Z")
 CYCLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 PROJECT = re.compile(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\Z")
