@@ -1,4 +1,4 @@
-# tests/test_staleness_report.py · [[state-snapshot-staleness]]
+# tests/test_staleness_report.py · [[registry-staleness-maintenance]]
 
 Integration test that runs the staleness-report script against a synthetic app tree and asserts each mechanical flag is produced.
 

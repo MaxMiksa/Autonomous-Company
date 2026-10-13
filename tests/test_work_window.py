@@ -120,6 +120,21 @@ check("DONE plus another field still opens", rc == OPEN)
 rc, out, st = run("DELTA: changed=directive_sha16\n", 1012)
 check("directive change without status line fails closed (opens)", rc == OPEN)
 
+# 19-24. Auditor rule (2026-10-13): a new auditor report alone carries no company work.
+rc, out, st = run(DONE_SNAP + "DELTA: changed=auditor_hash\n", 1004)
+check("auditor-only change does not open (exit 0)", rc == CLOSED and out == "")
+check("auditor-only change writes no window state", st is None)
+live_win = {"opened_at_cycle": 1010, "ttl_cycles": 5, "reason_fields": "directive_status,directive_sha16"}
+rc, out, st = run(PEND_SNAP + "DELTA: changed=auditor_hash\n", 1012, state=live_win)
+check("auditor-only change keeps an open directive window open", rc == OPEN)
+check("auditor-only change leaves the stored window untouched", st == live_win)
+rc, out, st = run(DONE_SNAP + "DELTA: changed=directive_status,auditor_hash\n", 1013, state=live_win)
+check("DONE pull together with auditor change closes", rc == CLOSED and st.get("ttl_cycles") == 0)
+rc, out, st = run(PEND_SNAP + "DELTA: changed=directive_sha16,auditor_hash\n", 1020)
+check("PENDING append together with auditor change still opens", rc == OPEN)
+rc, out, st = run(DONE_SNAP + "DELTA: changed=auditor_hash,opreq_open\n", 1021)
+check("auditor plus OPREQ change still opens", rc == OPEN)
+
 print()
 if _failures:
     print(f"{len(_failures)} FAILURE(S): " + ", ".join(_failures))

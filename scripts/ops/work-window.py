@@ -46,6 +46,13 @@ DEFAULT_TTL = 5
 # phase is closed. A new directive append flips Status back to PENDING and opens it as before.
 # Unparseable status = not DONE (fail-closed: window opens).
 DIRECTIVE_FIELDS = {"directive_status", "directive_sha16"}
+# Auditor rule (operator decision 2026-10-13, same day). A new auditor report
+# (`auditor_hash`) carries no company work by itself: auditor proposals reach the company
+# only after the sponsor says "işle" (directive K7), and that arrives as a directive append,
+# which opens the window on its own. So an auditor-only change neither opens nor closes a
+# window (an existing directive window stays as it is); together with a DONE-only directive
+# change it closes like the directive rule. Observed: cycles 1004-1008 forced non-idle.
+NO_WORK_FIELDS = {"auditor_hash"}
 DIRECTIVE_STATUS_RE = re.compile(r"^directive:\s*status=([A-Z_-]+)", re.MULTILINE)
 
 
@@ -139,11 +146,14 @@ def main() -> int:
 
     cycle = args.cycle
 
-    # Directive-closed rule: a DONE pull / archive-only change closes instead of opening.
+    # Directive-closed + auditor rules: changes that carry no company work.
     if kind == "changed":
         moved = {f.strip() for f in fields.split(",") if f.strip()}
         sm = DIRECTIVE_STATUS_RE.search(block or "")
-        if moved and moved <= DIRECTIVE_FIELDS and sm and sm.group(1) == "DONE":
+        if moved and moved <= NO_WORK_FIELDS:
+            kind = "none"  # behave as if nothing moved: the stored window (if any) decides
+        elif (moved and moved <= DIRECTIVE_FIELDS | NO_WORK_FIELDS and moved & DIRECTIVE_FIELDS
+              and sm and sm.group(1) == "DONE"):
             try:
                 _write_state(state_path, {"opened_at_cycle": cycle, "reason_fields": fields,
                                           "ttl_cycles": 0, "updated_at_cycle": cycle,

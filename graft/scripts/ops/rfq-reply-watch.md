@@ -1,4 +1,4 @@
-# scripts/ops/rfq-reply-watch.py · [[operator-alerting-watchers]] [[telegram-notification-core]]
+# scripts/ops/rfq-reply-watch.py · [[operator-alerting-watchers]] [[state-file-throttling-atomicity]]
 
 Advisory RFQ reply watcher that notices new vendor replies and long silences on the OPEX RFQ table and notifies the operator without ever writing to Airtable.
 

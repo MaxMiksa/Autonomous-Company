@@ -5,16 +5,11 @@ type: file
 sources:
   - path: scripts/ops/operator-action-router.py
     hash: 25fd8206f44d0baa7b87a910d0d1846fe5ef1b155289d1a769994aff6817587e
-  - path: tests/test_operator_action_router.py
-    hash: 20f6bd56ba2238d0242627275af5749560272630a1212f9f9f22159d655d99ae
-sources_digest: eeb9735b11ba0ec109f87f095cfa8affc6afd00ebf34698caca0a50d1304a1aa
+sources_digest: 0630049afb5a60689dd7ae19e5af7d3257975de56f3e2aac81ea6b433cddc8ee
 links:
   - to: consensus-memory-state-files
     relation: uses
     description: Reads operator-requests.md and human-directive.md
-  - to: operator-request-resolution
-    relation: uses
-    description: Consumes operator-requests.md and human-directive.md as inputs
   - to: telegram-notification-channel
     relation: uses
     description: Sends the consolidated digest via telegram-notify.sh
@@ -60,15 +55,6 @@ covers:
   - symbol: main
     kind: function
     at: 'scripts/ops/operator-action-router.py:L254-L296'
-  - symbol: check
-    kind: function
-    at: 'tests/test_operator_action_router.py:L27-L33'
-  - symbol: check_true
-    kind: function
-    at: 'tests/test_operator_action_router.py:L36-L37'
-  - symbol: make_app
-    kind: function
-    at: 'tests/test_operator_action_router.py:L40-L67'
 ---
 <!-- context:generated:start -->
 ## Summary
@@ -78,7 +64,6 @@ operator-action-router.py is a Telegram firehose digest consolidating the operat
 ## Related
 
 - uses [[consensus-memory-state-files]] — Reads operator-requests.md and human-directive.md
-- uses [[operator-request-resolution]] — Consumes operator-requests.md and human-directive.md as inputs
 - uses [[telegram-notification-channel]] — Sends the consolidated digest via telegram-notify.sh
 <!-- context:generated:end -->
 

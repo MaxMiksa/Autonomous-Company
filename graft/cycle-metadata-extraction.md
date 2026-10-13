@@ -12,8 +12,8 @@ links:
   - to: auto-loop-core-engine
     relation: part_of
     description: >-
-      Functions live in auto-loop.sh; codex-final-text.py is a companion
-      extractor
+      extract_cycle_metadata() and codex-final-text.py live in
+      scripts/core/auto-loop.sh
 generator:
   version: 1
 covers: []
@@ -21,11 +21,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-extract_cycle_metadata() parses per-cycle CYCLE_TYPE/CYCLE_SUBTYPE/RESULT_TEXT from engine output (Codex plain-prose, Claude JSON, no-JSON edge). APP-240 regression: it must never kill the loop/container when Codex is routed through alternation or fallback. A companion extractor codex-final-text.py converts the Codex CLI JSONL event stream into clean summary text without leaking reasoning/thread metadata, treating non-JSON input as a fallback trigger (exit 1).
+extract_cycle_metadata() parses per-cycle CYCLE_TYPE/CYCLE_SUBTYPE/RESULT_TEXT from engine output (Claude JSON, Codex plain-prose, or no-JSON edge). It must never kill the loop/container when Codex is routed through alternation or fallback (APP-240 regression). Companion codex-final-text.py converts the Codex CLI JSONL event stream into clean summary text without leaking reasoning/thread metadata.
 
 ## Related
 
-- part of [[auto-loop-core-engine]] — Functions live in auto-loop.sh; codex-final-text.py is a companion extractor
+- part of [[auto-loop-core-engine]] — extract_cycle_metadata() and codex-final-text.py live in scripts/core/auto-loop.sh
 <!-- context:generated:end -->
 
 ## Notes

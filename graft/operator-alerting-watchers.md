@@ -9,27 +9,19 @@ sources:
     hash: 110e009b20f709db9dda31e2e17af9fb061696a869901bd389dddedca9294070
   - path: scripts/ops/rfq-reply-watch.py
     hash: a6ab97903f7cb5a67e749e16ded1a76ba0e022f2faf2e19ce7b0ad094ab441a7
-  - path: scripts/ops/turn-bloat-brake.py
-    hash: c4d72b732830311e89db486abb41c8a13a5760ffa043354c953b99a155ff96fb
-  - path: scripts/ops/work-window-watchdog.py
-    hash: 228677456f5e5634b3c6a9964c8b92e13a4c2e4992154feed8a3334779fd0a5f
-sources_digest: d431d8b8ff18258c3e612e92834f125e30d7c801c7f9c1aa0f8c9d04746ef185
+sources_digest: 5c3c228beb25ca54708c6ee339112c30711eb6f9e12a565531de8aa90bda240e
 links:
-  - to: airtable-access-wrappers
+  - to: rfq-send-pipeline
     relation: uses
     description: >-
-      Watchers paginate Airtable tables via the REST API, filtering to
-      sent/non-TEST rows
-  - to: fail-closed-harness-brakes
-    relation: implements
-    description: >-
-      turn-bloat-brake and work-window-watchdog complement the per-cycle
-      advisory brakes with streak-based hard mandates and alarms
+      rfq-reply-watch deliberately omits the delivery-failure branch because
+      rfq-send.py only marks successful sends; the watcher's classify logic
+      depends on the send pipeline's status conventions.
   - to: telegram-notification-core
     relation: uses
     description: >-
-      Each watcher shells out to scripts/core/telegram-notify.sh, sourcing
-      secrets from logs/runtime.env
+      All watchers shell out to scripts/core/telegram-notify.sh with tokens
+      loaded from logs/runtime.env.
 generator:
   version: 1
 covers:
@@ -84,47 +76,16 @@ covers:
   - symbol: classify
     kind: function
     at: 'scripts/ops/rfq-reply-watch.py:L137-L195'
-  - symbol: _app
-    kind: function
-    at: 'scripts/ops/turn-bloat-brake.py:L25-L26'
-  - symbol: _streak_len
-    kind: function
-    at: 'scripts/ops/turn-bloat-brake.py:L29-L34'
-  - symbol: _load
-    kind: function
-    at: 'scripts/ops/turn-bloat-brake.py:L37-L41'
-  - symbol: _save
-    kind: function
-    at: 'scripts/ops/turn-bloat-brake.py:L44-L51'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/turn-bloat-brake.py:L63-L104'
-  - symbol: _app_dir
-    kind: function
-    at: 'scripts/ops/work-window-watchdog.py:L45-L48'
-  - symbol: _threshold
-    kind: function
-    at: 'scripts/ops/work-window-watchdog.py:L51-L57'
-  - symbol: _read_state
-    kind: function
-    at: 'scripts/ops/work-window-watchdog.py:L60-L64'
-  - symbol: _write_state
-    kind: function
-    at: 'scripts/ops/work-window-watchdog.py:L67-L74'
-  - symbol: main
-    kind: function
-    at: 'scripts/ops/work-window-watchdog.py:L77-L125'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-A family of advisory, read-only watcher scripts that monitor Airtable queues and local state to alert an operator via Telegram when human attention is warranted. They never write back to Airtable, never send, and never block the harness loop — they only detect conditions (pending bridge rows, replies/silence, RFQ replies, empty-cycle confirmations, bloat streaks) and notify. Each maintains its own small JSON state file for once-per-outcome throttling and supports --dry-run/--fixture so prod and test share the same classify code path.
+A family of advisory, read-only watcher scripts that monitor Airtable queues and outreach rows to tell an operator when human attention is warranted. They never write back to Airtable or re-send; each maintains a local JSON state file for once-per-outcome throttling and shells out to scripts/core/telegram-notify.sh with secrets from logs/runtime.env. Distinct problems are deliberately separated in messages (e.g. 'operator is the bottleneck' vs 'we never asked'), and EKAP/MERSİS pending rows are treated as one shared scarce resource.
 
 ## Related
 
-- uses [[airtable-access-wrappers]] — Watchers paginate Airtable tables via the REST API, filtering to sent/non-TEST rows
-- implements [[fail-closed-harness-brakes]] — turn-bloat-brake and work-window-watchdog complement the per-cycle advisory brakes with streak-based hard mandates and alarms
-- uses [[telegram-notification-core]] — Each watcher shells out to scripts/core/telegram-notify.sh, sourcing secrets from logs/runtime.env
+- uses [[rfq-send-pipeline]] — rfq-reply-watch deliberately omits the delivery-failure branch because rfq-send.py only marks successful sends; the watcher's classify logic depends on the send pipeline's status conventions.
+- uses [[telegram-notification-core]] — All watchers shell out to scripts/core/telegram-notify.sh with tokens loaded from logs/runtime.env.
 <!-- context:generated:end -->
 
 ## Notes

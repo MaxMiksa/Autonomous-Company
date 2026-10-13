@@ -31,28 +31,23 @@ links:
     relation: implements
     description: >-
       extract_cycle_metadata() must not kill the loop when Codex is routed
-      through alternation/fallback (APP-240 regression)
-  - to: idle-skip-mechanism
-    relation: implements
+      through alternation/fallback (APP-240)
+  - to: engine-usage-cost-adapter
+    relation: uses
     description: >-
-      _idle_skip_due() never skips the first cycle of a UTC day and reads the
-      kill switch at call time
-  - to: one-shot-escalation
-    relation: implements
-    description: >-
-      apply_cycle_escalation() consumes an escalation exactly once; a refusal
-      leaves it ARMED rather than burning approval
+      cost attribution per cycle depends on the model-hint mechanism when
+      watchdog kills cycles before a done event
   - to: prompt-transport-contract
     relation: implements
     description: >-
       run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex
       uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts
-      >=126000 bytes with PROMPT-TOO-LARGE before spawning
-  - to: tier-ladder-budgeting
+      >=126000 bytes with PROMPT-TOO-LARGE
+  - to: set-e-and-list-hazard
     relation: implements
     description: >-
-      apply_tier_ladder() selects daily-budget-based tiers per engine
-      independently (APP-263)
+      auto-loop.sh must avoid '[ test ] && action' as a function's last command
+      or before bare return, which propagates exit 1 and kills unguarded callers
 generator:
   version: 1
 covers:
@@ -75,15 +70,14 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle engine execution, prompt assembly, cycle metadata extraction, escalation, tier-ladder budgeting, idle-skip, and prompt transport. Multiple regression tests extract its function bodies verbatim via awk/sed to drive the shipping code rather than copies, so any change to function boundaries or extraction patterns breaks tests loudly. Key invariants: cycle counter is monotonic across redeploys (never resets to 1), the discretionary spend cap injects a warning line at exactly two prompt sites, and the mixed-harness attribution must override any global LOOP_HARNESS per cycle.
+The central orchestration loop (scripts/core/auto-loop.sh) that drives per-cycle execution: prompt assembly, engine dispatch (claude/codex/jcode), cycle counter persistence, tier-ladder budget selection, escalation, idle-skip, discretionary spend caps, and cycle metadata extraction. Many tests extract its functions verbatim via awk/sed to test the shipping code rather than copies, so its function boundaries and shell-option strictness (set -euo pipefail) are load-bearing contracts.
 
 ## Related
 
-- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240 regression)
-- implements [[idle-skip-mechanism]] — _idle_skip_due() never skips the first cycle of a UTC day and reads the kill switch at call time
-- implements [[one-shot-escalation]] — apply_cycle_escalation() consumes an escalation exactly once; a refusal leaves it ARMED rather than burning approval
-- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE before spawning
-- implements [[tier-ladder-budgeting]] — apply_tier_ladder() selects daily-budget-based tiers per engine independently (APP-263)
+- implements [[cycle-metadata-extraction]] — extract_cycle_metadata() must not kill the loop when Codex is routed through alternation/fallback (APP-240)
+- uses [[engine-usage-cost-adapter]] — cost attribution per cycle depends on the model-hint mechanism when watchdog kills cycles before a done event
+- implements [[prompt-transport-contract]] — run_claude_cycle_cli/run_codex_cycle_cli pass prompts via STDIN (codex uses '-' sentinel) to avoid E2BIG; run_jcode_cycle refuses prompts >=126000 bytes with PROMPT-TOO-LARGE
+- implements [[set-e-and-list-hazard]] — auto-loop.sh must avoid '[ test ] && action' as a function's last command or before bare return, which propagates exit 1 and kills unguarded callers
 <!-- context:generated:end -->
 
 ## Notes

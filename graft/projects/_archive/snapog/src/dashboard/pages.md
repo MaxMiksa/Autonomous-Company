@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/dashboard/pages.ts
+# projects/_archive/snapog/src/dashboard/pages.ts · [[snapog-og-image-service]]
 
 Module defining all HTML page templates and shared CSS for the SnapOG dashboard and landing site.
 

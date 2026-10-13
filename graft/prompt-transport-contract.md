@@ -10,8 +10,8 @@ links:
   - to: auto-loop-core-engine
     relation: part_of
     description: >-
-      The transport functions live in auto-loop.sh and are extracted verbatim
-      for testing
+      Enforced inside run_claude_cycle_cli/run_codex_cycle_cli/run_jcode_cycle
+      in auto-loop.sh
 generator:
   version: 1
 covers: []
@@ -19,11 +19,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-The invariant that cycle prompts are transported to engine CLIs via STDIN (codex using the '-' sentinel) rather than as argv arguments, preventing E2BIG failures from Linux's 131072-byte per-argument cap. run_jcode_cycle additionally refuses prompts >=126000 bytes with a named PROMPT-TOO-LARGE reason before spawning. This is pinned by a dedicated regression test that stubs the engine binary to record argv/stdin.
+The invariant that cycle prompts are transported to engine CLIs via STDIN rather than argv, because Linux caps per-argument size at 131072 bytes (E2BIG). Codex uses the '-' sentinel; jcode passes normal-size prompts as the run subcommand's argv but refuses >=126000 bytes with a named PROMPT-TOO-LARGE reason before spawning.
 
 ## Related
 
-- part of [[auto-loop-core-engine]] — The transport functions live in auto-loop.sh and are extracted verbatim for testing
+- part of [[auto-loop-core-engine]] — Enforced inside run_claude_cycle_cli/run_codex_cycle_cli/run_jcode_cycle in auto-loop.sh
 <!-- context:generated:end -->
 
 ## Notes

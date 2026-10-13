@@ -1,4 +1,4 @@
-# scripts/ops/staleness-report.py · [[state-snapshot-delta-probing]]
+# scripts/ops/staleness-report.py · [[state-staleness-probes]] [[wowcar-source-modules]]
 
 Read-only stdlib script that measures staleness/rot across Program Auditor memory surfaces and writes a deterministic markdown report for the auditor to interpret.
 

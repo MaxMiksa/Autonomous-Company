@@ -1,4 +1,4 @@
-# dashboard/app.js
+# dashboard/app.js · [[cockpit-dashboard]]
 
 The dashboard front-end that polls /api/status and renders live state, cost, directive, and hold controls for the agent loop cockpit.
 

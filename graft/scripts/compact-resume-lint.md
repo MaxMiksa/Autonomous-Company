@@ -1,4 +1,4 @@
-# scripts/compact-resume-lint.py
+# scripts/compact-resume-lint.py · [[compact-ritual-tooling]]
 
 Pre-ritual lint that fails the resume step if it carries stale measurement numbers (cost/queue/budget/context) or is missing required template sections, so decisions aren't made on stale figures.
 

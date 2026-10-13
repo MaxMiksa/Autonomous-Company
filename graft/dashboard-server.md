@@ -9,14 +9,11 @@ sources:
     hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
 sources_digest: 13985929491af07f744c1fbb1c0f40f5b35036a0926db681811e06a6a192ef7a
 links:
-  - to: directive-writer-section-refs
-    relation: uses
-    description: Writes directives via directive_writer.py subprocess
   - to: operator-request-resolution
-    relation: uses
+    relation: produces
     description: >-
-      The cockpit's operator-decision panel produces the refusal format consumed
-      by operator_request_notify.py
+      Writes operator-decisions.md in the refusal format consumed by
+      operator_request_notify.py
 generator:
   version: 1
 covers:
@@ -225,12 +222,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-dashboard/server.py powers the Auto Company operations dashboard: parses status output for Windows/macOS/Linux hosts, dispatches start/stop/refresh actions, extracts engine runtime state from persistent logs, resolves settings (container-set vs default), computes spend windows anchored to ccusage's blockStart rather than a rolling bound, and manages directive files. Parses the latest boot from ever-growing auto-loop.log files and handles escalated model cycles.
+dashboard/server.py powers the Auto Company operations dashboard: status parsing for Windows/macOS/Linux, action dispatch (start/stop/refresh), engine runtime extraction from ever-growing auto-loop.log (latest boot), settings resolution, spend windows anchored to ccusage's blockStart, and directive file management. Writes the operator-decision refusal format (short head line + verbatim text) that operator_request_notify.py parses.
 
 ## Related
 
-- uses [[directive-writer-section-refs]] — Writes directives via directive_writer.py subprocess
-- uses [[operator-request-resolution]] — The cockpit's operator-decision panel produces the refusal format consumed by operator_request_notify.py
+- produces [[operator-request-resolution]] — Writes operator-decisions.md in the refusal format consumed by operator_request_notify.py
 <!-- context:generated:end -->
 
 ## Notes

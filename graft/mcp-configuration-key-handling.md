@@ -16,11 +16,9 @@ links:
   - to: auto-loop-core-engine
     relation: configures
     description: >-
-      JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must match the
-      manifest server set
-  - to: mcp-probe-contract
-    relation: implements
-    description: jcode-mcp-probe.py validates servers against the manifest
+      JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must agree with
+      the manifest; airtable/linear must be absent from loop config (OPREQ-A
+      invariant)
 generator:
   version: 1
 covers: []
@@ -28,12 +26,11 @@ covers: []
 <!-- context:generated:start -->
 ## Summary
 
-The MCP server configuration stack: jcode-mcp-config.py generates the loop config from .mcp.json, jcode-mcp-probe.py deterministically probes servers against a manifest, and jcode-mcp-manifest.json is the source of truth. Critical invariants: secrets never appear in process argv (kept in the server spec's env block, with ${VAR} placeholders in argv) to avoid ps exposure; the Keychain fallback works on macOS but never fires inside the container where the security binary is absent; airtable and linear are deliberately absent from the loop config (OPREQ-A invariant); and the generated config's server set must stay in sync with the manifest and the hardcoded JCODE_MCP_CONFIG_REQUIRED preflight list to prevent boot crash-loops.
+The MCP server configuration stack: jcode-mcp-config.py generates the loop's MCP config from .mcp.json, keeping secrets in the server spec's env block (never argv, where ps could expose them) and failing closed if a required server's variable is unset. jcode-mcp-probe.py deterministically probes servers against a manifest, requiring at least one proven readcheck per server. A Keychain fallback fires on macOS when a ${VAR} placeholder or unset variable arrives, but never inside the container where the security binary is absent. Manifest/config/preflight sync is enforced to prevent boot crash-loops.
 
 ## Related
 
-- configures [[auto-loop-core-engine]] — JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must match the manifest server set
-- implements [[mcp-probe-contract]] — jcode-mcp-probe.py validates servers against the manifest
+- configures [[auto-loop-core-engine]] — JCODE_MCP_CONFIG_REQUIRED preflight list in auto-loop.sh must agree with the manifest; airtable/linear must be absent from loop config (OPREQ-A invariant)
 <!-- context:generated:end -->
 
 ## Notes

@@ -1,4 +1,4 @@
-# tests/test_cost_audit_tool_surface.py · [[cycle-cost-usage-auditing]]
+# tests/test_cost_audit_tool_surface.py · [[test-harness-suites]]
 
 Integration test that verifies cost-audit §5 subtracts loop-hidden tools from the advertised tool count so trimmed tools are never re-flagged as trim candidates.
 

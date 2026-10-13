@@ -3,21 +3,34 @@ name: operator request resolution
 slug: operator-request-resolution
 type: system
 sources:
+  - path: tests/test_operator_action_router.py
+    hash: 20f6bd56ba2238d0242627275af5749560272630a1212f9f9f22159d655d99ae
   - path: tests/test_operator_request_notify.py
     hash: 07fef3026944da791037a735c7e5cea15cdb4f53eabaecf7affda422400f016f
   - path: tests/test_refusal_format.sh
     hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
-sources_digest: ebe602783e96c25da7ca858c8d25dcc4551f325dec64bdc8b5d77a6c35198ecb
+sources_digest: 84ce987e8f25f3f1d2f0813cb0d8ca7072bf2e7955bc3ee0da67c859d555140c
 links:
-  - to: directive-writer-section-refs
+  - to: dashboard-server
     relation: uses
-    description: Reads Decision/Authorization lines from human-directive.md
-  - to: operator-action-router
+    description: >-
+      The cockpit's operator-decision panel writes the refusal format that
+      operator_request_notify.py must parse
+  - to: directive-writer
     relation: uses
-    description: operator-requests.md is a shared input consumed by the router
+    description: Parses Decision/Authorization lines written into human-directive.md
 generator:
   version: 1
 covers:
+  - symbol: check
+    kind: function
+    at: 'tests/test_operator_action_router.py:L27-L33'
+  - symbol: check_true
+    kind: function
+    at: 'tests/test_operator_action_router.py:L36-L37'
+  - symbol: make_app
+    kind: function
+    at: 'tests/test_operator_action_router.py:L40-L67'
   - symbol: make_send_fn
     kind: function
     at: 'tests/test_operator_request_notify.py:L40-L50'
@@ -145,12 +158,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/core/operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic per-type resolution rules: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/ (rejecting mismatches and paths outside that directory); credential requires a PASS log with no secret-shaped tokens; legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line; expenditure/external-action require a complete 'Authorization for OPREQ-<id>:' block with System/Action/Target/Limit. Notifications are one-time with a content fingerprint (ignoring timestamp-only changes), re-notified on material edits, and HOLD/informational/research-result types are suppressed. Resolved requests disappear from the consensus projection.
+The operator-request lifecycle: operator_request_notify.py orchestrates Telegram notifications with content-fingerprint dedup and per-type resolution rules (document-procurement needs SHA-256-matched evidence file, credential needs PASS log without secret-shaped tokens, legal/financial/adjudication need a structured Decision line, expenditure/authorization need a complete Authorization block). operator-action-router.py prioritizes hold > opreq > directive with staleness floors and dedup. Resolution rules are deterministic and enforced by tests.
 
 ## Related
 
-- uses [[directive-writer-section-refs]] — Reads Decision/Authorization lines from human-directive.md
-- uses [[operator-action-router]] — operator-requests.md is a shared input consumed by the router
+- uses [[dashboard-server]] — The cockpit's operator-decision panel writes the refusal format that operator_request_notify.py must parse
+- uses [[directive-writer]] — Parses Decision/Authorization lines written into human-directive.md
 <!-- context:generated:end -->
 
 ## Notes

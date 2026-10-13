@@ -1,4 +1,4 @@
-# scripts/ops/turn-bloat-brake.py · [[fail-closed-harness-brakes]] [[operator-alerting-watchers]]
+# scripts/ops/turn-bloat-brake.py · [[cycle-cost-bloat-governance]] [[state-file-throttling-atomicity]]
 
 CLI tool that tracks consecutive BLOATED cycles and escalates to a hard persist-and-end mandate once a streak crosses a threshold, resetting on any non-BLOATED verdict.
 

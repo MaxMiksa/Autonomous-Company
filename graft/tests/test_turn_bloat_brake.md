@@ -1,4 +1,4 @@
-# tests/test_turn_bloat_brake.py · [[turn-economy-bloat-control]]
+# tests/test_turn_bloat_brake.py · [[ops-watchers-guards]]
 
 Test suite for the turn-bloat-brake script, verifying streak counting, alarm threshold crossing, hard feedback, reset behavior, env-configurable K, and kill switch.
 

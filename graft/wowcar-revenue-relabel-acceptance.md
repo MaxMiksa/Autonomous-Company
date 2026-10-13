@@ -7,11 +7,11 @@ sources:
     hash: bc164912338c15636cc9183c9327a6f77fdab6aebc86e2747f197f01f824fab2
 sources_digest: 4ac41bf99d27b7821e402c8d05774f95ac477ff958d361739e49e65a248d1add
 links:
-  - to: state-snapshot-delta-probing
+  - to: wowcar-source-modules
     relation: validates
     description: >-
-      state-snapshot hashes the Wowcar source directory that this harness pins
-      as baseline
+      Runs build_xlsx.py, recalc.py, test.py, capraz.py, tanila.py, kohort.py,
+      and model.py and asserts their success markers and byte-identical output.
 generator:
   version: 1
 covers:
@@ -112,11 +112,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A fail-closed acceptance harness pinning the live Wowcar repository as an immutable baseline (SHA-256 manifest + canonical JSON root digest) and proving a candidate copy with eight approved vocabulary edits plus six column-width adjustments produces byte-identical outputs. Hard-pins CPython 3.13.5, LibreOffice 25.2.3.2, and exact library versions; reverses edits deterministically to prove byte-equality with the baseline; uses PYTHONHASHSEED=0 and PYTHONDONTWRITEBYTECODE=1 for determinism.
+A fail-closed acceptance harness pinning the live Wowcar repository as an immutable baseline and proving a candidate copy with eight approved vocabulary edits (replacing 'Faiz geliri' with 'Vade farkı geliri') plus six column-width adjustments produces byte-identical outputs. It hard-pins CPython 3.13.5, LibreOffice, and exact library versions, compares the tree against a pinned SHA-256 manifest, and proves width edits are reversible in source order even though they converge on the same width-18 postimage.
 
 ## Related
 
-- validates [[state-snapshot-delta-probing]] — state-snapshot hashes the Wowcar source directory that this harness pins as baseline
+- validates [[wowcar-source-modules]] — Runs build_xlsx.py, recalc.py, test.py, capraz.py, tanila.py, kohort.py, and model.py and asserts their success markers and byte-identical output.
 <!-- context:generated:end -->
 
 ## Notes
