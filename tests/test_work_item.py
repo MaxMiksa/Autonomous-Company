@@ -71,6 +71,9 @@ def test_validate():
           wi.validate(card(status_proposal="BLOCKED",
                            blocked={"reason": "sponsor Gate 0 frame decision", "owner": "sponsor", "since": "2026-10-16"})) == [])
     check("non-object card rejected", wi.validate([1, 2]) != [])
+    check("explicit roles list accepted", wi.validate(card(roles=["cfo-campbell", "reconciliation-controller"])) == [])
+    for bad in ([], ["CFO"], "cfo-campbell", ["a"] * 6, [1]):
+        check(f"bad roles rejected: {bad!r}", wi.validate(card(roles=bad)) != [])
 
 
 def test_transition():

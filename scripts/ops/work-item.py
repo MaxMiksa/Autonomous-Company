@@ -28,6 +28,7 @@ ACTIVE = {"PLANNED", "IN_PROGRESS"}
 GATES = {f"G{i}" for i in range(8)}
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,63}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 CARD_DIR = Path("memories") / "work-items"
 
 
@@ -94,6 +95,12 @@ def validate(card):
             _err(e, "blocked: {reason, owner, since} required when BLOCKED")
     if "lessons" in card and not isinstance(card["lessons"], list):
         _err(e, "lessons: list")
+    # Optional explicit role list for the injected checklist (role-checklist.py render
+    # --card); absent = the gate map applies. Existence is checked there, not here.
+    roles = card.get("roles")
+    if roles is not None and not (isinstance(roles, list) and 1 <= len(roles) <= 5
+                                  and all(isinstance(r, str) and ROLE_RE.match(r) for r in roles)):
+        _err(e, "roles: list of 1-5 role file names (kebab-case)")
     return e
 
 
