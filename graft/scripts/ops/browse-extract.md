@@ -1,4 +1,4 @@
-# scripts/ops/browse-extract.py · [[external-data-access-airtable-browser-ki-k]]
+# scripts/ops/browse-extract.py · [[browser-automation]] [[browser-web-extraction]]
 
 One-shot CLI that walks a list of URLs in a single background browser tab, waits for render, greps rendered text, and returns a capped excerpt, replacing multi-turn MCP micro-step chains.
 

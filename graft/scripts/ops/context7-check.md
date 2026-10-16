@@ -1,4 +1,4 @@
-# scripts/ops/context7-check.py · [[turn-economy-bloat-monitoring]]
+# scripts/ops/context7-check.py · [[compliance-evidence-checks]] [[context7-tool-surface-auditing]]
 
 CLI check that audits cycle ndjson logs to flag cycles that wrote code importing an external library without calling Context7, reporting to the log rather than blocking.
 

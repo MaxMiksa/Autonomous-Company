@@ -353,7 +353,7 @@ def directive_sections(raw: str) -> tuple[list[dict[str, Any]], int]:
     ]
     for heading, text in secs:
         title = heading[3:].strip()
-        kind = "archive" if title.startswith("ARŞİV") else "active"
+        kind = "archive" if title.startswith(("ARŞİV", "ARCHIVE")) else "active"
         out.append({"heading": title, "bytes": len(text.encode("utf-8")), "kind": kind})
     return out, len(body.encode("utf-8"))
 

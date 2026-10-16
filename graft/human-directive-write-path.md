@@ -1,132 +1,113 @@
 ---
-name: Human Directive Write Path
+name: Human directive write path
 slug: human-directive-write-path
 type: file
 sources:
   - path: scripts/core/directive_writer.py
-    hash: 276871ed21c1686f9b10a2179256e93b609c818f77a7b7e5f31a7e6681829da4
-sources_digest: 6eed857116759502f9b268374ade298389b21ffe785742f41950c601357badb5
-links:
-  - to: consensus-memory-state-files
-    relation: configures
-    description: Writes and maintains memories/human-directive.md
-  - to: directive-staleness-coverage-watchers
-    relation: validates
-    description: >-
-      directive-staleness-watch.py and directive-rule-sweep.py audit the
-      directive's status and rule coverage
-  - to: operator-escalation-gate
-    relation: uses
-    description: >-
-      operator_request_notify.py reads explicit directives in human-directive.md
-      as resolution evidence
+    hash: 2b00db428f705544c6b980dd3b76f3e35e0dc76ca44eb82a2d023c7d1b9bb45a
+sources_digest: 023c56a03d6ec25b996a5340319855374414f507c1169e8f3832a0e9e3b207fc
+links: []
 generator:
   version: 1
 covers:
   - symbol: undefined_section_refs
     kind: function
-    at: 'scripts/core/directive_writer.py:L100-L109'
+    at: 'scripts/core/directive_writer.py:L104-L113'
   - symbol: now
     kind: function
-    at: 'scripts/core/directive_writer.py:L112-L113'
+    at: 'scripts/core/directive_writer.py:L116-L117'
   - symbol: sha
     kind: function
-    at: 'scripts/core/directive_writer.py:L116-L117'
+    at: 'scripts/core/directive_writer.py:L120-L121'
   - symbol: read_live
     kind: function
-    at: 'scripts/core/directive_writer.py:L120-L126'
+    at: 'scripts/core/directive_writer.py:L124-L130'
   - symbol: body_of
     kind: function
-    at: 'scripts/core/directive_writer.py:L129-L136'
+    at: 'scripts/core/directive_writer.py:L133-L140'
   - symbol: audit
     kind: function
-    at: 'scripts/core/directive_writer.py:L139-L145'
+    at: 'scripts/core/directive_writer.py:L143-L149'
   - symbol: _telegram_env
     kind: function
-    at: 'scripts/core/directive_writer.py:L148-L171'
+    at: 'scripts/core/directive_writer.py:L152-L175'
   - symbol: notify
     kind: function
-    at: 'scripts/core/directive_writer.py:L174-L184'
+    at: 'scripts/core/directive_writer.py:L178-L188'
   - symbol: _why_pending
     kind: function
-    at: 'scripts/core/directive_writer.py:L187-L215'
+    at: 'scripts/core/directive_writer.py:L191-L219'
   - symbol: backup
     kind: function
-    at: 'scripts/core/directive_writer.py:L218-L232'
+    at: 'scripts/core/directive_writer.py:L222-L236'
   - symbol: normalize_ownership
     kind: function
-    at: 'scripts/core/directive_writer.py:L235-L281'
+    at: 'scripts/core/directive_writer.py:L239-L285'
   - symbol: atomic_write
     kind: function
-    at: 'scripts/core/directive_writer.py:L284-L296'
+    at: 'scripts/core/directive_writer.py:L288-L300'
   - symbol: verify_written
     kind: function
-    at: 'scripts/core/directive_writer.py:L299-L303'
+    at: 'scripts/core/directive_writer.py:L303-L307'
   - symbol: Refused
     kind: class
-    at: 'scripts/core/directive_writer.py:L306-L307'
+    at: 'scripts/core/directive_writer.py:L310-L311'
   - symbol: live_body
     kind: function
-    at: 'scripts/core/directive_writer.py:L312-L315'
+    at: 'scripts/core/directive_writer.py:L316-L319'
   - symbol: split_body
     kind: function
-    at: 'scripts/core/directive_writer.py:L318-L337'
+    at: 'scripts/core/directive_writer.py:L322-L345'
   - symbol: section_sizes
     kind: function
-    at: 'scripts/core/directive_writer.py:L340-L344'
+    at: 'scripts/core/directive_writer.py:L348-L352'
   - symbol: size_brake
     kind: function
-    at: 'scripts/core/directive_writer.py:L347-L363'
+    at: 'scripts/core/directive_writer.py:L355-L371'
   - symbol: _pending_gate
     kind: function
-    at: 'scripts/core/directive_writer.py:L366-L382'
+    at: 'scripts/core/directive_writer.py:L374-L390'
   - symbol: _refuse_section_refs
     kind: function
-    at: 'scripts/core/directive_writer.py:L385-L393'
+    at: 'scripts/core/directive_writer.py:L393-L401'
   - symbol: with_lock
     kind: function
-    at: 'scripts/core/directive_writer.py:L396-L405'
+    at: 'scripts/core/directive_writer.py:L404-L413'
   - symbol: wrapper
     kind: function
-    at: 'scripts/core/directive_writer.py:L397-L404'
+    at: 'scripts/core/directive_writer.py:L405-L412'
   - symbol: cmd_write
     kind: function
-    at: 'scripts/core/directive_writer.py:L418-L472'
+    at: 'scripts/core/directive_writer.py:L426-L480'
   - symbol: cmd_append
     kind: function
-    at: 'scripts/core/directive_writer.py:L476-L504'
+    at: 'scripts/core/directive_writer.py:L484-L512'
   - symbol: cmd_archive
     kind: function
-    at: 'scripts/core/directive_writer.py:L508-L572'
+    at: 'scripts/core/directive_writer.py:L516-L580'
   - symbol: cmd_status
     kind: function
-    at: 'scripts/core/directive_writer.py:L576-L610'
+    at: 'scripts/core/directive_writer.py:L584-L618'
   - symbol: cmd_restore
     kind: function
-    at: 'scripts/core/directive_writer.py:L614-L650'
+    at: 'scripts/core/directive_writer.py:L622-L658'
   - symbol: cmd_show
     kind: function
-    at: 'scripts/core/directive_writer.py:L653-L664'
+    at: 'scripts/core/directive_writer.py:L661-L672'
   - symbol: main
     kind: function
-    at: 'scripts/core/directive_writer.py:L667-L725'
+    at: 'scripts/core/directive_writer.py:L675-L733'
   - symbol: _refuse_forbidden
     kind: function
-    at: 'scripts/core/directive_writer.py:L706-L712'
+    at: 'scripts/core/directive_writer.py:L714-L720'
   - symbol: fn
     kind: function
-    at: 'scripts/core/directive_writer.py:L707-L711'
+    at: 'scripts/core/directive_writer.py:L715-L719'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-directive_writer.py is the single locked write path for memories/human-directive.md, enforcing two fail-closed rules: in-flight PENDING directives are never clobbered without --allow-pending, and the directive body is immutable after acceptance except for a compare-and-swap status transition. It runs a pipeline of file lock, in-flight gate, persistent backup, atomic rename, read-back verification, audit logging, and Telegram notification, with OPREQ-GOV-DIRECTIVE-BODY-001 rejecting bodies referencing undefined §N sections and a size brake at 50KB/90KB.
-
-## Related
-
-- configures [[consensus-memory-state-files]] — Writes and maintains memories/human-directive.md
-- validates [[directive-staleness-coverage-watchers]] — directive-staleness-watch.py and directive-rule-sweep.py audit the directive's status and rule coverage
-- uses [[operator-escalation-gate]] — operator_request_notify.py reads explicit directives in human-directive.md as resolution evidence
+The single locked write path for memories/human-directive.md, enforcing fail-closed rules: in-flight PENDING directives are never clobbered without --allow-pending, the body is immutable after acceptance except a compare-and-swap status transition, and bodies referencing undefined §N sections are rejected. Uses fcntl locking, atomic rename, read-back verification, and chowns files to the memories owner so root-invoked writes don't break the app-uid loop's read access.
 <!-- context:generated:end -->
 
 ## Notes

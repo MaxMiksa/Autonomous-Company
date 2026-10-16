@@ -14,13 +14,20 @@ links:
   - to: airtable-access-wrappers
     relation: uses
     description: >-
-      Watchers paginate Airtable tables via the REST API, sharing the
-      URL-quoting and scoping conventions
-  - to: telegram-notification-secrets
+      Reads Airtable tables via REST API; reply-watch and rfq-reply-watch
+      paginate records and parse Email log / Reply log / Gönderim TS timestamp
+      fields.
+  - to: fail-closed-eligibility-gates
     relation: uses
     description: >-
-      All watchers shell out to scripts/core/telegram-notify.sh and source
-      secrets from logs/runtime.env
+      registry-queue-watch distinguishes 'operator is the bottleneck'
+      (resolvable pending rows) from 'we never asked' (Held-on-attribution rows
+      with no queued bridge request).
+  - to: telegram-notification-core
+    relation: uses
+    description: >-
+      Shells out to scripts/core/telegram-notify.sh with secrets from
+      logs/runtime.env to deliver alerts.
 generator:
   version: 1
 covers:
@@ -79,12 +86,13 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A family of advisory, read-only watcher scripts that monitor Airtable queues and local state to notify an operator via Telegram when human attention is warranted. They never write back to Airtable, only to small local JSON state files for escalation throttling, and all shell out to scripts/core/telegram-notify.sh with secrets from logs/runtime.env. Distinct problems are deliberately separated in messages (e.g. 'operator is the bottleneck' vs 'we never asked'), and each row alerts at most once per outcome class via persistent state.
+A family of advisory, read-only watcher scripts that monitor Airtable queues and local state to alert an operator via Telegram when human attention is warranted. They never write back to Airtable, never send, and never block the harness loop — they only detect conditions (pending registry/EKAP bridge rows, outreach replies/silence/delivery failures, RFQ replies/silence) and notify. Each maintains its own JSON state file for once-per-outcome throttling and supports --dry-run/--fixture so prod and test share the same classify code path.
 
 ## Related
 
-- uses [[airtable-access-wrappers]] — Watchers paginate Airtable tables via the REST API, sharing the URL-quoting and scoping conventions
-- uses [[telegram-notification-secrets]] — All watchers shell out to scripts/core/telegram-notify.sh and source secrets from logs/runtime.env
+- uses [[airtable-access-wrappers]] — Reads Airtable tables via REST API; reply-watch and rfq-reply-watch paginate records and parse Email log / Reply log / Gönderim TS timestamp fields.
+- uses [[fail-closed-eligibility-gates]] — registry-queue-watch distinguishes 'operator is the bottleneck' (resolvable pending rows) from 'we never asked' (Held-on-attribution rows with no queued bridge request).
+- uses [[telegram-notification-core]] — Shells out to scripts/core/telegram-notify.sh with secrets from logs/runtime.env to deliver alerts.
 <!-- context:generated:end -->
 
 ## Notes

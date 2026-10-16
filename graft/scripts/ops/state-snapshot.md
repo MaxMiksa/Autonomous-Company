@@ -1,4 +1,4 @@
-# scripts/ops/state-snapshot.py · [[memory-ledger-files]] [[memory-staleness-snapshot-probes]] [[state-snapshot]]
+# scripts/ops/state-snapshot.py · [[state-snapshot-staleness]] [[state-staleness-measurement]]
 
 One-call cycle state snapshot that collapses the per-cycle probe fan-out into a single turn, printing local state hashes plus a DELTA line against the previous snapshot so an unchanged world can be dismissed in one glance.
 

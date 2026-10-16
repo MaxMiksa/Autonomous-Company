@@ -151,6 +151,25 @@ def main() -> int:
         r = e2.run("append", "--section-file", str(e2.app / "big.md"), "--allow-pending", "--force-size")
         check("--force-size overrides MAX", r.returncode == 0, r.stderr)
 
+        # --- English body (K-2, 2026-10-16): EN protected headings stay in the first chunk
+        en_body = ("## Source documents and locations\n\nTable.\n\n# MAIN DIRECTIVE\n## WOWCAR 2.0 COMPANY\n\n"
+                   "### 15. Authority limits\nText.\n\n## Operator note (given together with the directive)\n\nNote.\n\n"
+                   "## ARCHIVE 4 — old round\n\nSummary.\n\n"
+                   "## SPONSOR RULING — OPREQ-X-001\n\nResolves: OPREQ-X-001\n\n"
+                   "## TASK B (2026-10-16)\n\nItem 1.\n")
+        e3 = Env(Path(td) / "en")
+        r = e3.run("write", "--body-file", e3.f("en.md", en_body))
+        check("EN body write ok", r.returncode == 0, r.stderr)
+        secs = e3.run("show", "--sections").stdout
+        check("EN protected headings not split into sections",
+              "## Source documents" not in secs and "## Operator note" not in secs and "## WOWCAR" not in secs, secs)
+        check("EN body has exactly 3 sections",
+              sum(1 for ln in secs.splitlines() if "## " in ln) == 3 and
+              all(h in secs for h in ("## ARCHIVE 4", "## SPONSOR RULING", "## TASK B")), secs)
+        r = e3.run("archive", "--drop-prefix", "## Operator note", "--summary-file", e3.f("s.md", "## ARCHIVE 5 — x\n\ny\n"),
+                   "--allow-pending")
+        check("EN main directive cannot be archived (rc 3, no match)", r.returncode == 3, r.stderr)
+
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nALL PASS")
     return 1 if FAILS else 0
 

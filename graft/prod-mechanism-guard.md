@@ -1,7 +1,7 @@
 ---
-name: Prod-Mechanism Guard
+name: prod-mechanism guard
 slug: prod-mechanism-guard
-type: file
+type: system
 sources:
   - path: scripts/prod-mechanism-guard.py
     hash: e3d5c01038affa27aaed85106b6b8ff0705c6be14fa3b2caa1c21144fde5acee
@@ -9,11 +9,12 @@ sources:
     hash: 1c8df67eca679e21cbbe4ea2daac7f761fc952f17b25f99d2673a4782ffa6824
 sources_digest: 85f0fc7428c6e4e3dfe8a3574ea24ed99ff361f071029bc7d1a9cbef79456bc1
 links:
-  - to: auto-loop-harness
+  - to: auto-loop-core-engine
     relation: validates
-    description: >-
-      Protects scripts/core/auto-loop.sh from unplanned edits; its sync check is
-      asserted in tests
+    description: Blocks unapproved edits to auto-loop.sh and other protected surfaces.
+  - to: send-gate-outreach-policy
+    relation: validates
+    description: rfq-send.py must be registered and pass --check-sync.
 generator:
   version: 1
 covers:
@@ -30,11 +31,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A PreToolUse tripwire hook for Claude Code that mechanically blocks unplanned writes to protected production surfaces (scripts/core/auto-loop.sh, dashboard/server.py, Dockerfile, runtime.env) unless a fresh marker file exists. It is deliberately fail-open on malformed stdin and no-ops when CLAUDE_PROJECT_DIR points to /app (deferring to PROMPT.md's OPREQ authorization machine). Known limitation: sed -i in Bash bypasses it entirely — it is a tripwire, not a boundary. Also implements a --check-sync drift detector verifying every backtick-referenced surface in CLAUDE.md is covered.
+scripts/prod-mechanism-guard.py is a PreToolUse hook blocking edits to production-critical surfaces (auto-loop.sh, send-gate.py, deploy/runtime.env) with a 3-hour override window via a fresh .claude/.prod-change-approved marker, fail-open on malformed JSON, no-op for container paths, and a --check-sync mode that detects drift between CLAUDE.md's documented protected surfaces and the actual PROTECTED_* list.
 
 ## Related
 
-- validates [[auto-loop-harness]] — Protects scripts/core/auto-loop.sh from unplanned edits; its sync check is asserted in tests
+- validates [[auto-loop-core-engine]] — Blocks unapproved edits to auto-loop.sh and other protected surfaces.
+- validates [[send-gate-outreach-policy]] — rfq-send.py must be registered and pass --check-sync.
 <!-- context:generated:end -->
 
 ## Notes

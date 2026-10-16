@@ -13,9 +13,9 @@ sources:
     hash: 3792b2bd4004ee751d9ae6647d0fc58d9708ef758ad6bfda6beb0a4314bd8883
 sources_digest: cb61b3ccfe05c907fe9c1d45e555e1e03b1607816df1e7ac11b12c3268891960
 links:
-  - to: headinspect-data-schema
-    relation: uses
-    description: Writes anonymous hit records to the headinspect_hits table.
+  - to: headinspect-privacy-constraint
+    relation: implements
+    description: 'Only hostname is stored, never the full URL.'
 generator:
   version: 1
 covers:
@@ -128,11 +128,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A Cloudflare Worker (projects/headinspect) that fetches a user-supplied URL and reports on its response headers with security grading. Enforces strict SSRF protections (rejecting non-HTTPS, localhost, private IP ranges, cloud metadata endpoints), follows up to five redirects manually, drains bodies to free sockets, and applies a 10-second timeout. Pure logic in inspect.ts categorizes headers with deterministic ordering and computes a security letter grade with weighted scoring and hard caps (grade capped at C when no enforced CSP). render.ts is a single-template HTML/SVG renderer with no client framework. Privacy constraint: only hostname is stored in the D1 hit counter, never the full URL, to prevent query-string PII leakage.
+Cloudflare Worker that fetches a user-supplied URL and reports on its response headers. Routes / (HTML report or JSON), /api/inspect, /health, and /badge.svg. Enforces strict SSRF protections via validateUrl and isBlockedHost (rejecting non-HTTPS, localhost, private IP ranges, cloud metadata endpoints), follows up to five redirects manually, drains bodies to free sockets, and applies a 10-second timeout. The badge endpoint always returns HTTP 200 with edge caching so broken embeds never render as broken images. Pure logic in inspect.ts (categorizeHeaders, grade) has no I/O; render.ts is a single-template HTML/SVG renderer with no client-side framework.
 
 ## Related
 
-- uses [[headinspect-data-schema]] — Writes anonymous hit records to the headinspect_hits table.
+- implements [[headinspect-privacy-constraint]] — Only hostname is stored, never the full URL.
 <!-- context:generated:end -->
 
 ## Notes

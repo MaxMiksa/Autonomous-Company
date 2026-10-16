@@ -1,7 +1,7 @@
 ---
-name: Operator Action Router
+name: operator action router
 slug: operator-action-router
-type: file
+type: system
 sources:
   - path: scripts/ops/operator-action-router.py
     hash: 25fd8206f44d0baa7b87a910d0d1846fe5ef1b155289d1a769994aff6817587e
@@ -9,12 +9,11 @@ sources:
     hash: 20f6bd56ba2238d0242627275af5749560272630a1212f9f9f22159d655d99ae
 sources_digest: eeb9735b11ba0ec109f87f095cfa8affc6afd00ebf34698caca0a50d1304a1aa
 links:
-  - to: consensus-memory-state-files
+  - to: operator-request-resolution
     relation: uses
-    description: Reads operator-requests.md and human-directive.md
-  - to: telegram-notification-channel
-    relation: uses
-    description: Sends the consolidated digest via telegram-notify.sh
+    description: >-
+      Reads the same operator-requests.md and human-directive.md inputs and
+      shares the LOOP_HOLD concept.
 generator:
   version: 1
 covers:
@@ -70,12 +69,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-operator-action-router.py is a Telegram firehose digest consolidating the operator's actionable items into a single what-needs-YOU message, covering only locally-truthful signals: a LOOP_HOLD latch, open OPREQ entries, and a PENDING directive past a floor age. It hashes the open set's stable identity into state and only speaks when the set changes or ROUTER_REPEAT_HOURS elapses, deliberately excluding Airtable-backed queues and Sentry liveness because those need network calls or run outside the container. Advisory-only, never writes to Airtable/Linear/directive.
+scripts/ops/operator-action-router.py collects and renders operator-facing actions with priority ordering (hold > opreq > directive), staleness floors for directives, dedup within a repeat window, state clearing on empty sets, and fail-soft behavior when memories/ is missing. It renders a Turkish digest and persists state to a JSON file.
 
 ## Related
 
-- uses [[consensus-memory-state-files]] — Reads operator-requests.md and human-directive.md
-- uses [[telegram-notification-channel]] — Sends the consolidated digest via telegram-notify.sh
+- uses [[operator-request-resolution]] — Reads the same operator-requests.md and human-directive.md inputs and shares the LOOP_HOLD concept.
 <!-- context:generated:end -->
 
 ## Notes

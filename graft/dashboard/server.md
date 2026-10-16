@@ -1,6 +1,6 @@
-# dashboard/server.py · [[cockpit-dashboard]] [[dashboard-server]] [[directive-registry-management]] [[refusal-format-contract]]
+# dashboard/server.py · [[cockpit-dashboard]] [[dashboard-server]]
 
-Local dashboard HTTP server for Auto Company that exposes status, settings, directive, and operator-request controls across Windows/WSL/macOS/Linux hosts.
+Local dashboard HTTP server for Auto Company that exposes status, directive editing, settings, and operator-request controls across Windows/WSL/macOS/Linux hosts.
 
 - ps_quote · function · L123-L124 — Escapes a string for safe embedding as a single-quoted PowerShell argument by doubling embedded single quotes.
 - detect_host_kind · function · L127-L137 — Maps the OS platform name to the internal host kind (windows/macos/linux) and rejects unsupported hosts.
@@ -10,7 +10,7 @@ Local dashboard HTTP server for Auto Company that exposes status, settings, dire
 - read_text_file · function · L256-L270 — Reads a file decoding it across several encodings (utf-8, BOM, gb18030, cp936) with a fallback for missing files.
 - read_text_file_tail · function · L273-L305 — Reads only the last max_bytes of a file (dropping a partial first line) to bound work on large persistent logs, decoding like read_text_file.
 - _directive_writer_module · function · L321-L336 — Loads scripts/core/directive_writer.py once and caches the module so the panel reuses its split_body/live_body helpers instead of a drifting second parser.
-- directive_sections · function · L339-L358 — Splits the live directive body into main/archive/active sections with byte counts for the panel summary, returning empty on any failure.
+- directive_sections · function · L339-L358 — Splits the live directive body into main/archive/active sections with byte counts for the panel summary, reusing the writer's own split helpers so the panel can't drift from append/archive behavior.
 - as_directive_section · function · L361-L382 — Normalizes panel text into exactly one '## ' section (adding an OPERATÖR DİREKTİFİ heading and demoting inner headings to '### ') so the writer appends it as a single droppable unit.
 - read_directive · function · L385-L421 — Parses memories/human-directive.md into a structured payload with PENDING/DONE/NONE status and section byte breakdown for the dashboard.
 - _section · function · L396-L407 — Extracts a named '## ' markdown section, capturing to end-of-file for the free-form Directive section so embedded headings don't truncate it.

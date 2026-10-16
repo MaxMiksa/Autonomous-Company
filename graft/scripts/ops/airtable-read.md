@@ -1,4 +1,4 @@
-# scripts/ops/airtable-read.py · [[airtable-access-wrappers]] [[external-data-access-airtable-browser-ki-k]] [[secret-management-runtime-env-keychain]]
+# scripts/ops/airtable-read.py · [[airtable-linear-external-integrations]] [[runtime-environment-secrets]]
 
 The only sanctioned way for a cycle to read an Airtable table, enforcing strict query scoping and compact output to keep context re-read costs low.
 

@@ -1,5 +1,5 @@
 ---
-name: wowcar revenue vocabulary
+name: WowCar revenue vocabulary
 slug: wowcar-revenue-vocabulary
 type: system
 sources:
@@ -109,7 +109,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The WowCar revenue vocabulary acceptance check: wowcar-revenue-vocabulary-acceptance.py verifies the candidate vocabulary (fixed to projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, with a thin bash harness standardizing invocation.
+wowcar-revenue-vocabulary-acceptance.py checks that the candidate vocabulary (projects/wowcar/generator-source/kod) either remains unchanged or contains exactly 14 anchor terms, invoked via a thin bash harness that validates the mode string and requires an absolute report path.
 <!-- context:generated:end -->
 
 ## Notes

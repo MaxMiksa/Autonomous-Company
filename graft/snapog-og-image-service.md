@@ -15,14 +15,15 @@ sources:
     hash: 1551e13c618a1b8ceaa8b5189318810934889c1d4e822425cb830e7efb45bc15
 sources_digest: d4343ceffc68f713a6dcfc6ae45ec31bd030d35d94d34d04ef9190c816f7239c
 links:
+  - to: snapog-cache-cap-abuse-prevention
+    relation: implements
+    description: Enforces the per-key cache cap in the /og route.
   - to: snapog-cost-alerting
     relation: uses
-    description: Scheduled cron invokes runCostAlertCheck from the alerts module.
-  - to: snapog-data-schema
+    description: Scheduled cron invokes runCostAlertCheck.
+  - to: snapog-d1-schema
     relation: depends_on
-    description: >-
-      Uses D1 tables (users, api_keys, usage_events, api_key_cache_keys) for
-      persistence and rate limiting.
+    description: 'Uses D1 for users, api_keys, usage_events, and cache-key tracking.'
 generator:
   version: 1
 covers:
@@ -126,12 +127,13 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A Hono-based Cloudflare Worker (projects/_archive/snapog) that generates Open Graph images on demand. Routes: GET /og (validate API key, enforce monthly limits, cache to R2), / and /register (landing + key creation with waitlist since Stripe isn't wired), /dashboard (usage stats), and a scheduled cron for cost alerts. Key design decisions: API keys are SHA-256 hashed before storage (never raw), usage is counted even on cache hits, R2 writes are bypassed when the per-key monthly cache-key cap (30) is exceeded (still rendering and counting, returning X-Cache: BYPASSED), and waitUntil is used for fire-and-forget operations. The OG renderer produces deterministic SHA-256 cache keys by JSON-stringifying params with sorted keys to avoid hash instability from object key ordering.
+Cloudflare Worker (Hono-based) that generates Open Graph images on demand. Routes /og (image generation with API-key validation, monthly usage limits, R2 caching), / and /register (landing and key creation with waitlist for paid tiers), and /dashboard (usage stats). Hashes API keys (SHA-256) before storage, counts usage even on cache hits, enforces a free-tier watermark, and caps distinct R2 cache keys per key per month (MONTHLY_CACHE_KEY_CAP=30) — beyond the cap /og still renders but skips OG_CACHE.put() and returns X-Cache: BYPASSED to prevent unique-URL storage abuse. Uses waitUntil for fire-and-forget operations. The scheduled cron runs the cost-alert check every six hours.
 
 ## Related
 
-- uses [[snapog-cost-alerting]] — Scheduled cron invokes runCostAlertCheck from the alerts module.
-- depends on [[snapog-data-schema]] — Uses D1 tables (users, api_keys, usage_events, api_key_cache_keys) for persistence and rate limiting.
+- implements [[snapog-cache-cap-abuse-prevention]] — Enforces the per-key cache cap in the /og route.
+- uses [[snapog-cost-alerting]] — Scheduled cron invokes runCostAlertCheck.
+- depends on [[snapog-d1-schema]] — Uses D1 for users, api_keys, usage_events, and cache-key tracking.
 <!-- context:generated:end -->
 
 ## Notes

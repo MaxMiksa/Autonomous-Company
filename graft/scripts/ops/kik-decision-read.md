@@ -1,4 +1,4 @@
-# scripts/ops/kik-decision-read.py · [[external-data-access-airtable-browser-ki-k]] [[ki-k-decision-content-hash-canon]] [[ki-k-decision-reader]]
+# scripts/ops/kik-decision-read.py · [[content-hash-provenance]] [[ki-k-decision-reading]]
 
 One-call reader that fetches a KİK decision and returns only the fields a G1/outcome call needs, bounding bytes entering the context.
 

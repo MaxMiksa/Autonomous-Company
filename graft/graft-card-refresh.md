@@ -1,5 +1,5 @@
 ---
-name: Graft Card Refresh
+name: Graft card refresh
 slug: graft-card-refresh
 type: file
 sources:
@@ -35,7 +35,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-graft-auto-refresh.py is a SessionStart hook that conditionally triggers a paid deep build of graft cards only when git history shows the cards are genuinely stale, using a double threshold (commits-behind > GRAFT_MAX_BEHIND and last graft commit age > GRAFT_MAX_AGE_H). It is deliberately fail-open (always exits 0), non-blocking (launches detached), uses a lock file to detect an already-running build and a marker file to prevent relaunching within 30 minutes. The Together API key never touches this script — it lives in graft-build.sh.
+A SessionStart hook that conditionally triggers a paid deep build of graft cards only when git history shows genuine staleness (double threshold: commits-behind and last-graft-commit age), with a lock file and 30-minute relaunch guard. Deliberately fail-open, non-blocking (launches detached), and the Together API key never touches this script — it lives in graft-build.sh.
 <!-- context:generated:end -->
 
 ## Notes

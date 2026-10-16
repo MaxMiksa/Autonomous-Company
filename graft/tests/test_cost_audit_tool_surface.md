@@ -1,4 +1,4 @@
-# tests/test_cost_audit_tool_surface.py · [[cost-audit-tool-surface]]
+# tests/test_cost_audit_tool_surface.py · [[context7-tool-surface-auditing]]
 
 Integration test that verifies cost-audit §5 subtracts loop-hidden tools from the advertised tool count so trimmed tools are never re-flagged as trim candidates.
 

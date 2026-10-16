@@ -1,7 +1,7 @@
 ---
 name: operator request resolution
 slug: operator-request-resolution
-type: system
+type: concept
 sources:
   - path: scripts/core/operator_request_notify.py
     hash: 153aaa73966afd59b8ac7d1a58c29a7279df6297d84743b2375cedd2135ceb18
@@ -10,7 +10,17 @@ sources:
   - path: tests/test_refusal_format.sh
     hash: 11bf5e9869e2e573b4a897e4df84053e4f58d759d3073a9e058705482cc31ef5
 sources_digest: c0dbffc502190641162626937e6e41f1c7762e2407d98ae82fcffaf4becc1239
-links: []
+links:
+  - to: directive-writer
+    relation: uses
+    description: >-
+      Reads human-directive.md for Decision/Authorization lines and writes
+      REFUSED statuses.
+  - to: operator-action-router
+    relation: uses
+    description: >-
+      The router prioritizes hold > opreq > directive and reads the same
+      operator-requests.md/human-directive.md inputs.
 generator:
   version: 1
 covers:
@@ -240,7 +250,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-scripts/core/operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic resolution rules per request type: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/, credential requires a PASS log with no secret-shaped tokens, legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line, and expenditure/external-action require a complete 'Authorization for OPREQ-<id>:' block. Notifications are deduped by content fingerprint (ignoring timestamp-only changes), with retry/recovery on Telegram failures.
+operator_request_notify.py orchestrates Telegram notifications for operator requests and enforces deterministic resolution rules per request type: document-procurement requires a SHA-256 checksum-matched file under memories/operator-evidence/<id>/; credential requires a PASS log with no secret-shaped tokens; legal/financial/adjudication require a structured 'Decision for OPREQ-<id>: <word> — <rationale>' line; expenditure/external-action require a complete Authorization block. Notifications are one-time with content fingerprinting (ignoring timestamp-only changes), re-notified on material edits, HOLD/informational types suppressed, dedup state persisted across restarts.
+
+## Related
+
+- uses [[directive-writer]] — Reads human-directive.md for Decision/Authorization lines and writes REFUSED statuses.
+- uses [[operator-action-router]] — The router prioritizes hold > opreq > directive and reads the same operator-requests.md/human-directive.md inputs.
 <!-- context:generated:end -->
 
 ## Notes

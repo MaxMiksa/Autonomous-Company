@@ -15,14 +15,12 @@ sources:
     hash: 518ec45652bc5010bbd34856e527e2dc9c2dfa525aea151ff467f3a802c9da81
 sources_digest: fe1d8fd6fcb0f308eb0c4072f436e2986ea169f87521e188c20ca981540b20fa
 links:
-  - to: snapog-data-schema
+  - to: snapog-d1-schema
     relation: uses
-    description: 'Queries usage_events, api_keys tables for metrics.'
+    description: Queries usage_events and api_keys for metrics.
   - to: snapog-og-image-service
     relation: part_of
-    description: >-
-      Cron entry point lives in the same Worker; scheduled handler calls
-      runCostAlertCheck.
+    description: Scheduled cron entry point in the Worker.
 generator:
   version: 1
 covers:
@@ -72,12 +70,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-Cron-triggered cost-alerting subsystem (every 6 hours) that runs five independent checks against D1 and R2: D1 writes per day (assuming 2 writes/request), 14-day cache hit rate, new signups in 30 days, active users, and R2 bucket storage (via a thin GraphQL client to Cloudflare Analytics). Thresholds are isolated in one file (ALERT_THRESHOLDS) sourced from the CFO cost model so the CFO can revise numbers without touching check logic; severity escalates to critical at 1.5x threshold. Checks are deliberately isolated (a thrown error is logged and treated as no alert to prevent false positives), and webhook delivery is format-agnostic with log-only fallback when ALERT_WEBHOOK_URL is unset.
+Cron-triggered cost-alerting subsystem (every 6h) that runs five independent checks against D1 and R2: D1 writes per day (assuming 2 writes per request), 14-day cache hit rate, new signups in 30 days, active users, and R2 bucket storage (via a thin GraphQL client to Cloudflare Analytics, returning null on any failure so storage checks are skipped rather than false-alerted). Thresholds are isolated in thresholds.ts (sourced from the CFO cost model doc) so the CFO can revise numbers without touching check logic; severity escalates to critical at 1.5x threshold. Alerts are delivered via webhook.ts which falls back to log-only mode when ALERT_WEBHOOK_URL is unset, and network failures are caught and logged rather than thrown.
 
 ## Related
 
-- uses [[snapog-data-schema]] — Queries usage_events, api_keys tables for metrics.
-- part of [[snapog-og-image-service]] — Cron entry point lives in the same Worker; scheduled handler calls runCostAlertCheck.
+- uses [[snapog-d1-schema]] — Queries usage_events and api_keys for metrics.
+- part of [[snapog-og-image-service]] — Scheduled cron entry point in the Worker.
 <!-- context:generated:end -->
 
 ## Notes

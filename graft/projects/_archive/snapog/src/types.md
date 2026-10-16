@@ -1,4 +1,4 @@
-# projects/_archive/snapog/src/types.ts · [[snapog-og-image-service]]
+# projects/_archive/snapog/src/types.ts · [[snapog-cache-cap-abuse-prevention]] [[snapog-landing-waitlist]] [[snapog-og-image-service]]
 
 Shared type definitions and constants for the SnapOG worker, including tier limits, a monthly R2 cache-key cap, and interfaces for API keys, OG image params, and the Worker environment bindings.
 

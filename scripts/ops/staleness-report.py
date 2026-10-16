@@ -28,7 +28,12 @@ import re
 import sys
 from pathlib import Path
 
-STANDING_WORDS = re.compile(r"standing|kuyru[kğ]|YASAK|her cycle|BOŞ-CYCLE|IDLE ETME", re.I)
+# Turkish + English (K-2, 2026-10-16: the live directive is English from now on).
+STANDING_WORDS = re.compile(r"standing|kuyru[kğ]|YASAK|her cycle|BOŞ-CYCLE|IDLE ETME"
+                            r"|\bqueue\b|FORBIDDEN|every cycle|EMPTY-CYCLE|DO NOT IDLE", re.I)
+MAIN_PREFIXES = ("## Kaynak belgeler", "## WOWCAR 2.0", "## Operatör açıklaması",
+                 "## Source documents", "## Operator note")
+ARCHIVE_PREFIXES = ("## ARŞİV", "## ARCHIVE")
 LEGACY_WORDS = re.compile(r"tender|discovery|WTP|candidate-registry|EKAP|GLOBAL_SAFETY", re.I)
 DATE_RE = re.compile(r"(20\d\d)-(\d\d)-(\d\d)")
 RECHARTER = dt.date(2026, 8, 24)
@@ -71,15 +76,15 @@ def directive_rows(app: Path, today: dt.date) -> list[str]:
     body = text[i + len("\n## Directive\n"):] if i >= 0 else ""
     rows = [f"| D0 | direktif gövdesi | {_bytes(body)} B | {'ÜST SINIR' if _bytes(body) > 50000 else 'ok'} |"]
     for h, t in _sections(body):
-        if h.startswith(("## Kaynak belgeler", "## WOWCAR 2.0", "## Operatör açıklaması")):
+        if h.startswith(MAIN_PREFIXES):
             continue
         d = _heading_date(h)
         age = (today - d).days if d else None
         standing = len(STANDING_WORDS.findall(t))
         flag = "ok"
-        if age is not None and age > 21 and standing >= 3 and not h.startswith("## ARŞİV"):
+        if age is not None and age > 21 and standing >= 3 and not h.startswith(ARCHIVE_PREFIXES):
             flag = "ARŞİV ADAYI: >21 gün + standing dili"
-        elif _bytes(t) > 6000 and not h.startswith("## ARŞİV"):
+        elif _bytes(t) > 6000 and not h.startswith(ARCHIVE_PREFIXES):
             flag = "büyük bölüm"
         rows.append(f"| D | {h[3:70]} | {_bytes(t)} B, {age if age is not None else '?'} gün, "
                     f"standing={standing} | {flag} |")
@@ -169,7 +174,7 @@ def weekly_rows(app: Path, today: dt.date) -> list[str]:
 
 
 WEEK_RANGE = re.compile(r"W(\d\d)\s*[-–]\s*W?(\d\d)")
-GAP_ACCEPT = re.compile(r"kabul|KAPANDI|geriye dönük yazılmaz", re.I)
+GAP_ACCEPT = re.compile(r"kabul|KAPANDI|geriye dönük yazılmaz|accepted|CLOSED|no retroactive", re.I)
 
 
 def _accepted_weekly_gaps(app: Path) -> set[int]:

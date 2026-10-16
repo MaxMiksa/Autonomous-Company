@@ -1,4 +1,4 @@
-# scripts/ops/g4-check.py · [[g4-identity-attribution-verdict]] [[g4-matching-invariants]]
+# scripts/ops/g4-check.py · [[g4-address-matching]] [[g4-identity-verification]] [[site-contact-evidence]]
 
 CLI that mechanically rules on G4 identity attribution from live evidence (first-party contact plus a registered-identity anchor), so the closing decision follows evidence rather than a self-declared PASS.
 

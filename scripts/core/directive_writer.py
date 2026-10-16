@@ -77,6 +77,10 @@ ARCHIVE = APP / "memories" / "human-directive-archive.md"
 STATUS_RE = re.compile(r"^## Status\s*\n(\S+)\s*$", re.MULTILINE)
 DIRECTIVE_MARK = "\n## Directive\n"
 RESOLVER_LINE_RE = re.compile(r"^(Resolves:|Decision for )", re.MULTILINE)
+# Headings that belong to the ANA DİREKTİF / MAIN DIRECTIVE first chunk (never split, never
+# archived). Turkish originals + English equivalents (K-2, 2026-10-16).
+PROTECTED_HEADING_PREFIXES = ("## Kaynak belgeler", "## WOWCAR 2.0", "## Operatör açıklaması",
+                              "## Source documents", "## Operator note")
 
 # Size brake (2026-10-13). The loop reads the whole file every cycle; measured
 # 2026-10-11: 166 KB body → prompt over the 120 KB argv cap for 11 cycles.
@@ -323,8 +327,12 @@ def split_body(body: str) -> tuple[str, list[tuple[str, str]]]:
     belgeler' and the main text with '# ANA DİREKTİF' / '## WOWCAR …' /
     '## Operatör açıklaması'; those three headings are treated as part of the
     first chunk so the main directive is never split or archived.
+
+    English equivalents are accepted too (operator decision K-2, 2026-10-16: company-facing
+    instructions are English): '## Source documents', '## Operator note'. The Turkish
+    prefixes stay for backups and the archive file.
     """
-    protected = ("## Kaynak belgeler", "## WOWCAR 2.0", "## Operatör açıklaması")
+    protected = PROTECTED_HEADING_PREFIXES
     first: list[str] = []
     sections: list[tuple[str, list[str]]] = []
     for line in body.splitlines(keepends=True):

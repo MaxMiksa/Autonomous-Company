@@ -1,4 +1,4 @@
-# scripts/core/bridge_leak_scan.py · [[value-sensitive-leak-scanner]]
+# scripts/core/bridge_leak_scan.py · [[bridge-leak-scanner]]
 
 Value-sensitive scanner that flags session/credential leaks in EKAP Bridge records only when a secret key appears with a real value, avoiding word-presence false positives.
 

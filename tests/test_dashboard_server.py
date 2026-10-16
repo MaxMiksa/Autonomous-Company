@@ -524,6 +524,19 @@ class DirectorPanelAppendTests(unittest.TestCase):
         self.assertEqual(d["sections"][2]["heading"], "KAYIT DÜZENLEME GÜVENLİĞİ — kural")
         self.assertEqual(d["warnBytes"], dashboard_server.DIRECTIVE_WARN_BYTES)
 
+    def test_english_body_kinds(self) -> None:
+        # K-2 (2026-10-16): the live directive is English; ARCHIVE counts as archive and the
+        # English protected headings stay inside the main chunk.
+        en = ("## Source documents and locations\n\nTable.\n\n# MAIN DIRECTIVE\n## WOWCAR 2.0 COMPANY\n\n"
+              "### 15. Authority limits\nText.\n\n## Operator note (given together with the directive)\n\nNote.\n\n"
+              "## ARCHIVE 4 — old round\n\nSummary.\n\n## RECORD EDIT SAFETY — rule\n\nStanding rule.\n")
+        body = self.app / "en.md"
+        body.write_text(en, encoding="utf-8")
+        self._w("write", "--body-file", str(body), "--allow-pending")
+        d = dashboard_server.read_directive()
+        self.assertEqual([s["kind"] for s in d["sections"]], ["main", "archive", "active"])
+        self.assertEqual(sum(s["bytes"] for s in d["sections"]), d["bodyBytes"])
+
     def test_sections_empty_when_writer_unloadable(self) -> None:
         with mock.patch.object(dashboard_server, "_directive_writer_mod", None), \
              mock.patch.object(dashboard_server, "DIRECTIVE_WRITER", self.app / "missing.py"):

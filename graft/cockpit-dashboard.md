@@ -8,25 +8,22 @@ sources:
   - path: dashboard/sentry_client.py
     hash: 96977bb6701f18064edb69c783e53bdb73c930c8ddadcd1caf47583b42700df4
   - path: dashboard/server.py
-    hash: 1b4eb273b98a9ab8c80543f5a060add328626bc2af171f5d96927d6b0f72159c
-sources_digest: f72321576ee7eb649815d9fac2eb103b7e6c8456d3781b93df6090ebbb41d1c0
+    hash: 6cc54894d69041d5e6f44ab24e5243e157855ebcf007fcb387188e303b85093f
+sources_digest: edcf53e9eff087c8fe04f300246fc324a9d034a7097a7a5607be3fe4aebdaeb9
 links:
+  - to: auto-company-container-entrypoint
+    relation: part_of
+    description: >-
+      Launched as a background process by docker-entrypoint.sh alongside the
+      autonomous loop.
   - to: autonomous-loop-orchestrator
     relation: uses
     description: >-
-      Dashboard reads .auto-loop-state, auto-loop.log, and runtime.env written
-      by the loop; hold/release controls pause/resume the loop.
-  - to: container-entrypoint-bootstrap
-    relation: part_of
-    description: >-
-      docker-entrypoint.sh launches dashboard/server.py as a background process
-      alongside the autonomous loop.
-  - to: directive-registry-management
+      Reads loop state from auto-loop.log and consensus.md; hold/release
+      endpoints pause/resume the loop.
+  - to: directive-writer
     relation: uses
-    description: >-
-      server.py delegates directive file management to directive_writer.py and
-      formats operator decisions to match the verifier's exact parsing
-      expectations.
+    description: write_directive appends via directive_writer.py to avoid data loss.
 generator:
   version: 1
 covers:
@@ -391,13 +388,13 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The operator-facing web cockpit for the Guardian loop system. A stdlib-only HTTP server (dashboard/server.py) exposes REST endpoints for directive management, operator request ledger, runtime settings, and engine lifecycle, with platform-specific script runners for PowerShell/bash. The client controller (dashboard/app.js) polls /api/status and renders live state including holds, cost tracking, and directives. A minimal Sentry reporter (dashboard/sentry_client.py) provides best-effort error capture without pip dependencies. Key invariants: directive writes append rather than replace to prevent data loss; settings panel is whitelist-based to reject secret keys; log reads use a tail-window to bound per-poll work; holds distinguish operator-set from loop-latched (with confirmation before releasing the latter); analyst triggers use file-based signaling through the shared logs volume.
+Local web cockpit UI for the Auto Company Guardian loop. Serves a single-page monitoring interface (dashboard/app.js) over a ThreadingHTTPServer (dashboard/server.py) that dispatches to platform-specific shell/PowerShell scripts for host control, reads state from auto-loop.log, human-directive.md, and operator-requests.md, and exposes endpoints for status, hold/release, directive submission, and settings. Includes a stdlib-only Sentry reporter (dashboard/sentry_client.py) that deliberately avoids sentry-sdk because the container has no pip deps, and is best-effort (never raises). Key invariants: directives are appended via directive_writer.py rather than replaced to avoid data loss; a PENDING directive is never overwritten unless explicitly allowed; operator-set holds are distinguished from loop-latched holds (confirmation dialog before releasing the latter); the analyst trigger writes a request file into a shared volume for a host-side cron watcher.
 
 ## Related
 
-- uses [[autonomous-loop-orchestrator]] — Dashboard reads .auto-loop-state, auto-loop.log, and runtime.env written by the loop; hold/release controls pause/resume the loop.
-- part of [[container-entrypoint-bootstrap]] — docker-entrypoint.sh launches dashboard/server.py as a background process alongside the autonomous loop.
-- uses [[directive-registry-management]] — server.py delegates directive file management to directive_writer.py and formats operator decisions to match the verifier's exact parsing expectations.
+- part of [[auto-company-container-entrypoint]] — Launched as a background process by docker-entrypoint.sh alongside the autonomous loop.
+- uses [[autonomous-loop-orchestrator]] — Reads loop state from auto-loop.log and consensus.md; hold/release endpoints pause/resume the loop.
+- uses [[directive-writer]] — write_directive appends via directive_writer.py to avoid data loss.
 <!-- context:generated:end -->
 
 ## Notes

@@ -1,6 +1,6 @@
 # tests/test_dashboard_server.py · [[dashboard-server]]
 
-Test suite for the dashboard server module, covering status parsing, action dispatch, engine runtime parsing, window cutoff logic, and director panel append behavior.
+Test suite for the dashboard server module, covering status parsing, action dispatch, engine runtime parsing, settings resolution, window cutoff logic, and director panel rendering across Windows/macOS/Linux hosts.
 
 - DashboardServerTests · class · L28-L211 — Tests that parse_status_output maps raw status text to normalized state dicts and that run_dashboard_action dispatches to the right runner per host.
 - test_windows_not_running_maps_to_stopped · method · L29-L53 — Verifies Windows status text with a stopped guardian maps to stopped/not_configured states with no PID.
@@ -37,7 +37,7 @@ Test suite for the dashboard server module, covering status parsing, action disp
 - test_stale_usage_file_falls_back_to_rolling · method · L407-L415 — Verifies a stale usage file falls back to the rolling cutoff.
 - test_blockstart_older_than_rolling_never_widens_the_window · method · L417-L422 — Verifies a blockStart older than rolling never widens the window.
 - test_missing_or_unparseable_file_falls_back · method · L424-L433 — Verifies a missing or unparseable usage file falls back to the rolling cutoff.
-- DirectorPanelAppendTests · class · L436-L533 — Test class verifying how the director panel appends new sections to the existing panel body, including heading demotion, pending gating, and section summaries.
+- DirectorPanelAppendTests · class · L436-L546 — Test class verifying how the director panel appends/merges directive body content into the main chunk, including English body kinds and archive handling.
 - setUp · method · L448-L463 — Sets up a temporary log directory and patches the server's LOG_FILE to point at it for each test.
 - tearDown · method · L465-L468 — Stops the LOG_FILE patch and cleans up the temporary directory after each test.
 - _w · method · L470-L473 — Helper that writes a line of text to the patched log file.
@@ -48,24 +48,25 @@ Test suite for the dashboard server module, covering status parsing, action disp
 - test_own_heading_is_kept · method · L501-L506 — Verifies that a send carrying its own heading keeps that heading rather than being demoted.
 - test_pending_gate_then_allow_pending_appends · method · L508-L517 — Verifies that pending appends are gated until allowed, then appended once the gate opens.
 - test_sections_summary_partitions_body · method · L519-L525 — Verifies that the sections summary correctly partitions the appended body into its component sections.
-- test_sections_empty_when_writer_unloadable · method · L527-L533 — Verifies that the sections summary is empty when the panel writer cannot be loaded.
-- ReadTextFileTailTests · class · L540-L598 — Tests read_text_file_tail behavior including truncation, multibyte safety, and fallback.
-- _tmp · method · L545-L550 — Creates a temp file with the given bytes content.
-- test_returns_whole_file_when_smaller_than_window · method · L552-L556 — Verifies the whole file is returned when it is smaller than the tail window.
-- test_truncates_to_the_tail_and_drops_the_partial_first_line · method · L558-L565 — Verifies the tail truncates to the window and drops a partial first line.
-- test_multibyte_seek_does_not_produce_replacement_junk · method · L567-L571 — Verifies multibyte seek does not produce replacement junk characters.
-- test_missing_file_returns_fallback · method · L573-L576 — Verifies a missing file returns the fallback value.
-- test_engine_runtime_falls_back_to_full_file_when_banner_is_out_of_window · method · L578-L598 — Verifies engine runtime falls back to the full file when the banner is out of the tail window.
-- fake_read · function · L589-L590 — Returns the log text for any path in the fallback test.
-- WeeklyCostWindowTests · class · L601-L645 — Verifies the dashboard's weekly cost window splits old and new cost lines correctly.
-- _summary_for · method · L606-L610 — Helper that runs the weekly cost summary parser against a given log text.
-- _stamp · method · L613-L614 — Helper that formats a datetime into the log's timestamp prefix.
-- test_week_window_splits_old_and_new_costs · method · L616-L635 — Asserts that cost lines inside the week window are counted while older ones are excluded.
-- test_unstamped_cost_line_counts_all_time_only · method · L637-L645 — Asserts that a cost line without a timestamp is counted only in the all-time total.
-- LiveBudgetGateDisplayTests · class · L648-L682 — Verifies the dashboard surfaces the most recent budget-gate banner from the log rather than an earlier one.
-- test_engine_runtime_parses_live_gate_banner_last_match · method · L654-L666 — Asserts read_engine_runtime picks the last budget-gate banner line so the live gate state reflects the latest boot.
-- test_cost_summary_carries_last_budget_gate_line · method · L668-L682 — Asserts the cost summary carries the last budget-gate line from the log.
-- GraftFreshnessTests · class · L685-L714 — Verifies that graft status JSON is surfaced when fresh and reported unavailable when absent or malformed.
-- test_absent_file_reports_unavailable · method · L689-L693 — Asserts that a missing graft status file yields an unavailable result.
-- test_valid_status_passthrough · method · L695-L705 — Asserts that a fresh, valid graft status JSON is passed through unchanged.
-- test_malformed_json_reports_unavailable · method · L707-L714 — Asserts that malformed graft status JSON is reported as unavailable.
+- test_english_body_kinds · method · L527-L538 — Verifies that an English directive body is treated as the live directive, ARCHIVE counts as archive, and English protected headings stay inside the main chunk.
+- test_sections_empty_when_writer_unloadable · method · L540-L546 — Verifies that the sections summary is empty when the panel writer cannot be loaded.
+- ReadTextFileTailTests · class · L553-L611 — Tests read_text_file_tail behavior including truncation, multibyte safety, and fallback.
+- _tmp · method · L558-L563 — Creates a temp file with the given bytes content.
+- test_returns_whole_file_when_smaller_than_window · method · L565-L569 — Verifies the whole file is returned when it is smaller than the tail window.
+- test_truncates_to_the_tail_and_drops_the_partial_first_line · method · L571-L578 — Verifies the tail truncates to the window and drops a partial first line.
+- test_multibyte_seek_does_not_produce_replacement_junk · method · L580-L584 — Verifies multibyte seek does not produce replacement junk characters.
+- test_missing_file_returns_fallback · method · L586-L589 — Verifies a missing file returns the fallback value.
+- test_engine_runtime_falls_back_to_full_file_when_banner_is_out_of_window · method · L591-L611 — Verifies engine runtime falls back to the full file when the banner is out of the tail window.
+- fake_read · function · L602-L603 — Returns the log text for any path in the fallback test.
+- WeeklyCostWindowTests · class · L614-L658 — Verifies the dashboard's weekly cost window splits old and new cost lines correctly.
+- _summary_for · method · L619-L623 — Helper that runs the weekly cost summary parser against a given log text.
+- _stamp · method · L626-L627 — Helper that formats a datetime into the log's timestamp prefix.
+- test_week_window_splits_old_and_new_costs · method · L629-L648 — Asserts that cost lines inside the week window are counted while older ones are excluded.
+- test_unstamped_cost_line_counts_all_time_only · method · L650-L658 — Asserts that a cost line without a timestamp is counted only in the all-time total.
+- LiveBudgetGateDisplayTests · class · L661-L695 — Verifies the dashboard surfaces the most recent budget-gate banner from the log rather than an earlier one.
+- test_engine_runtime_parses_live_gate_banner_last_match · method · L667-L679 — Asserts read_engine_runtime picks the last budget-gate banner line so the live gate state reflects the latest boot.
+- test_cost_summary_carries_last_budget_gate_line · method · L681-L695 — Asserts the cost summary carries the last budget-gate line from the log.
+- GraftFreshnessTests · class · L698-L727 — Verifies that graft status JSON is surfaced when fresh and reported unavailable when absent or malformed.
+- test_absent_file_reports_unavailable · method · L702-L706 — Asserts that a missing graft status file yields an unavailable result.
+- test_valid_status_passthrough · method · L708-L718 — Asserts that a fresh, valid graft status JSON is passed through unchanged.
+- test_malformed_json_reports_unavailable · method · L720-L727 — Asserts that malformed graft status JSON is reported as unavailable.

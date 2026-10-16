@@ -1,4 +1,4 @@
-# scripts/ops/ledger-guard.py · [[consensus-memory-state-files]] [[ledger-guard]] [[ledger-integrity-guard]]
+# scripts/ops/ledger-guard.py · [[consensus-registry-maintenance]] [[ledger-audit-guards]]
 
 Per-cycle integrity guard that rolls back backups of the Gate-0 conflict ledger and consensus.md and detects silent content loss by comparing section/row/byte metrics against the previous cycle, printing a violation when a drop lacks an incident marker.
 

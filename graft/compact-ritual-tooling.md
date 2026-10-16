@@ -17,9 +17,7 @@ sources_digest: 6e11740780dc883b8f9529d0b785c680a65f78067736607b6fb743ec07d0f06f
 links:
   - to: context-watch-hook
     relation: uses
-    description: >-
-      context-watch.py emits the compact-ritual directive at 60% context usage,
-      triggering these hooks.
+    description: Context-watch triggers the compact ritual at 60% context usage.
 generator:
   version: 1
 covers:
@@ -96,11 +94,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A suite of Claude Code hooks and scripts that mechanize the 'compact' ritual — the controlled context-window reset. compact_yol.py derives repo-specific temp paths (replacing shared /tmp paths that caused cross-project collisions), compact-preflight.py scans git repos for uncommitted/unpushed/stash risk and validates resume freshness (auto-block is one-shot with a 30-min TTL marker), compact-resume-lint.py enforces the 'foreign-reader test' by rejecting stale numeric measurements and requiring mandatory template sections, compact-postcheck.py audits whether the compact_summary carried the five critical anchors, and compact-report.py prints an operational digest (repo↔prod sync, OPREQ, directives, holds, loop health via SSH to the powerupp-ts host). All are fail-open and never block compact except the deliberate one-shot preflight auto-block.
+A family of hook scripts and helpers that mechanize the Claude Code compact ritual. compact_yol.py computes repo-specific temp paths (replacing shared /tmp paths that caused cross-project state collisions), compact-preflight.py scans git repos for uncommitted/unpushed/stash risk and validates resume freshness (mtime under 3h plus lint), compact-resume-lint.py enforces the 'foreign-reader test' by rejecting stale numeric measurements (costs, queue counts, budget figures) while allowing commit SHAs and task IDs as anchors, compact-postcheck.py audits whether the generated compact_summary carried the five mandatory anchor sections (İLK İŞ, KARAR, DOĞRULANMAMIŞ, BEKLEYEN, İZLEYİCİ), and compact-report.py prints a one-shot operational digest (repo↔prod sync, OPREQ, directives, holds, loop health via a single SSH round-trip to the powerupp-ts host). All are fail-open (never block compact except the one-shot auto-block in preflight with a 30-minute TTL marker), and avoid writing __pycache__ via sys.dont_write_bytecode.
 
 ## Related
 
-- uses [[context-watch-hook]] — context-watch.py emits the compact-ritual directive at 60% context usage, triggering these hooks.
+- uses [[context-watch-hook]] — Context-watch triggers the compact ritual at 60% context usage.
 <!-- context:generated:end -->
 
 ## Notes

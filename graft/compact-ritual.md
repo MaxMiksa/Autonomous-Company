@@ -1,0 +1,85 @@
+---
+name: Compact Ritual
+slug: compact-ritual
+type: system
+sources:
+  - path: scripts/compact_yol.py
+    hash: 617adabc76e0edaa59787115e1c95e883fa607510c8483a701a97df4539f17da
+  - path: tests/test_compact_anchor_sync.py
+    hash: 1f6ccedb49c760b6902820e32ca23f00f80927518fff9288ab1273aca4711378
+  - path: tests/test_compact_ritual_hardening.sh
+    hash: 2d94865ee02e9d01b5770928d95abef8e3f9157576dc40326fb74e8a164408f9
+  - path: tests/test_compact_yol.py
+    hash: 707405adc7816737d22c7079fe2e3484cb6959a80f4b4323acb76f44d4074e49
+sources_digest: dcb21a2f7db4af9dc62a59154e17ab2e9a7cd7612c72713091b6bccd954121f6
+links:
+  - to: session-brief-hook
+    relation: uses
+    description: >-
+      session-brief.py consumes compact_yol path resolution and resume
+      freshness.
+generator:
+  version: 1
+covers:
+  - symbol: temizle
+    kind: function
+    at: 'scripts/compact_yol.py:L57-L60'
+  - symbol: _git
+    kind: function
+    at: 'scripts/compact_yol.py:L63-L69'
+  - symbol: repo_adi
+    kind: function
+    at: 'scripts/compact_yol.py:L72-L89'
+  - symbol: yol
+    kind: function
+    at: 'scripts/compact_yol.py:L92-L95'
+  - symbol: main
+    kind: function
+    at: 'scripts/compact_yol.py:L98-L107'
+  - symbol: _load
+    kind: function
+    at: 'tests/test_compact_anchor_sync.py:L41-L45'
+  - symbol: check
+    kind: function
+    at: 'tests/test_compact_anchor_sync.py:L48-L53'
+  - symbol: test_hepsi_gecti
+    kind: function
+    at: 'tests/test_compact_anchor_sync.py:L88-L89'
+  - symbol: check
+    kind: function
+    at: 'tests/test_compact_yol.py:L31-L36'
+  - symbol: _load
+    kind: function
+    at: 'tests/test_compact_yol.py:L39-L43'
+  - symbol: git
+    kind: function
+    at: 'tests/test_compact_yol.py:L46-L49'
+  - symbol: yeni_repo
+    kind: function
+    at: 'tests/test_compact_yol.py:L52-L59'
+  - symbol: temiz_env
+    kind: function
+    at: 'tests/test_compact_yol.py:L62-L63'
+  - symbol: zaman_asimi
+    kind: function
+    at: 'tests/test_compact_yol.py:L120-L122'
+  - symbol: git_yok
+    kind: function
+    at: 'tests/test_compact_yol.py:L124-L125'
+  - symbol: test_hepsi_gecti
+    kind: function
+    at: 'tests/test_compact_yol.py:L163-L164'
+---
+<!-- context:generated:start -->
+## Summary
+
+The resume/compact machinery: compact_yol.py derives ritual file paths from repository names to prevent cross-project collisions in shared /tmp paths (handling worktrees, submodules, non-git fallbacks). compact-resume-lint.py and compact-postcheck.py enforce that core anchor strings (İLK İŞ, KARAR, DOĞRULANMAMIŞ, BEKLEYEN, İZLEYİCİ) stay identical across scripts, the resume template, and test fixtures. compact-preflight.py treats a resume as stale not only by mtime but also by running the lint, so a fresh-but-lint-failing resume is flagged. test_compact_anchor_sync.py hardcodes a BEKLENEN tuple as a deliberate anchor so any intentional anchor change must update the diff explicitly.
+
+## Related
+
+- uses [[session-brief-hook]] — session-brief.py consumes compact_yol path resolution and resume freshness.
+<!-- context:generated:end -->
+
+## Notes
+
+_Anything written below the generated block is preserved when the graph is regenerated._

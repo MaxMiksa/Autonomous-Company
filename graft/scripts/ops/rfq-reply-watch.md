@@ -1,4 +1,4 @@
-# scripts/ops/rfq-reply-watch.py · [[operator-alerting-watchers]] [[outreach-and-reply-monitoring]] [[telegram-notification-secrets]]
+# scripts/ops/rfq-reply-watch.py · [[operator-alerting-watchers]] [[outcome-queue-watchers]] [[rfq-email-pipeline]] [[telegram-notification-core]]
 
 Advisory RFQ reply watcher that notices new vendor replies and long silences on the OPEX RFQ table and notifies the operator without ever writing to Airtable.
 

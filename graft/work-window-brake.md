@@ -7,20 +7,19 @@ sources:
     hash: 228677456f5e5634b3c6a9964c8b92e13a4c2e4992154feed8a3334779fd0a5f
   - path: scripts/ops/work-window.py
     hash: fd9dd4d65c12d2d5aefc8358f830da5764f16799b2d34aa97ea3c7c5a289a096
-  - path: tests/test_work_window_watchdog.py
-    hash: 43cd4a904f4badbb8ce3a4ee88adff57b790ff6c8067435e361617f37a10de40
-  - path: tests/test_work_window.py
-    hash: 234b10df540fe8774d445855295b088c68cdb23003bdd95c1c22debbd93a6c5e
-sources_digest: a78c0a00706386eac93cd8b6347268522417f5ce0fba562eb2e68feee1e59bde
+sources_digest: a1a7830b5cb58e843d9817ff7866727002fa09c63e73475dcf0d7dc274d985cc
 links:
-  - to: auto-loop-harness
-    relation: implements
+  - to: harness-loop-core
+    relation: part_of
     description: >-
-      Honors the harness contract in scripts/core/auto-loop.sh; the loop gates
-      idle-skip on _workwin_open and captures the exit code set-e-safe
-  - to: memory-staleness-snapshot-probes
-    relation: depends_on
-    description: Parses the DELTA line format produced by state-snapshot.py
+      Wired into auto-loop.sh; _workwin_open gates idle-skip and the watchdog
+      alarm runs post-cycle.
+  - to: state-staleness-measurement
+    relation: uses
+    description: Consumes state-snapshot's DELTA line format.
+  - to: telegram-notification-core
+    relation: uses
+    description: watchdog prints a one-line Telegram alarm on threshold crossing.
 generator:
   version: 1
 covers:
@@ -60,28 +59,17 @@ covers:
   - symbol: main
     kind: function
     at: 'scripts/ops/work-window.py:L118-L191'
-  - symbol: run
-    kind: function
-    at: 'tests/test_work_window.py:L21-L42'
-  - symbol: check
-    kind: function
-    at: 'tests/test_work_window.py:L45-L48'
-  - symbol: run
-    kind: function
-    at: 'tests/test_work_window_watchdog.py:L18-L29'
-  - symbol: check
-    kind: function
-    at: 'tests/test_work_window_watchdog.py:L32-L35'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-scripts/ops/work-window.py gates whether a cycle should proceed based on DELTA change detection: a changed DELTA opens the window and records opened_at_cycle; an unchanged DELTA stays open only within the TTL window; expired, negative-age (restart), and corrupt states fail closed. Special rules: a DONE directive pull or auditor-only change does not open the window, while PENDING appends and OPREQ changes still do. The companion work-window-watchdog.py detects consecutive empty work cycles while the window is open, emitting an alarm only once when the consecutive count crosses the threshold.
+A fail-closed brake preventing the auto-loop from emitting empty-cycle confirmations when a tracked surface change has orphaned follow-on work. work-window.py reads a state-snapshot DELTA line, opens a K-cycle window (exit 10 + injection line) on change, closes on directive DONE-only changes, and ignores auditor-only changes. work-window-watchdog.py is the alarm companion detecting empty-cycle confirmations while a window is open, using deliberately narrow EMPTY_RE phrasings (not generic 'blocked' words) because the brake's escape clause requires enumerating blocked items. Both fail open on unreadable state, respect kill switches, and never fail the harness loop.
 
 ## Related
 
-- implements [[auto-loop-harness]] — Honors the harness contract in scripts/core/auto-loop.sh; the loop gates idle-skip on _workwin_open and captures the exit code set-e-safe
-- depends on [[memory-staleness-snapshot-probes]] — Parses the DELTA line format produced by state-snapshot.py
+- part of [[harness-loop-core]] — Wired into auto-loop.sh; _workwin_open gates idle-skip and the watchdog alarm runs post-cycle.
+- uses [[state-staleness-measurement]] — Consumes state-snapshot's DELTA line format.
+- uses [[telegram-notification-core]] — watchdog prints a one-line Telegram alarm on threshold crossing.
 <!-- context:generated:end -->
 
 ## Notes

@@ -6,7 +6,15 @@ sources:
   - path: scripts/ops/site-contact-evidence.py
     hash: 008b4735e6133445eff667f840f9c7faaeef8013b1363f6555b602a9d6fd048c
 sources_digest: 5c3ab49bca83c326e54b9e154c81edea67c57863bcee0d19e964759966469ad2
-links: []
+links:
+  - to: browser-automation
+    relation: uses
+    description: >-
+      render_dom dynamically loads ekap-run.py to drive BrowserOS MCP for DOM
+      rendering.
+  - to: fail-closed-eligibility-gates
+    relation: uses
+    description: send-gate's g4_live() consumes this evidence to decide G4 attribution.
 generator:
   version: 1
 covers:
@@ -32,7 +40,12 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-site-contact-evidence.py finds a firm's published contact email for G4 attribution checks, encoding the rule that a fetch returning no rendered content is inconclusive, never negative. It escalates through browser-rendered DOM (decisive), raw HTML, and JS bundles, plus policy pages that legally carry contact addresses. Only a successfully rendered DOM can justify a negative verdict; third-party script URLs are skipped to avoid false positives.
+Tooling that establishes whether a firm's published contact email exists for G4 attribution checks. site-contact-evidence.py escalates through browser-rendered DOM (decisive), raw HTML, and JS bundles, plus policy pages (kvkk, aydinlatma, gizlilik, iletisim) that legally carry contact addresses. The core invariant: a fetch returning no rendered content is inconclusive, never negative — a negative verdict is only allowed when a rendered DOM was successfully obtained. Third-party script URLs are skipped to avoid false positives.
+
+## Related
+
+- uses [[browser-automation]] — render_dom dynamically loads ekap-run.py to drive BrowserOS MCP for DOM rendering.
+- uses [[fail-closed-eligibility-gates]] — send-gate's g4_live() consumes this evidence to decide G4 attribution.
 <!-- context:generated:end -->
 
 ## Notes

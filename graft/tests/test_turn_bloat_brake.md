@@ -1,4 +1,4 @@
-# tests/test_turn_bloat_brake.py · [[turn-economy-and-bloat-control]]
+# tests/test_turn_bloat_brake.py · [[ledger-audit-guards]]
 
 Test suite for the turn-bloat-brake script, verifying streak counting, alarm threshold crossing, hard feedback, reset behavior, env-configurable K, and kill switch.
 

@@ -98,6 +98,27 @@ def main() -> int:
         rep = (app / "memories" / "staleness-report.md").read_text(encoding="utf-8")
         lrow = [l for l in rep.splitlines() if l.startswith("| L |")][0]
         check("header naming an older section code is stale", "BAŞLIK BAYAT" in lrow, lrow)
+
+        # English live directive (K-2, 2026-10-16): EN main headings skipped, ARCHIVE not flagged,
+        # EN acceptance wording closes the weekly gap, EN standing words counted.
+        d.write_text("# Human Directive\n\n## Status\nDONE\n\n## Updated\nx\n\n## Directive\n"
+                     "## Source documents and locations\n\nt\n\n# MAIN DIRECTIVE\n## WOWCAR 2.0 X\n\nmain\n\n"
+                     "## Operator note (given together with the directive)\n\nnote\n\n"
+                     "## ARCHIVE 4 — STALENESS ROUND (2026-09-01)\n\n" + "z" * 7000 + "\nthe W37-W40 weekly report gap "
+                     "was accepted by sponsor decision; no retroactive reports\n\n"
+                     "## SCOPE FIX (2026-09-02, sponsor)\n\nstanding queue FORBIDDEN every cycle DO NOT IDLE\n",
+                     encoding="utf-8")
+        subprocess.run([sys.executable, str(SCRIPT), "--app", str(app), "--today", "2026-10-13"],
+                       capture_output=True, text=True)
+        rep = (app / "memories" / "staleness-report.md").read_text(encoding="utf-8")
+        check("EN main headings not listed as D rows",
+              "Source documents" not in rep and "Operator note" not in rep and "WOWCAR 2.0 X" not in rep)
+        arow = [l for l in rep.splitlines() if "ARCHIVE 4" in l]
+        check("EN ARCHIVE section not flagged", bool(arow) and arow[0].rstrip(" |").endswith("ok"), str(arow))
+        srow = [l for l in rep.splitlines() if "SCOPE FIX" in l]
+        check("EN standing words flag an old section", bool(srow) and "ARŞİV ADAYI" in srow[0], str(srow))
+        wrow = [l for l in rep.splitlines() if l.startswith("| W |")][0]
+        check("EN acceptance wording closes the W37-W40 gap", wrow.rstrip(" |").endswith("ok"), wrow)
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nALL PASS")
     return 1 if FAILS else 0
 

@@ -4,11 +4,21 @@ slug: dashboard-server
 type: system
 sources:
   - path: dashboard/server.py
-    hash: 1b4eb273b98a9ab8c80543f5a060add328626bc2af171f5d96927d6b0f72159c
+    hash: 6cc54894d69041d5e6f44ab24e5243e157855ebcf007fcb387188e303b85093f
   - path: tests/test_dashboard_server.py
-    hash: 6f1dcc68a7aea1f92cea60faa92f88dfbfc4aa33b949784f2e31f716a588e4e7
-sources_digest: f87046a53333e8dc3b50eaa62bd7e263e52440b70d3ca62a43cfbaa4ec2fec95
-links: []
+    hash: 6d329e2747027d1e5803cca919deff08fa3428017d277ee952307736e0b3bbde
+sources_digest: 676efc3f8acb603b1151f7f3f7c1d1e8f41ea6c7545b33af6c96f7accdac10ec
+links:
+  - to: directive-writer
+    relation: uses
+    description: >-
+      write_directive/read_directive delegate to directive_writer.py as a
+      subprocess.
+  - to: operator-request-resolution
+    relation: uses
+    description: >-
+      The operator-decision panel writes refusal formats consumed by
+      operator_request_notify.py.
 generator:
   version: 1
 covers:
@@ -332,7 +342,7 @@ covers:
     at: 'tests/test_dashboard_server.py:L424-L433'
   - symbol: DirectorPanelAppendTests
     kind: class
-    at: 'tests/test_dashboard_server.py:L436-L533'
+    at: 'tests/test_dashboard_server.py:L436-L546'
   - symbol: setUp
     kind: method
     at: 'tests/test_dashboard_server.py:L448-L463'
@@ -363,74 +373,82 @@ covers:
   - symbol: test_sections_summary_partitions_body
     kind: method
     at: 'tests/test_dashboard_server.py:L519-L525'
+  - symbol: test_english_body_kinds
+    kind: method
+    at: 'tests/test_dashboard_server.py:L527-L538'
   - symbol: test_sections_empty_when_writer_unloadable
     kind: method
-    at: 'tests/test_dashboard_server.py:L527-L533'
+    at: 'tests/test_dashboard_server.py:L540-L546'
   - symbol: ReadTextFileTailTests
     kind: class
-    at: 'tests/test_dashboard_server.py:L540-L598'
+    at: 'tests/test_dashboard_server.py:L553-L611'
   - symbol: _tmp
     kind: method
-    at: 'tests/test_dashboard_server.py:L545-L550'
+    at: 'tests/test_dashboard_server.py:L558-L563'
   - symbol: test_returns_whole_file_when_smaller_than_window
     kind: method
-    at: 'tests/test_dashboard_server.py:L552-L556'
+    at: 'tests/test_dashboard_server.py:L565-L569'
   - symbol: test_truncates_to_the_tail_and_drops_the_partial_first_line
     kind: method
-    at: 'tests/test_dashboard_server.py:L558-L565'
+    at: 'tests/test_dashboard_server.py:L571-L578'
   - symbol: test_multibyte_seek_does_not_produce_replacement_junk
     kind: method
-    at: 'tests/test_dashboard_server.py:L567-L571'
+    at: 'tests/test_dashboard_server.py:L580-L584'
   - symbol: test_missing_file_returns_fallback
     kind: method
-    at: 'tests/test_dashboard_server.py:L573-L576'
+    at: 'tests/test_dashboard_server.py:L586-L589'
   - symbol: test_engine_runtime_falls_back_to_full_file_when_banner_is_out_of_window
     kind: method
-    at: 'tests/test_dashboard_server.py:L578-L598'
+    at: 'tests/test_dashboard_server.py:L591-L611'
   - symbol: fake_read
     kind: function
-    at: 'tests/test_dashboard_server.py:L589-L590'
+    at: 'tests/test_dashboard_server.py:L602-L603'
   - symbol: WeeklyCostWindowTests
     kind: class
-    at: 'tests/test_dashboard_server.py:L601-L645'
+    at: 'tests/test_dashboard_server.py:L614-L658'
   - symbol: _summary_for
     kind: method
-    at: 'tests/test_dashboard_server.py:L606-L610'
+    at: 'tests/test_dashboard_server.py:L619-L623'
   - symbol: _stamp
     kind: method
-    at: 'tests/test_dashboard_server.py:L613-L614'
+    at: 'tests/test_dashboard_server.py:L626-L627'
   - symbol: test_week_window_splits_old_and_new_costs
     kind: method
-    at: 'tests/test_dashboard_server.py:L616-L635'
+    at: 'tests/test_dashboard_server.py:L629-L648'
   - symbol: test_unstamped_cost_line_counts_all_time_only
     kind: method
-    at: 'tests/test_dashboard_server.py:L637-L645'
+    at: 'tests/test_dashboard_server.py:L650-L658'
   - symbol: LiveBudgetGateDisplayTests
     kind: class
-    at: 'tests/test_dashboard_server.py:L648-L682'
+    at: 'tests/test_dashboard_server.py:L661-L695'
   - symbol: test_engine_runtime_parses_live_gate_banner_last_match
     kind: method
-    at: 'tests/test_dashboard_server.py:L654-L666'
+    at: 'tests/test_dashboard_server.py:L667-L679'
   - symbol: test_cost_summary_carries_last_budget_gate_line
     kind: method
-    at: 'tests/test_dashboard_server.py:L668-L682'
+    at: 'tests/test_dashboard_server.py:L681-L695'
   - symbol: GraftFreshnessTests
     kind: class
-    at: 'tests/test_dashboard_server.py:L685-L714'
+    at: 'tests/test_dashboard_server.py:L698-L727'
   - symbol: test_absent_file_reports_unavailable
     kind: method
-    at: 'tests/test_dashboard_server.py:L689-L693'
+    at: 'tests/test_dashboard_server.py:L702-L706'
   - symbol: test_valid_status_passthrough
     kind: method
-    at: 'tests/test_dashboard_server.py:L695-L705'
+    at: 'tests/test_dashboard_server.py:L708-L718'
   - symbol: test_malformed_json_reports_unavailable
     kind: method
-    at: 'tests/test_dashboard_server.py:L707-L714'
+    at: 'tests/test_dashboard_server.py:L720-L727'
 ---
 <!-- context:generated:start -->
 ## Summary
 
-dashboard/server.py powers the Auto Company operations dashboard: status parsing for Windows/macOS/Linux hosts, action dispatch (start/stop/refresh), engine runtime state extraction from persistent logs, settings resolution, spend window calculation anchored to ccusage's blockStart, and directive file management via the real directive_writer.py subprocess.
+dashboard/server.py parses engine status output (Windows/macOS), dispatches start/stop/refresh actions with platform-specific script runners, reads engine runtime from logs (routing, model, effort, budget), uses ccusage blockStart timestamp for window cutoff with a rolling 5-hour fallback, and manages directives via directive_writer.py subprocess (append-only, heading demotion, PENDING gates, section partitioning). Distinguishes 'unset' from 'container-set' configuration values.
+
+## Related
+
+- uses [[directive-writer]] — write_directive/read_directive delegate to directive_writer.py as a subprocess.
+- uses [[operator-request-resolution]] — The operator-decision panel writes refusal formats consumed by operator_request_notify.py.
 <!-- context:generated:end -->
 
 ## Notes

@@ -1,5 +1,5 @@
 ---
-name: MCP Configuration & Boot Probe
+name: MCP configuration & boot probe
 slug: mcp-configuration-boot-probe
 type: system
 sources:
@@ -8,15 +8,7 @@ sources:
   - path: scripts/core/jcode-mcp-probe.py
     hash: 60fdd2addf2f53741d03e21002a00b6ee9d8895af1fae9746a51308e67672b67
 sources_digest: 5c486cb9b9e24ea7acf023003a03ae50970460766baf723ea3eb1774622a9ed8
-links:
-  - to: external-data-access-airtable-browser-ki-k
-    relation: configures
-    description: >-
-      Generates the MCP config that gates access to airtable/linear/browseros
-      servers
-  - to: secret-management-runtime-env-keychain
-    relation: uses
-    description: Leaves secrets unexpanded in argv to avoid ps leaks
+links: []
 generator:
   version: 1
 covers:
@@ -81,12 +73,7 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-The MCP (Model Context Protocol) server setup for jcode: jcode-mcp-config.py generates ~/.jcode/mcp.json from project-local .mcp.json (wrapping HTTP/SSE servers in the mcp-remote stdio bridge, applying hard-coded overrides for linear/airtable, refusing to write config missing REQUIRED servers, atomic writes with freshness stamp), and jcode-mcp-probe.py is a deterministic boot probe that spawns each server and speaks JSON-RPC 2.0 over stdio, enforcing five fail-closed gates including exact server-set match, live destructive tools matching the manifest, and a mandatory read-only readcheck per server (tools/list alone proved insufficient — Context7 passed boot for days while never being called).
-
-## Related
-
-- configures [[external-data-access-airtable-browser-ki-k]] — Generates the MCP config that gates access to airtable/linear/browseros servers
-- uses [[secret-management-runtime-env-keychain]] — Leaves secrets unexpanded in argv to avoid ps leaks
+Generation and deterministic verification of jcode's MCP server config. The generator translates project .mcp.json into ~/.jcode/mcp.json (wrapping HTTP/SSE servers in mcp-remote stdio bridge, applying hardcoded overrides for broken community packages, atomic writes with freshness stamp). The probe replaces a model-based check with direct protocol verification: spawns servers, runs initialize→tools/list→one read-only tools/call, and enforces five fail-closed gates including exact server-set match and denylist coverage. A documented gotcha: tools/list alone proved insufficient (Context7 passed boot for days while never being called), so a real read call is now required.
 <!-- context:generated:end -->
 
 ## Notes

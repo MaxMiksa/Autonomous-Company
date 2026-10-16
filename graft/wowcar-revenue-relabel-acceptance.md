@@ -7,11 +7,12 @@ sources:
     hash: bc164912338c15636cc9183c9327a6f77fdab6aebc86e2747f197f01f824fab2
 sources_digest: 4ac41bf99d27b7821e402c8d05774f95ac477ff958d361739e49e65a248d1add
 links:
-  - to: memory-ledger-files
-    relation: uses
+  - to: harness-loop-core
+    relation: validates
     description: >-
-      Depends on internal Wowcar modules model.py, build_xlsx.py, recalc.py,
-      test.py, capraz.py, tanila.py, kohort.py
+      Proves the Wowcar modules (model.py, build_xlsx.py, recalc.py, test.py,
+      capraz.py, tanila.py, kohort.py) produce byte-identical output under the
+      relabel.
 generator:
   version: 1
 covers:
@@ -112,11 +113,11 @@ covers:
 <!-- context:generated:start -->
 ## Summary
 
-A fail-closed acceptance harness pinning the live Wowcar repo as an immutable baseline (hard-pinned CPython/LibreOffice/numpy versions, SHA-256 manifest, canonical JSON root digest) and proving a candidate copy with eight approved vocabulary edits plus six column-width adjustments produces byte-identical outputs. It reverses edits deterministically to prove byte-equality, runs the build/recalc/test/capraz chain asserting success markers, and canonicalizes numeric leaves via a model.calis scenario sweep. Deterministic env (PYTHONHASHSEED=0, PYTHONDONTWRITEBYTECODE=1) and exact form-distribution counts are enforced.
+A fail-closed acceptance harness pinning the live Wowcar repo as an immutable baseline and proving a candidate copy with eight approved vocabulary edits (Faiz geliri → Vade farkı geliri) plus six column-width adjustments produces byte-identical outputs. It hard-pins CPython 3.13.5, LibreOffice, and exact library versions, compares the tree against a pinned SHA-256 manifest, reverses edits deterministically to prove byte-equality, and runs the build/recalc/test/capraz chain plus a numeric model sweep. Fail-closed via AcceptanceFailure/ConfigurationFailure exceptions with deterministic environment settings.
 
 ## Related
 
-- uses [[memory-ledger-files]] — Depends on internal Wowcar modules model.py, build_xlsx.py, recalc.py, test.py, capraz.py, tanila.py, kohort.py
+- validates [[harness-loop-core]] — Proves the Wowcar modules (model.py, build_xlsx.py, recalc.py, test.py, capraz.py, tanila.py, kohort.py) produce byte-identical output under the relabel.
 <!-- context:generated:end -->
 
 ## Notes
