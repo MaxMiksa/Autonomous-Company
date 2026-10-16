@@ -128,11 +128,12 @@ rule is dormant — but the principle still holds the moment such a project is a
 
 ## Team Architecture
 
-14 AI agents, each modeled on top-tier expert thinking. Full definitions are in
-`.claude/agents/` (each agent's frontmatter states when to use it). The
-role → persona → when-to-use selection map lives in `docs/team-architecture.md`.
-One rule worth repeating here: `critic-munger` is **required before major
-decisions**.
+19 role files in `.claude/agents/`: 15 active in seven departments, 4 dormant
+(sponsor S2/S3, 2026-10-16). The department → role → gate map and the role-file
+standard live in `docs/team-architecture.md`. In the jcode loop one model plays every
+role; a role reaches a cycle as the `## Gate Checklist` the harness injects for a work
+card's gate (`scripts/ops/role-checklist.py`). One rule worth repeating here:
+`critic-munger` is **required before major decisions**.
 
 ## Decision Principles
 
@@ -181,14 +182,14 @@ automatically (`--check-sync` runs in every session brief and in
 
 Team composition rules: `.claude/skills/team/SKILL.md`.
 
-1. **Belge/Model Mutabakatı (G0–G2)**: `research-thompson` -> `cfo-campbell` -> `critic-munger` -> `ceo-bezos` — kaynak haritası, formül/mutabakat, çelişki kaydı, karar belgeleri.
-2. **Hukuk/Mevzuat Araştırması (G1)**: `research-thompson` -> `operations-pg` -> `critic-munger` -> `ceo-bezos` — birincil kaynak, madde referanslı yükümlülük matrisi, "counsel teyidi gerekli mi" işareti.
-3. **SOP/Runbook Üretimi (G3)**: `interaction-cooper` -> `fullstack-dhh` -> `qa-bach` -> `operations-pg` — direktif §11 şablonuyla süreç, kontrol, test senaryosu.
-4. **Haftalık Rapor + Gate Review**: `operations-pg` -> `cfo-campbell` -> `qa-bach` -> `critic-munger` -> `ceo-bezos` — direktif §16 raporu; gate-pass iddiası Munger incelemesiz ASLA.
+1. **Document/Model Reconciliation (G0–G2)**: `research-thompson` -> `cfo-campbell` -> `reconciliation-controller` -> `critic-munger` -> `ceo-bezos` — source map, formula reconciliation, conflict log, decision records.
+2. **Legal/Regulatory Research (G1)**: `research-thompson` -> `compliance-officer` -> `kvkk-dpo` -> `critic-munger` -> `ceo-bezos` — primary sources, article-referenced obligation matrix, "counsel confirmation required?" flag.
+3. **SOP/Runbook Production (G3)**: `interaction-cooper` -> `operations-pg` -> `security-architect` -> `qa-bach` — process per the directive §11 template, controls, test scenarios.
+4. **Weekly Report + Gate Review**: `operations-pg` -> `cfo-campbell` -> `qa-bach` -> `critic-munger` -> `chief-of-staff` -> `ceo-bezos` — directive §16 report and the sponsor brief; a gate-pass claim NEVER without a `critic-munger` review.
 
-> Tender-çağı workflow'ları (New Product Evaluation, Opportunity Discovery vb.) tarihsel
-> kayıt olarak `docs/team-architecture.md`'ye taşındı; `PROJECT_EVALUATION_FRAMEWORK.md`
-> dormant arşivdir, Wowcar işi onun üzerinden koşmaz.
+> Tender-era workflows (New Product Evaluation, Opportunity Discovery, etc.) are kept as a
+> historical record in `docs/team-architecture.md`; `PROJECT_EVALUATION_FRAMEWORK.md` is a
+> dormant archive and VADEA work does not run through it.
 
 ## Documentation Map
 
