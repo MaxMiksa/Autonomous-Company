@@ -53,7 +53,6 @@
     </header>
     <main id="mainContent" class="page-width" tabindex="-1">
       <div id="connectionError" class="notice error-notice" role="alert" hidden></div>
-      <p id="actionStatus" class="action-status" role="status" aria-live="polite" hidden></p>
       <p id="runtimeNotice" class="notice" role="status" hidden></p>
       <div id="loadingState" class="page-state" role="status">
         <p data-i18n="loading">正在读取工作记录…</p>
@@ -73,9 +72,6 @@
           </div>
           <div id="projectSidebarHome">
           <aside id="projectSidebar" class="project-sidebar" aria-label="项目概况" tabindex="-1">
-            <div id="runtimeControls" class="runtime-controls" hidden>
-              <button id="runtimeActionButton" class="button" type="button" disabled data-action="start" data-i18n="start">启动运行</button>
-            </div>
           </aside>
           </div>
 
@@ -153,19 +149,12 @@
       <h2 id="projectInfoTitle" class="sr-only" data-i18n="productInfo">产品信息</h2>
       <div id="projectInfoDrawerBody" class="project-info-body"></div>
     </div>
-    <dialog id="stopConfirmDialog" data-confirmation="true" aria-labelledby="stopConfirmTitle" aria-describedby="stopConfirmMessage">
-      <div class="dialog-header"><h2 id="stopConfirmTitle" data-i18n="stopConfirmTitle">停止当前运行</h2><button id="closeStopConfirm" class="icon-button" data-safe-action data-i18n="close">关闭</button></div>
-      <p id="stopConfirmMessage"></p>
-      <div class="dialog-actions"><button id="cancelStopConfirm" class="button" data-safe-action data-i18n="cancel">取消</button><button id="acceptStopConfirm" class="button danger" data-i18n="stop">停止运行</button></div>
-    </dialog>
     <dialog id="settingsDialog" aria-labelledby="settingsTitle">
       <div class="dialog-header">
         <h2 id="settingsTitle" data-i18n="settings">设置</h2>
         <button id="closeSettingsButton" class="icon-button close-button" aria-label="关闭"><span data-icon="x"></span></button>
       </div>
-      <p id="settingsDescription"></p>
       <div class="preview-note">
-        <span id="modeNote"></span>
         <label class="auto-refresh"><input id="autoRefresh" type="checkbox" checked><span data-i18n="autoRefresh">自动刷新</span></label>
         <button id="refreshButton" class="icon-button" title="刷新记录" aria-label="刷新记录"><span data-icon="refresh-cw"></span></button>
       </div>
@@ -176,13 +165,7 @@
         <dt data-i18n="mode">当前模式</dt>
         <dd id="settingsMode"></dd>
       </dl>
-      <label class="language-label" for="languageSelect" data-i18n="languagePreference">产品语言偏好</label>
-      <select id="languageSelect" disabled><option value="zh-CN">简体中文</option><option value="en">English</option></select>
-      <p id="languageHint" class="fine-print"></p>
-      <p id="languageStatus" class="fine-print" role="status" aria-live="polite"></p>
       <div class="dialog-links">
-        <a class="legacy-link" href="/legacy" data-i18n="openLegacy" hidden>打开原版 Dashboard ↗</a>
-        <a id="consensusLink" href="/api/journal/document?path=memories%2Fconsensus.md" target="_blank" rel="noopener" data-i18n="openConsensus" hidden>查看原始共识文件 ↗</a>
         <a href="/docs/readme" target="_blank" rel="noopener" data-i18n="docsReadme">使用说明 ↗</a>
         <a href="/docs/setup" target="_blank" rel="noopener" data-i18n="docsSetup">安装与配置 ↗</a>
         <a href="/docs/troubleshooting" target="_blank" rel="noopener" data-i18n="docsTroubleshooting">故障排查 ↗</a>

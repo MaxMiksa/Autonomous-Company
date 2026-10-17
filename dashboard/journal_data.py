@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 import locale
 import os
@@ -531,16 +531,10 @@ class JournalSource:
         except (OSError, ValueError):
             return {"ok": True, "text": "", "available": False, "truncated": False}
 
-    def log_tail(self, lines: int = 180) -> str:
-        try:
-            text, _ = self.read("logs/auto-loop.log", MAX_LOG_BYTES, tail=True)
-            return "\n".join(text.splitlines()[-max(1, min(lines, 1000)):])
-        except (OSError, ValueError):
-            return ""
-
     def snapshot(self, *, status: dict[str, Any] | None = None,
                  language_state: dict[str, Any] | None = None,
                  detail_cycle_id: str | None = None,
+                 all_details: bool = False,
                  runtime_config: dict[str, Any] | None = None) -> dict[str, Any]:
         generated = datetime.now(timezone.utc)
         generated_at = generated.isoformat()
@@ -662,7 +656,7 @@ class JournalSource:
         # On-demand history uses the same identity and artifact checks as the
         # initial detail window, before limited rows receive placeholder data.
         for index, cycle in enumerate(cycles):
-            if index >= 30 and cycle["id"] != detail_cycle_id:
+            if not all_details and index >= 30 and cycle["id"] != detail_cycle_id:
                 continue
             cycle["detailStatus"] = "recorded"
             cycle.update(read_report(self, cycle))
@@ -719,10 +713,10 @@ class JournalSource:
             cycle["checks"] = checks
             cycle["latestCheck"] = checks[0] if checks else None
             cycle["checkStatus"] = checks[0]["evidenceStatus"] if checks else "unregistered"
-        if len(cycles) > 30:
+        if len(cycles) > 30 and not all_details:
             warnings.append("cycle_details_truncated")
         for cycle in cycles[30:]:
-            if cycle["id"] == detail_cycle_id:
+            if all_details or cycle["id"] == detail_cycle_id:
                 continue
             recorded_project = cycle.get("projectId")
             cycle.update({"detailStatus": "limited", "projectIdentity": {
@@ -767,39 +761,3 @@ class JournalSource:
                 "latestCheck": latest_check,
                 "latestProjectCycleId": latest_project_cycle["id"] if latest_project_cycle else None,
                 "warnings": warnings}
-
-    def legacy_status(self) -> dict[str, Any]:
-        snapshot = self.snapshot()
-        state = self.pairs(".auto-loop-state")
-        return {"ok": True, "readOnly": True, "timestamp": snapshot["generatedAt"], "exitCode": 0, "elapsedMs": 0,
-                "raw": "Read-only archive preview. Host services are not queried.", "stateFile": {**state, "STATUS": "stopped"},
-                "parsed": {"guardian": {"state": "unavailable", "pid": None},
-                           "daemon": {"state": "unavailable", "mainPid": None},
-                           "autostart": {"state": "unavailable", "enabledState": "unknown"},
-                           "loop": {"state": "stopped", "processState": "stopped", "pid": None,
-                                    "engine": snapshot["runtime"]["engine"], "model": snapshot["runtime"]["model"],
-                                    "loopCount": state.get("LOOP_COUNT", ""), "errorCount": state.get("ERROR_COUNT", ""),
-                                    "lastRun": state.get("LAST_RUN", ""), "pauseReason": ""}},
-                "consensusHead": snapshot["consensus"]["raw"], "logTail": self.log_tail()}
-
-    def legacy_usage(self, period: str = "day", target_date: str | None = None) -> dict[str, Any]:
-        if period not in {"day", "week"}:
-            raise ValueError("Period must be day or week")
-        target = date.fromisoformat(target_date) if target_date else datetime.now().astimezone().date()
-        start = target if period == "day" else target - timedelta(days=target.weekday())
-        end = start if period == "day" else start + timedelta(days=6)
-        records, warnings = self.ledger()
-        selected = [record for record in records if timestamp(record.get("ended_at"))
-                    and start <= datetime.fromisoformat(timestamp(record["ended_at"])).date() <= end]
-        def metric(field: str) -> dict[str, Any]:
-            values = [token_count(record.get("usage", {}).get(field))
-                      if isinstance(record.get("usage"), dict) else None for record in selected]
-            known = [value for value in values if value is not None]
-            return {"value": sum(known) if known else None,
-                    "status": "complete" if known and len(known) == len(values) else "partial" if known else "unavailable",
-                    "known_cycles": len(known), "unknown_cycles": len(values) - len(known)}
-        return {"ok": True, "readOnly": True, "timestamp": datetime.now(timezone.utc).isoformat(), "budgetPause": None,
-                "summary": {"schema_version": 1, "period": period, "start_date": start.isoformat(), "end_date": end.isoformat(),
-                            "cycles": len(selected), "usage": {field: metric(field) for field in ("input_tokens", "output_tokens", "total_tokens")},
-                            "cost_usd": {"value": None, "status": "unavailable", "known_cycles": 0, "unknown_cycles": len(selected)},
-                            "latest_budget": None, "invalid_records": len(warnings)}}

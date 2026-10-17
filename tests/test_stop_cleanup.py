@@ -1,7 +1,6 @@
 """Targeted stop ownership and interruption checks; no model or user service."""
 
 import importlib.util
-from http.client import HTTPMessage
 import json
 import os
 from pathlib import Path
@@ -156,34 +155,6 @@ class LinuxStopTests(unittest.TestCase):
                         if loop.poll() is None:
                             loop.terminate()
                             loop.wait(timeout=10)
-
-
-class DashboardStopTests(unittest.TestCase):
-    def test_concurrent_action_rejected_and_failed_stop_retries(self):
-        server = load("stop_server", ROOT / "dashboard/server.py")
-        handler = server.DashboardHandler.__new__(server.DashboardHandler)
-        handler.path = "/api/action/stop"
-        handler.headers = HTTPMessage()
-        handler.headers["Content-Type"] = "application/json"
-        handler._request_allowed = lambda: True
-        handler._json = mock.Mock()
-        success = {"ok": True, "exitCode": 0, "elapsedMs": 1, "output": ""}
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(server, "REPO_ROOT", Path(directory)):
-            with server.CONTROL_LOCK, mock.patch.object(server, "run_dashboard_action") as run:
-                handler.do_POST()
-                run.assert_not_called()
-                self.assertEqual(handler._json.call_args.kwargs["code"], 409)
-            with mock.patch.object(server, "run_dashboard_action", return_value=dict(success, ok=False, exitCode=1)):
-                handler.do_POST()
-            self.assertTrue((Path(directory) / ".auto-loop-stop-pending").exists())
-            handler.path = "/api/action/start"
-            with mock.patch.object(server, "run_dashboard_action") as run:
-                handler.do_POST()
-                run.assert_not_called()
-            handler.path = "/api/action/stop"
-            with mock.patch.object(server, "run_dashboard_action", return_value=success):
-                handler.do_POST()
-            self.assertFalse((Path(directory) / ".auto-loop-stop-pending").exists())
 
 
 if __name__ == "__main__":

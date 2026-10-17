@@ -1,65 +1,43 @@
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect } from '@playwright/test';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 export { expect };
 
 export const test = base.extend({
-  scenario: ["default", { option: true }],
-
-  dashboard: async ({ scenario }, use, testInfo) => {
-    const python = process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON
-      || (process.platform === "win32" ? "python" : "python3");
-    const child = spawn(python, ["-u", fileURLToPath(new URL("fixture-server.py", import.meta.url)),
-      "--scenario", scenario], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-    let log = "";
-    child.stderr.on("data", (chunk) => { log += chunk.toString(); });
-    const closed = new Promise((resolve) => child.once("close", resolve));
+  centerCycles: [6, { option: true }],
+  centerExplorationCycles: [0, { option: true }],
+  center: async ({ centerCycles, centerExplorationCycles }, use, testInfo) => {
+    const child = spawn(process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+      ['-u', fileURLToPath(new URL('center-fixture-server.py', import.meta.url)), '--cycles', String(centerCycles), '--exploration-cycles', String(centerExplorationCycles)],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let output = '';
+    child.stderr.on('data', chunk => { output += chunk; });
+    const closed = new Promise(resolve => child.once('close', resolve));
     const lines = createInterface({ input: child.stdout });
     try {
-      const dashboard = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Dashboard did not start:\n${log}`)), 10000);
-        const finish = (error, value) => {
-          clearTimeout(timer);
-          if (error) reject(error);
-          else resolve(value);
-        };
-        child.once("error", (error) => finish(error));
-        child.once("exit", (code) => finish(new Error(`Dashboard exited (${code}):\n${log}`)));
-        lines.once("line", (line) => {
-          try { finish(null, JSON.parse(line)); }
-          catch (error) { finish(error); }
-        });
+      const center = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Center fixture timed out: ${output}`)), 15000);
+        const finish = (error, value) => { clearTimeout(timer); error ? reject(error) : resolve(value); };
+        child.once('error', error => finish(error));
+        child.once('exit', code => finish(new Error(`Center fixture exited ${code}: ${output}`)));
+        lines.once('line', line => { try { finish(null, JSON.parse(line)); } catch (error) { finish(error); } });
       });
-      await use(dashboard);
+      await use(center);
     } finally {
       child.stdin.end();
       let timer;
-      await Promise.race([closed, new Promise((resolve) => {
-        timer = setTimeout(() => { child.kill(); resolve(); }, 5000);
-      })]);
+      await Promise.race([closed, new Promise(resolve => { timer = setTimeout(() => { child.kill(); resolve(); }, 5000); })]);
       clearTimeout(timer);
       lines.close();
-      if (testInfo.status !== testInfo.expectedStatus) {
-        await testInfo.attach("dashboard-server.log", { body: log, contentType: "text/plain" });
-      }
+      if (testInfo.status !== testInfo.expectedStatus) await testInfo.attach('center-server.log', { body: output, contentType: 'text/plain' });
     }
   },
-
-  page: async ({ page, dashboard, scenario }, use) => {
+  page: async ({ page }, use) => {
     const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    // Fonts are cosmetic; smoke tests require no external network requests.
-    await page.route("https://fonts.googleapis.com/**", (route) => route.abort());
-    await page.route("https://fonts.gstatic.com/**", (route) => route.abort());
-    await page.goto(dashboard.url);
-    await expect(page.locator("#projectName")).toHaveText("Browser Fixture");
-    await expect(page.locator("#runtimeState")).toHaveText(scenario === "running-cycle" ? "Running" : "Stopped");
-    await page.locator("#settingsButton").click();
-    await page.locator('#settingsDialog [role=switch]').setChecked(false);
-    await page.locator("#closeSettingsButton").click();
+    page.on('pageerror', error => errors.push(error.message));
     await use(page);
-    expect(errors, "Unexpected dashboard JavaScript errors").toEqual([]);
+    expect(errors).toEqual([]);
   },
 });

@@ -1,25 +1,17 @@
 """Read-only journal contracts; fixtures never run the company or host services."""
 
-import http.client
-import importlib.util
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
-import threading
 import unittest
 from unittest import mock
 
 
 DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard"
-SPEC = importlib.util.spec_from_file_location("dashboard_journal_server", DASHBOARD / "journal_server.py")
-server_module = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(server_module)
-data_module = __import__("journal_data")
-PRODUCTION_SPEC = importlib.util.spec_from_file_location("journal_production_server", DASHBOARD / "server.py")
-production = importlib.util.module_from_spec(PRODUCTION_SPEC)
-PRODUCTION_SPEC.loader.exec_module(production)
+sys.path.insert(0, str(DASHBOARD))
+import journal_data as data_module
 
 
 def record(identity="cycle-0001-run-a", number=1, **changes):
@@ -477,203 +469,6 @@ class JournalTests(JournalFixture):
         self.assertEqual(snapshot["cycles"][1]["costUsd"], 0.125)
         self.assertEqual(snapshot["cycles"][1]["budget"], budget)
         self.assertEqual(snapshot["recordedBudget"], budget)
-
-
-class JournalHTTPTests(JournalFixture):
-    def setUp(self):
-        super().setUp()
-        self.server = server_module.JournalServer(("127.0.0.1", 0), self.source)
-        thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=0.01), daemon=True)
-        thread.start()
-        def close():
-            self.server.shutdown()
-            self.server.server_close()
-            thread.join(3)
-        self.addCleanup(close)
-
-    def request(self, path, method="GET", headers=None, body=None):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
-        try:
-            connection.request(method, path, body=body, headers=headers or {})
-            response = connection.getresponse()
-            return response.status, response.read(), dict(response.getheaders())
-        finally:
-            connection.close()
-
-    def test_every_write_route_is_forbidden_and_source_unchanged(self):
-        self.ledger(record())
-        before = {str(path.relative_to(self.root)): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
-        for path in ("/api/action/start", "/api/action/stop", "/api/language", "/api/journal", "/api/product-media/capture", "/anything"):
-            for method in ("POST", "PUT", "PATCH", "DELETE"):
-                self.assertEqual(self.request(path, method)[0], 403)
-        after = {str(path.relative_to(self.root)): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
-        self.assertEqual(before, after)
-
-    def test_host_origin_and_malformed_query_are_rejected(self):
-        self.assertEqual(self.request("/api/journal", headers={"Host": "attacker.test"})[0], 403)
-        self.assertEqual(self.request("/api/journal", headers={"Origin": "https://attacker.test"})[0], 403)
-        self.assertEqual(self.request("/api/journal", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-        self.assertEqual(self.request("/api/journal?" + "&".join(f"x{i}=1" for i in range(15)))[0], 400)
-
-    def test_preview_assets_and_safe_adapters_with_opt_in_legacy(self):
-        self.ledger(record())
-        self.assertEqual(self.request("/legacy")[0], 404)
-        self.assertFalse(json.loads(self.request("/api/journal")[1])["legacyAvailable"])
-        for route, relative in (("/", "index.html"), ("/journal", "index.html"), ("/app.js", "app.js"), ("/styles.css", "styles.css"), ("/i18n.js", "i18n.js")):
-            code, body, _ = self.request(route)
-            self.assertEqual(code, 200)
-            self.assertEqual(body, (DASHBOARD / relative).read_bytes())
-        for route in ("/api/status", "/api/language", "/api/usage?date=2026-09-18", "/api/log-tail"):
-            code, body, _ = self.request(route)
-            self.assertEqual(code, 200)
-            self.assertTrue(json.loads(body)["readOnly"])
-        status = json.loads(self.request("/api/status")[1])
-        self.assertEqual(status["parsed"]["daemon"]["state"], "unavailable")
-        self.assertEqual(status["parsed"]["loop"]["state"], "stopped")
-
-    def test_legacy_backup_asset_routes_do_not_replace_current_assets(self):
-        backup = self.root / "backup"
-        self.write("backup/index.html", '<link href="/styles.css"><script src="./i18n.js"></script><script src="app.js"></script>')
-        self.write("backup/app.js", "// local legacy version\r\n")
-        self.write("backup/i18n.js", "// legacy language")
-        self.write("backup/styles.css", "/* legacy style */")
-        self.server.legacy = data_module.JournalSource(backup)
-        for route in ("/legacy", "/legacy/", "/legacy/index.html"):
-            code, body, _ = self.request(route)
-            self.assertEqual(code, 200)
-            for name in ("app.js", "i18n.js", "styles.css"):
-                self.assertIn(f'/legacy/assets/{name}'.encode(), body)
-        self.assertTrue(json.loads(self.request("/api/journal")[1])["legacyAvailable"])
-        self.assertEqual(self.request("/legacy/assets/app.js")[1], (backup / "app.js").read_bytes())
-        self.assertEqual(self.request("/app.js")[1], (DASHBOARD / "app.js").read_bytes())
-        self.assertEqual(self.request("/legacy/assets/../.env")[0], 404)
-
-    def test_document_plaintext_and_no_arbitrary_files(self):
-        self.write("DELIVERY.md", "# Delivery\n<script>alert('no')</script>")
-        self.write("memories/consensus.md", "# Current consensus")
-        code, body, headers = self.request("/api/journal/document?path=DELIVERY.md")
-        self.assertEqual(code, 200)
-        self.assertEqual(headers["Content-Type"], "text/plain; charset=utf-8")
-        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-        self.assertIn(b"<script>", body)
-        self.assertEqual(self.request("/api/journal/document?path=memories%2Fconsensus.md")[0], 200)
-        self.assertEqual(self.request("/api/journal/document?path=..%2F.env")[0], 400)
-        self.assertEqual(self.request("/api/journal/log?id=x&id=y")[0], 400)
-
-
-class ProductionJournalHTTPTests(JournalFixture):
-    def setUp(self):
-        super().setUp()
-        self.ledger(record())
-        self.runtime_status = {"ok": True, "raw": "Stopped", "stateFile": {},
-                               "parsed": {"loop": {"state": "stopped", "processState": "stopped", "pid": None}}}
-        for patch in (mock.patch.object(production, "REPO_ROOT", self.root),
-                      mock.patch.object(production, "gather_status_payload", side_effect=lambda: self.runtime_status)):
-            patch.start()
-            self.addCleanup(patch.stop)
-        self.server = production.ThreadingHTTPServer(("127.0.0.1", 0), production.DashboardHandler)
-        thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=0.01), daemon=True)
-        thread.start()
-        def close():
-            self.server.shutdown()
-            self.server.server_close()
-            thread.join(3)
-        self.addCleanup(close)
-
-    request = JournalHTTPTests.request
-
-    def test_registered_media_is_served_as_bytes_and_unknown_paths_are_rejected(self):
-        raw = b"\x89PNG\r\n\x1a\n\xff\x00"
-        path = "/api/product-media/" + "a" * 32 + "/" + "b" * 64 + ".png"
-        with mock.patch.object(data_module.JournalSource, "media_resource", return_value=(raw, "image/png")) as read:
-            code, body, headers = self.request(path)
-            self.assertEqual((code, body, headers["Content-Type"]), (200, raw, "image/png"))
-            self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-            read.assert_called_once_with("a" * 32, "b" * 64 + ".png")
-            self.assertEqual(self.request(path + "?path=private")[0], 400)
-            self.assertEqual(self.request("/api/product-media/../../.env")[0], 400)
-
-    def test_media_retry_requires_idle_runtime_and_never_calls_start(self):
-        body = json.dumps({"productId": "a" * 32})
-        headers = {"Content-Type": "application/json"}
-        with mock.patch.object(production, "capture_product_media", return_value={"ok": True}) as capture, \
-                mock.patch.object(production, "run_dashboard_action", side_effect=AssertionError("Must not run models")):
-            self.runtime_status["parsed"]["loop"]["processState"] = "running"
-            self.assertEqual(self.request("/api/product-media/capture", "POST", headers, body)[0], 409)
-            capture.assert_not_called()
-            self.runtime_status["parsed"]["loop"]["processState"] = "stopped"
-            self.assertEqual(self.request("/api/product-media/capture", "POST", headers, body)[0], 200)
-            capture.assert_called_once_with("a" * 32)
-            self.assertEqual(self.request("/api/product-media/capture", "POST", headers, '{}')[0], 400)
-
-    def test_start_cannot_race_with_a_manual_capture(self):
-        entered, finish = threading.Event(), threading.Event()
-        def capture(_product):
-            entered.set()
-            finish.wait(3)
-            return {"ok": True}
-        headers = {"Content-Type": "application/json"}
-        with mock.patch.object(production, "capture_product_media", side_effect=capture), \
-                mock.patch.object(production, "run_dashboard_action", side_effect=AssertionError("No concurrent start")):
-            thread = threading.Thread(target=lambda: self.request("/api/product-media/capture", "POST", headers, json.dumps({"productId": "a" * 32})))
-            thread.start()
-            try:
-                self.assertTrue(entered.wait(2))
-                self.assertEqual(production.CONTROL_ACTION, "capture")
-                self.assertEqual(self.request("/api/action/start", "POST", headers, '{}')[0], 409)
-            finally:
-                finish.set()
-                thread.join(4)
-        self.assertEqual(production.CONTROL_ACTION, "")
-
-    def test_root_and_journal_aliases_use_current_dashboard(self):
-        for route in ("/", "/index.html", "/journal", "/journal/", "/journal/index.html"):
-            self.assertEqual(self.request(route)[1], (DASHBOARD / "index.html").read_text(encoding="utf-8").encode("utf-8"))
-        self.assertEqual(self.request("/legacy")[0], 404)
-
-    def test_snapshot_reuses_shared_language_lock_and_budget_pause(self):
-        config = self.write(".autonomous-company.local", "AUTONOMOUS_COMPANY_LANGUAGE=en\nAUTONOMOUS_COMPANY_PRODUCT_ID=" + "a" * 32
-                            + "\nAUTONOMOUS_COMPANY_PRODUCT_LANGUAGE=zh-CN\nAUTONOMOUS_COMPANY_PRODUCT_STATUS=active\n")
-        before = config.read_bytes()
-        marker = {"reason": "usage_hard_limit", "budget": {"state": "hard_limit"}}
-        self.write(".auto-loop-budget-paused", json.dumps(marker))
-        code, body, _ = self.request("/api/journal")
-        self.assertEqual(code, 200)
-        payload = json.loads(body)
-        self.assertFalse(payload["readOnly"])
-        self.assertFalse(payload["legacyAvailable"])
-        self.assertEqual(payload["language"], "zh-CN")
-        self.assertEqual(payload["languageState"]["nextLanguage"], "en")
-        self.assertTrue(payload["languageState"]["locked"])
-        self.assertTrue(payload["languageState"]["pending"])
-        self.assertEqual(payload["budgetPause"], marker)
-        self.assertEqual(config.read_bytes(), before)
-        self.assertEqual(payload["status"], self.runtime_status)
-
-    def test_running_snapshot_and_log_endpoints_share_verified_identity(self):
-        self.runtime_status = self.live_status()
-        self.write("logs/cycle-0002-live.log", "active text")
-        payload = json.loads(self.request("/api/journal")[1])
-        self.assertEqual(payload["cycles"][0]["id"], "cycle-0002-live")
-        self.assertEqual(json.loads(self.request("/api/journal/log?id=cycle-0002-live")[1])["text"], "active text")
-        self.runtime_status["ok"] = False
-        payload = json.loads(self.request("/api/journal")[1])
-        self.assertEqual(payload["runtime"]["state"], "unavailable")
-        self.assertEqual(self.request("/api/journal/log?id=cycle-0002-live")[0], 400)
-
-    def test_recorded_log_does_not_query_host_and_documents_stay_bounded(self):
-        self.write("logs/cycle-0001-run-a.log", "recorded text")
-        with mock.patch.object(production, "gather_status_payload", side_effect=AssertionError("No host query for history")):
-            self.assertEqual(json.loads(self.request("/api/journal/log?id=cycle-0001-run-a")[1])["text"], "recorded text")
-        self.write("DELIVERY.md", "# Delivery\n" + "x" * data_module.MAX_TEXT_BYTES)
-        code, body, headers = self.request("/api/journal/document?path=DELIVERY.md")
-        self.assertEqual(code, 200)
-        self.assertLessEqual(len(body), data_module.MAX_TEXT_BYTES)
-        self.assertEqual(headers["X-Content-Truncated"], "true")
-        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(self.request("/api/journal/document?path=../.env")[0], 400)
-        self.assertEqual(self.request("/api/journal/log?id=x&id=y")[0], 400)
-        self.assertEqual(self.request("/api/journal", headers={"Origin": "https://attacker.test"})[0], 403)
 
 
 if __name__ == "__main__":

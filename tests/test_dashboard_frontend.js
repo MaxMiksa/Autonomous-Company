@@ -13,10 +13,12 @@ const i18n = fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8");
 
 function registerJournal(context) {
   context.URL = URL;
+  context.location ||= { pathname: '/products/entry-a' };
+  context.location.origin = 'http://127.0.0.1:8843';
   context.document.documentElement = { lang: 'en' };
   context.window.DashboardNavigation = { register(_kind, mount) {
     mount({ document: context.document, ui: context.window.DashboardUI ||= {}, active: true,
-      url: `http://127.0.0.1:8843${context.location?.pathname || '/journal'}`,
+      url: `http://127.0.0.1:8843${context.location?.pathname || '/products/entry-a'}`,
       request: () => ({ valid: () => true, done() {} }) });
   } };
 }
@@ -64,12 +66,12 @@ test('usage separates different engines and unknown model identities', () => {
   assert.match(fullTime('2020-01-01T12:00:00Z'), /^2020-01-01 \d{2}:\d{2}$/);
 });
 
-test("media links must belong to the exact managed product", () => {
-  const { mediaURL } = helpers();
-  const id = 'a'.repeat(32);
-  const url = `/api/product-media/${id}/${'b'.repeat(64)}.png`;
-  assert.equal(mediaURL(url, id), url);
-  for (const value of [url.replace(id, 'c'.repeat(32)), 'https://example.com/image.png', 'javascript:alert(1)', `/api/product-media/${id}/../private.svg`, `${url}?path=private`]) assert.equal(mediaURL(value, id), null);
+test("media links must belong to the selected center entry", () => {
+  const { state, mediaURL } = helpers();
+  state.data = { sourceId: 'source-a' };
+  const url = `/api/center/v1/entries/entry-a/resources/media-${'b'.repeat(64)}.png?sourceId=source-a`;
+  assert.equal(mediaURL(url), url);
+  for (const value of [url.replace('entry-a', 'entry-b'), 'https://example.com/image.png', 'javascript:alert(1)', url.replace('/media-', '/../media-')]) assert.equal(mediaURL(value), null);
 });
 
 test("published refinements require a matching read-only display language", () => {
@@ -183,21 +185,21 @@ test("runtime status labels distinguish unavailable services from unrecorded usa
   }
 });
 
-test("day and week usage filters use ledger end dates and exclude active work", () => {
+test("day and week usage filters use local ledger dates and retain active coverage", () => {
   const { state, filterUsage, fields } = helpers();
-  state.data = { cycles: ["2026-09-13", "2026-09-14", "2026-09-18", "2026-09-20", "2026-09-21"].map((date) => ({ startedAt: `${date}T12:00:00Z`, endedAt: `${date}T12:00:30Z` })) };
-  state.data.cycles.push({ startedAt: "2026-09-17T23:59:30Z", endedAt: "2026-09-18T00:00:30Z" });
-  state.data.cycles.push({ startedAt: "2026-09-20T23:59:30Z", endedAt: "2026-09-21T00:00:30Z" });
-  state.data.cycles.push({ startedAt: "2026-09-18T13:00:00Z", endedAt: null, active: true, usage: {} });
+  state.data = { cycles: ["2026-09-13", "2026-09-14", "2026-09-18", "2026-09-20", "2026-09-21"].map((date) => ({ startedAt: new Date(`${date}T12:00:00`).toISOString(), endedAt: new Date(`${date}T12:00:30`).toISOString() })) };
+  state.data.cycles.push({ startedAt: new Date("2026-09-17T23:59:30").toISOString(), endedAt: new Date("2026-09-18T00:00:30").toISOString() });
+  state.data.cycles.push({ startedAt: new Date("2026-09-20T23:59:30").toISOString(), endedAt: new Date("2026-09-21T00:00:30").toISOString() });
+  state.data.cycles.push({ startedAt: new Date("2026-09-18T13:00:00").toISOString(), endedAt: null, active: true, usage: {} });
   fields.get("usageDate").value = "2026-09-18";
   fields.get("usagePeriod").value = "day";
-  assert.equal(filterUsage().length, 2);
+  assert.equal(filterUsage().length, 3);
   fields.get("usagePeriod").value = "week";
-  assert.deepEqual(Array.from(filterUsage(), (cycle) => cycle.endedAt.slice(0, 10)), ["2026-09-14", "2026-09-18", "2026-09-20", "2026-09-18"]);
+  assert.deepEqual(Array.from(filterUsage(), (cycle) => { const date = new Date(cycle.endedAt || cycle.startedAt); return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-'); }), ["2026-09-14", "2026-09-18", "2026-09-20", "2026-09-18", "2026-09-18"]);
   assert.equal(fields.get("usageRange").textContent, new Date().getFullYear() === 2026 ? "09-14 – 09-20" : "2026-09-14 – 2026-09-20");
   fields.get("usagePeriod").value = "all";
-  assert.equal(filterUsage().length, 7);
-  assert.equal(filterUsage().some((cycle) => cycle.active), false);
+  assert.equal(filterUsage().length, 8);
+  assert.equal(filterUsage().some((cycle) => cycle.active), true);
   assert.equal(fields.get("usageDate").hidden, true);
 });
 
@@ -211,9 +213,9 @@ test("live elapsed time advances only with fresh verified runtime identity", () 
   assert.equal(liveDuration(cycle, 4000), "Running for 1m 3s");
   assert.equal(liveDuration(cycle, 17000), "Elapsed time unconfirmed");
   assert.equal(liveDuration(cycle, 999), "Elapsed time unconfirmed");
-  state.action = "stop";
+  state.data.runtime.currentCycleId = "another-cycle";
   assert.equal(liveDuration(cycle, 4000), "Elapsed time unconfirmed");
-  state.action = "";
+  delete state.data.runtime.currentCycleId;
   state.statusFailed = true;
   assert.equal(liveDuration(cycle, 4000), "Elapsed time unconfirmed");
   state.statusFailed = false;
@@ -386,10 +388,10 @@ for (const change of ['new request', 'selection']) {
   });
 }
 
-function logSourceHarness(center = true) {
+function logSourceHarness() {
   const fields = new Map(['logText', 'rawLogText', 'copyLogButton', 'refreshLogButton', 'logStatus', 'newLogButton', 'followLog'].map((id) => [id, {}]));
   const reads = [];
-  const context = vm.createContext({ window: {}, location: { pathname: center ? '/products/entry-a' : '/journal' },
+  const context = vm.createContext({ window: {}, location: { pathname: '/products/entry-a' },
     document: { getElementById(id) { assert.ok(fields.has(id), id); return fields.get(id); } },
     read: (url) => new Promise((resolve, reject) => reads.push({ url, resolve, reject })),
   });
@@ -397,7 +399,7 @@ function logSourceHarness(center = true) {
   vm.runInContext(i18n, context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
-  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = fetchJSON = globalThis.read; globalThis.journal = {state, loadLog};\n});', context);
+  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = globalThis.read; globalThis.journal = {state, loadLog};\n});', context);
   const snapshot = (source, revision = 1, resource = 'log-same-cycle') => ({ entryId: 'entry-a', sourceId: source, sourceRevision: revision,
     cycles: [{ id: 'same-cycle', logUrl: `/api/center/v1/entries/entry-a/resources/${resource}?sourceId=${source}` }] });
   context.journal.state.data = snapshot('source-a');
@@ -475,22 +477,6 @@ test('source change clears already displayed old text while waiting for the old 
   h.reads[2].resolve('SOURCE B'); await current;
   assert.equal(h.state.logText, 'SOURCE B');
 });
-
-for (const id of ['runtime', 'same-cycle']) {
-  test(`standalone ${id} log keeps its existing read and cache behavior`, async () => {
-    const h = logSourceHarness(false); h.state.selectedLog = id;
-    const first = h.loadLog(); const duplicate = h.loadLog();
-    assert.equal(h.reads.length, 1);
-    assert.equal(h.reads[0].url, id === 'runtime' ? '/api/log-tail?lines=180' : '/api/journal/log?id=same-cycle');
-    h.reads[0].resolve({ available: true, logTail: 'LOCAL', text: 'LOCAL' });
-    await Promise.all([first, duplicate]);
-    assert.equal(h.state.logText, 'LOCAL');
-    const retry = h.loadLog(); h.reads[1].reject(new Error('local failed')); await retry;
-    assert.equal(h.state.logText, 'LOCAL');
-    assert.equal(h.fields.get('logText').textContent, 'LOCAL');
-  });
-}
-
 
 test("cycle labels use authoritative continuous numbers and retain legacy fallback", () => {
   const { paddedCycleNumber } = helpers();

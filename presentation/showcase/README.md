@@ -46,24 +46,28 @@ npm exec --prefix tests/browser -- playwright install chromium
 node scripts/media/capture_showcase.cjs --help
 ```
 
-Start a read-only translated preview against your preserved source. Replace the source placeholder with your own run; choose the matching product and language overlay:
+Start a read-only translated preview against your preserved source. It uses an isolated temporary product center, registers only the selected product, rejects write requests, and never starts execution. Replace the source placeholder with your own run; choose the matching product and language overlay:
 
-对自行保留的来源启动只读翻译预览，替换运行位置，并选择匹配的产品与语言层：
+对自行保留的来源启动只读翻译预览。预览使用隔离的临时产品中心，只接入所选产品，拒绝写请求，不启动执行。替换运行位置，并选择匹配的产品与语言层：
 
 ```sh
 python scripts/media/showcase_preview.py --root "<your-preserved-run>" --project projects/scopefence --translation presentation/showcase/translations/scopefence.en.json --refinement presentation/showcase/refinements/scopefence.en.json --port 9001
 ```
 
-In the ignored `.auto-company/showcase-capture/` directory, provide the unmodified original journal JSON snapshot and a private `targets.json` array. This is an input schema example, not substitute run data:
+Copy the printed `/products/<entryId>` URL into the capture target; the temporary entry ID is assigned at each preview launch. In the ignored `.auto-company/showcase-capture/` directory, provide the unmodified original journal JSON snapshot and a private `targets.json` array. Capture uses scoped center APIs and reads every history page. This is an input schema example, not substitute run data:
 
-在已忽略的 `.auto-company/showcase-capture/` 内提供未修改的原始工作记录 JSON 快照与私密 `targets.json` 数组。下例仅说明输入格式，不是替代运行数据：
+将启动后打印的 `/products/<entryId>` 地址填入捕获目标；临时 entry ID 每次启动时生成。在已忽略的 `.auto-company/showcase-capture/` 内提供未修改的原始工作记录 JSON 快照与私密 `targets.json` 数组。捕获通过中心的产品作用域接口读取全部历史分页。下例仅说明输入格式，不是替代运行数据：
+
+The original snapshot and reviewed translation hashes must cover actual reports for every recorded round, including rounds outside the normal 30-round detail window. Produce that source snapshot with `JournalSource.snapshot(all_details=True)`. A hash of an unloaded `null` placeholder is not a review of an existing report: the preview rejects it before listening. Re-read and review the preserved original before updating its translation; never substitute missing original evidence.
+
+原始快照和已审校译文的哈希必须覆盖每轮的真实报告，包括普通详情窗口之外的较早轮次；原始快照使用 `JournalSource.snapshot(all_details=True)` 读取。未加载的 `null` 占位哈希不能代表已有报告已审校，预览会在监听前拒绝。必须重新读取并审校保留的原文后才能更新译文，不能用替代内容补造缺失证据。
 
 ```json
 [
   {
     "product": "scopefence",
     "language": "en",
-    "url": "http://127.0.0.1:9001/journal",
+    "url": "http://127.0.0.1:9001/products/<printed-entryId>",
     "cycleCount": 7,
     "translation": "presentation/showcase/translations/scopefence.en.json",
     "originalSnapshot": ".auto-company/showcase-capture/scopefence-original.json"

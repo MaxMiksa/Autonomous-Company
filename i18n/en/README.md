@@ -2,11 +2,15 @@
 
 [中文](../README.md) · [Project guide](../../README.md)
 
-One preference controls the Dashboard, documentation links, new AI output and the target language of new products. The initial default follows the computer's display language: Chinese selects `zh-CN`; other languages select `en`. WSL first checks the Windows display language and uses its Linux locale if Windows cannot be queried.
+The product center saves its interface language separately from the default product language for new work. The initial interface default follows the computer's display language: Chinese selects `zh-CN`; other languages select `en`. WSL first checks the Windows display language and uses its Linux locale if Windows cannot be queried. A newly created center can initialize new-work defaults from existing installation configuration; center preferences are saved independently thereafter.
 
-## Choose a language
+## Choose languages in the product center
 
-Use the Dashboard selector or run from the repository root:
+Open the center's Settings: the interface language controls the center, product-detail labels and local help pages; the default product language applies to new work. These are separate choices. Confirm the product language when creating work; configuration templates can also specify it. Existing products retain their locked language. Product details show the recorded product language without a separate language selector.
+
+## Language settings for lower-level standalone loops
+
+The following commands configure the loop in the selected run directory. They do not change saved center preferences or replace the center's work creation and product management. Run from the standalone loop's repository root:
 
 ```bash
 make language LANGUAGE=en
@@ -19,7 +23,7 @@ On Windows without make:
 python scripts/core/localization.py set --language en
 ```
 
-Windows `start-win.ps1 -Language en` saves the same preference. A saved choice takes precedence over an old service's `AUTONOMOUS_COMPANY_LANGUAGE` environment variable; that variable only supplies the initial choice when no preference exists. The Dashboard no longer keeps a separate browser preference, so there is no second setting to synchronize.
+Windows `start-win.ps1 -Language en` also saves that run directory's loop language preference. For these lower-level loops, a saved choice takes precedence over an old service's `AUTONOMOUS_COMPANY_LANGUAGE` environment variable; that variable only supplies the initial choice when no preference exists. Center preferences and lower-level loop configuration do not synchronize with each other.
 
 ## Keep one language throughout a product cycle
 
@@ -27,14 +31,15 @@ A product cycle covers one product from startup to delivery and may include many
 
 | Action | Result |
 |---|---|
-| Choose English before the first start | The interface and new product work use English |
-| Choose English while a Chinese product is running | English is saved for the next product; the current product and interface stay Chinese |
+| Choose English as the center interface language | Center and detail labels and local help use English; product content keeps its original language |
+| Choose English as the default product language for new work | New work defaults to English, subject to the configuration confirmed at creation |
+| Change a standalone loop's language preference to English | English is saved for the next product cycle; the current product keeps its original language |
 | Pause or restart the same product | Its original language continues |
-| Explicitly begin the next product cycle | The latest saved preference takes effect |
+| Explicitly begin the next product cycle in a standalone loop | That run directory's latest saved language preference takes effect |
 
-The Dashboard shows both the current and next product language. Saving a preference does not require stopping the product or change its instructions or generated content midway through work.
+The center's interface language can change independently. Changing the new-work default language does not change an existing product's instructions, generated content or historical records.
 
-When ready for the next product, stop a foreground loop with `make stop` or pause a background service with `make pause`, then run:
+For lower-level standalone loops only: when ready for the next product, stop a foreground loop with `make stop` or pause a background service with `make pause`, then run:
 
 ```bash
 make next-product CONFIRM=NEXT
@@ -52,7 +57,8 @@ This explicitly advances the product's language record. It does not invoke a mod
 
 | Content | Behavior |
 |---|---|
-| Dashboard, documentation links and common operational guidance | Current product language, or the preference before a product starts |
+| Product center, detail labels and local help pages | Center interface language |
+| Common lower-level loop operational guidance | That run directory's language settings |
 | New explanations, decisions, delivery reports and consensus prose | AI instructions require the current product language |
 | New product interfaces, help and documentation | The product language is a delivery requirement and part of acceptance |
 | All bundled skill source files | English; user-facing work still follows the product language |
@@ -69,9 +75,9 @@ This directory contains the English loop prompt, all 14 role definitions and Eng
 
 See [common operations and troubleshooting](docs/troubleshooting.md) for operational guidance.
 
-### Recover after a configuration writer is interrupted
+### Recover after a standalone loop configuration writer is interrupted
 
-If configuration remains busy or an interactive-session marker remains after a crash, stop the foreground loop or pause its background service. Close every `make team` session and its descendants, the Dashboard and any configuration-writing commands. After confirming that all of these processes have stopped, run from the repository root:
+If a standalone loop's configuration remains busy or an interactive-session marker remains after a crash, stop the foreground loop or pause its background service. Close every `make team` session and its descendants and any commands writing that run's configuration. After confirming that all of these processes have stopped, run from the repository root:
 
 ```bash
 python3 scripts/core/localization.py recover-lock --confirm RECOVER

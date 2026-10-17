@@ -103,8 +103,8 @@ wsl -d Ubuntu bash -lc 'codex --version; command -v codex'
 - `.\scripts\windows\start-win.ps1` 只更新 `.auto-loop.env` 中显式传入的设置，保留已有预算等其他设置，并启动 `autonomous-company.service` + `awake guardian` + `wsl anchor`
 - 启停前会校验服务绑定的仓库；若它属于其他 worktree，会拒绝操作。请先人工确认应该使用哪个工作目录，不要为绕过提示而直接重新绑定现有服务
 - `.\scripts\windows\stop-win.ps1` 会停止 `autonomous-company.service` 并关闭 `awake guardian` + `wsl anchor`
-- `.\scripts\windows\dashboard-win.ps1` 会启动本地 Web 看板（默认 `http://127.0.0.1:8787`）
-- 也可在 WSL 仓库目录执行 `make dashboard`；Linux/WSL 看板只通过已安装的 `systemd --user autonomous-company.service` 启停运行时，不会另起前台或 `nohup` 循环
+- `.\scripts\windows\dashboard-win.ps1` 与 `center-win.ps1` 启动同一产品中心（默认 `http://127.0.0.1:8810/center`），从中心进入产品详情
+- 也可在 WSL 仓库目录执行 `make dashboard` 或 `make center`。网页启动不会自动接管或启动旧运行；使用界面的“接入已有产品”或 `-Source <完整运行目录>` 只读接入历史记录。需要执行工作时，在中心明确选择执行环境并授权对应产品；底层服务命令仍校验原服务归属
 
 推荐参数：
 - `CycleTimeoutSeconds`：`900-1800`
@@ -120,13 +120,13 @@ wsl -d Ubuntu bash -lc 'codex --version; command -v codex'
 
 ### 运行与界面语言
 
-首次默认读取 Windows 显示语言，而不是 WSL 的区域设置。中文显示语言使用 `zh-CN`，其他语言使用 `en`。Dashboard 和运行过程使用同一设置，可随时在 Dashboard 保存偏好，或执行：
+产品中心的“设置”分别保存界面语言与新工作的默认产品语言。界面语言控制中心、详情标签和本地帮助；首次默认读取 Windows 显示语言，中文使用 `zh-CN`，其他语言使用 `en`。新建工作时确认产品语言，已有产品继续使用原语言。底层独立循环的语言在其运行目录另行配置，例如：
 
 ```powershell
 python scripts/core/localization.py set --language en
 ```
 
-启动参数 `./scripts/windows/start-win.ps1 -Language en` 也保存同一个偏好。已有产品周期仍保持原语言，暂停、重启不会改变；新偏好从下一个产品周期生效。所有技能统一英文，面向用户的结果跟随产品语言。完整说明见[语言设置](../i18n/README.md)。
+启动参数 `./scripts/windows/start-win.ps1 -Language en` 也保存该运行目录的循环语言偏好。这些命令不修改已保存的中心偏好；首次建立中心时可读取安装配置作为新工作初始默认值。独立循环已有产品周期保持原语言，暂停、重启不会改变，新偏好从下一个产品周期生效。所有技能统一英文，面向用户的结果跟随产品语言。完整说明见[语言设置](../i18n/README.md)。
 
 ## 5. 可选：登录后自启
 

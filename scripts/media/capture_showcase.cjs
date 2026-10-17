@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '../..');
 
 const help = `Usage: node scripts/media/capture_showcase.cjs --previews <private-targets.json> --evidence <private-results.json> [--out <image-directory>] [--presentation-demo]
 
-Each target requires product, language (en/zh-CN), url (local read-only /journal),
+Each target requires product, language (en/zh-CN), url (local read-only /products/<entryId>),
 translation and originalSnapshot paths. cycleCount is optional.
 --presentation-demo fills unavailable runtime/slot labels and hides the read-only
 notice in the captured page only. Publish its disclosure with the screenshots.
@@ -42,6 +42,40 @@ const inventory = data => data.cycles.map(cycle => ({
   recordedAt: cycle.workReport?.recorded_at ?? null,
 }));
 const readJSON = async file => JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
+
+async function readJournal(request, url) {
+  const match = url.pathname.match(/^\/products\/([A-Za-z0-9_-]{1,128})\/?$/);
+  assert.ok(match, 'Use the product detail URL printed by showcase_preview.py');
+  const endpoint = new URL(`/api/center/v1/entries/${match[1]}/journal?limit=100`, url);
+  let result;
+  const cursors = new Set();
+  do {
+    const response = await request.get(endpoint.href);
+    assert.equal(response.status(), 200);
+    const page = (await response.json()).data;
+    assert.equal(page.entryId, match[1]);
+    assert.equal(page.readOnly, true);
+    if (!result) result = page;
+    else {
+      assert.equal(page.sourceId, result.sourceId);
+      assert.equal(page.sourceRevision, result.sourceRevision);
+      result.cycles.push(...page.cycles);
+    }
+    if (!page.nextBefore) break;
+    assert.ok(!cursors.has(page.nextBefore), 'Repeated history cursor');
+    cursors.add(page.nextBefore);
+    endpoint.searchParams.set('before', page.nextBefore);
+    endpoint.searchParams.set('sourceId', result.sourceId);
+  } while (true);
+  assert.equal(new Set(result.cycles.map(cycle => cycle.id)).size, result.cycles.length);
+  assert.equal(result.cycles.length, result.total);
+  return result;
+}
+
+const screenshotRecord = data => {
+  const record = data.productMedia?.screenshot?.latestSuccess;
+  return record ? {...record, variants: record.variants?.map(({href, ...variant}) => variant)} : record;
+};
 
 async function settle(page, count) {
   await page.locator('#panel-work').waitFor({ state: 'visible' });
@@ -148,7 +182,7 @@ async function saveShot(page, filename, fullPage = false) {
         page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1});
         page.on('pageerror',error=>record.errors.push(error.message));
         const requests=[];page.on('request',request=>{if(request.method()!=='GET')requests.push({url:request.url(),method:request.method()})});
-        const response=await page.request.get(new URL('/api/journal',url).href);assert.equal(response.status(),200);const responseBytes=await response.body();const data=JSON.parse(responseBytes.toString('utf8'));
+        const data=await readJournal(page.request,url);const responseBytes=Buffer.from(JSON.stringify(data));
         assert.equal(data.readOnly,true);assert.equal(data.language,target.language);assert.equal(data.project.stableId,translation.productId);assert.equal(translation.language,target.language);
         assert.deepEqual(inventory(data),inventory(original),'Recorded cycle IDs, chronology and statuses must match the original snapshot');
         assert.equal(data.cycles.length,target.cycleCount||original.cycles.length);
@@ -156,7 +190,7 @@ async function saveShot(page, filename, fullPage = false) {
         record.productId=data.project.stableId;record.servedSnapshotSha256=sha(responseBytes);record.cycles=inventory(data).map(cycle=>({...cycle,sourceReportSha256:translation.cycles[cycle.id].sourceSha256}));
         record.originalScreenshot=data.productMedia?.screenshot;
         record.publishedRefinement=data.productMedia?.publishedRefinement;
-        assert.deepEqual(data.productMedia?.screenshot?.latestSuccess,original.productMedia?.screenshot?.latestSuccess,'Published refinement must preserve the original screenshot success record');
+        assert.deepEqual(screenshotRecord(data),screenshotRecord(original),'Published refinement must preserve the original screenshot success record; resource URLs use the center scope');
         record.originalResourceDigests=[];
         for(const variant of data.productMedia?.screenshot?.latestSuccess?.variants||[]) {
           const resource=await page.request.get(new URL(variant.href,url).href);assert.equal(resource.status(),200);
@@ -220,7 +254,7 @@ async function saveShot(page, filename, fullPage = false) {
         assert.equal(mobileFull.productMediaOpen,true);assert.deepEqual(mobileFull.failedImages,[],'Full mobile product image must load');
         await page.evaluate(()=>scrollTo(0,0));
         record.shots.push(await saveShot(page,`${target.product}-timeline-${target.language}-mobile-full.png`,true));
-        const finalResponse=await page.request.get(new URL('/api/journal',url).href);assert.equal(finalResponse.status(),200);const finalData=await finalResponse.json();assert.deepEqual(inventory(finalData),inventory(data));assert.deepEqual(finalData.productMedia?.screenshot?.latestSuccess,data.productMedia?.screenshot?.latestSuccess);assert.deepEqual(requests,[],'Read-only capture must not issue writes');
+        const finalData=await readJournal(page.request,url);assert.deepEqual(inventory(finalData),inventory(data));assert.deepEqual(finalData.productMedia?.screenshot?.latestSuccess,data.productMedia?.screenshot?.latestSuccess);assert.deepEqual(requests,[],'Read-only capture must not issue writes');
         record.status=record.warnings.length?'captured_with_warnings':'captured';record.finishedAt=new Date().toISOString();
         console.log(JSON.stringify({product:record.product,language:record.language,status:record.status,cycles:record.cycles.length,desktopViewport:record.desktop.viewport,warnings:record.warnings,errors:record.errors}));
       } catch(error){record.status='failed';record.errors.push(error.stack||String(error));console.error(JSON.stringify({product:record.product,language:record.language,status:'failed',error:error.message}));}

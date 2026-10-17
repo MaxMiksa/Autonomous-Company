@@ -112,9 +112,9 @@ Frontend work uses the B design baseline adapted from Anthropic, followed by a [
 <a id="languages-and-documentation"></a>
 ## 🌐 Languages and Documentation
 
-One language setting controls the Dashboard, documentation links and new product work. The initial default follows your computer's display language: Chinese uses `zh-CN`; other languages use `en`. WSL uses the Windows display language when available.
+The product center's Settings separates the interface language from the default language for new work. The interface choice controls the center, product-detail labels and local help pages. Its initial default follows your computer's display language: Chinese uses `zh-CN`; other languages use `en`. WSL uses the Windows display language when available.
 
-Choose a language in the Dashboard or run `make language LANGUAGE=en` (`LANGUAGE=zh-CN` for Chinese). On Windows, use `python scripts/core/localization.py set --language en`. These entrypoints update the same preference. A product keeps its starting language across AI iterations, pauses and restarts. You can change the preference while it runs; the change applies to the next product cycle. The Dashboard shows both the current and next language. See the [language guide](i18n/en/README.md) for the product-cycle boundary and Windows startup parameters.
+Choose the default product language separately in Settings and confirm it when creating new work. An existing product keeps its starting language across AI iterations, pauses and restarts; changing the interface or new-work defaults does not translate its records. The center stores these preferences independently. `make language LANGUAGE=en` and `python scripts/core/localization.py set --language en` configure lower-level standalone loops in their checkout; they do not change saved center preferences. See the [language guide](i18n/en/README.md) for these separate settings and product-cycle boundaries.
 
 All bundled skills are written in English; their user-facing work follows the product's language. Commands, identifiers, protocol headings and raw tool errors retain their original form. Customized source instructions, existing products, logs and consensus history are preserved; changing language does not translate them retroactively.
 
@@ -218,7 +218,7 @@ For monitoring, dashboard, and autostart commands, see the [Windows + WSL Setup 
 | Last cycle output | `make last` | `.\scripts\windows\last-win.ps1` |
 | Cycle summary | `make cycles` | `.\scripts\windows\cycles-win.ps1` |
 | Stop | Foreground: `make stop`; daemon: `make pause` | `.\scripts\windows\stop-win.ps1` |
-| Web dashboard | `make dashboard` | `.\scripts\windows\dashboard-win.ps1` |
+| Product center and details (`http://127.0.0.1:8810/center`) | `make dashboard` | `.\scripts\windows\dashboard-win.ps1` |
 | [Product center](docs/product-center.md) | `make center` | `.\scripts\windows\center-win.ps1` |
 | Install daemon | `make install` | Auto-installed/started by `start-win.ps1` |
 | Uninstall daemon | `make uninstall` | `wsl -d Ubuntu --cd <repo_wsl_path> bash -lc 'make uninstall'` |

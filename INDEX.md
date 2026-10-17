@@ -53,7 +53,7 @@
 | 诊断 | `scripts/windows/monitor-win.ps1` | 实时日志 |
 | 诊断 | `scripts/windows/last-win.ps1` | 最近一轮完整输出 |
 | 诊断 | `scripts/windows/cycles-win.ps1` | 周期摘要 |
-| 诊断 | `scripts/windows/dashboard-win.ps1` | 启动本地 Web 可视化看板 |
+| 诊断 | `scripts/windows/dashboard-win.ps1` | 启动产品中心和产品详情，默认端口 8810 |
 | 保活 | `scripts/windows/awake-guardian-win.ps1` | 运行期防睡眠（`start/stop/status/run`） |
 | 保活 | `scripts/windows/wsl-anchor-win.ps1` | 维持 WSL 会话常驻（`start/stop/status/run`） |
 | 自启 | `scripts/windows/enable-autostart-win.ps1` | 创建登录自启任务 |
@@ -62,7 +62,7 @@
 | 守护 | `scripts/wsl/install-wsl-daemon.sh` | 安装并启用 `autonomous-company.service` |
 | 守护 | `scripts/wsl/uninstall-wsl-daemon.sh` | 卸载 WSL daemon |
 | 守护 | `scripts/wsl/wsl-daemon-status.sh` | 查询 WSL daemon 状态 |
-| 守护 | `scripts/wsl/dashboard-wsl.sh` | 为 Linux/WSL Dashboard 查询及启停 `systemd --user` 服务 |
+| 守护 | `scripts/wsl/dashboard-wsl.sh` | 查询及启停原有 `systemd --user` 服务，保留服务归属校验 |
 | 守护 | `scripts/macos/install-daemon.sh` | macOS launchd 安装/卸载 |
 | 核心 | `scripts/core/auto-loop.sh` | 主循环执行、熔断、日志、共识更新 |
 | 核心 | `scripts/core/engine-adapters.sh` | 统一引擎调用与结果契约，不管理服务或治理策略 |

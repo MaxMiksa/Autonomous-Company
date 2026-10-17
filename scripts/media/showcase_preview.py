@@ -7,17 +7,23 @@ counts, original documents and logs always come from the supplied run directory.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
 import re
 import sys
+import tempfile
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'dashboard'))
 from journal_data import JournalSource, ProductScope  # noqa: E402
-from journal_server import JournalServer  # noqa: E402
+from center_catalog import CenterCatalog  # noqa: E402
+from center_runtime import CenterRuntime  # noqa: E402
+from center_server import CenterHandler, CenterServer  # noqa: E402
+from center_store import CenterStore  # noqa: E402
 
 
 def report_digest(report):
@@ -100,7 +106,9 @@ class ShowcaseSource(JournalSource):
         return super().media_resource(product_id, name)
 
     def snapshot(self, **kwargs):
-        data = deepcopy(super().snapshot(**kwargs))
+        # Reviewed hashes cover actual reports, never the default window's
+        # unloaded placeholders. Detail and log requests use this same contract.
+        data = deepcopy(super().snapshot(**{**kwargs, 'all_details': True}))
         entries = self.translation['cycles']
         if set(entries) != {row['id'] for row in data['cycles']}:
             raise ValueError('Translation no longer covers this exact recorded history')
@@ -132,6 +140,67 @@ class ShowcaseSource(JournalSource):
         return data
 
 
+class ShowcaseCatalog(CenterCatalog):
+    def __init__(self, store, reader):
+        super().__init__(store)
+        self.reader = reader
+
+    def resolve_source(self, entry_id, source_id=None):
+        entry, source, reader = super().resolve_source(entry_id, source_id)
+        if source.get('productId') != self.reader.translation['productId'] or reader.root != self.reader.root:
+            raise ValueError('Showcase source does not match the registered product')
+        return entry, source, self.reader
+
+    def _entry_view(self, tx, entry, source_id=None):
+        result = super()._entry_view(tx, entry, source_id)
+        result.update({key: value for key, value in self.reader.translation.get('project', {}).items()
+                       if key in {'displayName', 'description'}})
+        return result
+
+    def journal(self, entry_id, query=None):
+        data = super().journal(entry_id, query)
+        for variant in (data.get('productMedia', {}).get('publishedRefinement') or {}).get('variants', []):
+            name = 'refinement-' + variant['sha256'] + '.png'
+            variant['href'] = (f'/api/center/v1/entries/{quote(entry_id)}/resources/media-{name}'
+                               f'?sourceId={quote(data["sourceId"])}')
+        return data
+
+
+class ShowcaseHandler(CenterHandler):
+    def do_POST(self):  # noqa: N802
+        if self.allowed():
+            self.error('READ_ONLY_SOURCE', 'Showcase previews do not accept writes.', 403)
+
+
+@contextmanager
+def preview_server(source, port=0):
+    source.snapshot()  # Validate every report before opening the listener.
+    with tempfile.TemporaryDirectory(prefix='autonomous-company-showcase-') as temporary:
+        store = CenterStore(Path(temporary))
+        runtime = server = None
+        try:
+            catalog = ShowcaseCatalog(store, source)
+            candidate = catalog.probe({'root': str(source.root)})
+            result = catalog.commit({'candidateId': candidate['candidateId'], 'candidateHash': candidate['candidateHash'],
+                                     'mode': 'readonly', 'itemIds': [source.translation['productId']]})
+            entry_id = result['items'][0]['entryId']
+            runtime = CenterRuntime(store, catalog, ROOT)
+            with store.transaction() as tx:
+                preferences = tx.get('preferences', 'main')
+                preferences['language'] = source.translation['language']
+                tx.put('preferences', 'main', preferences)
+            server = CenterServer(('127.0.0.1', port), store, catalog, runtime, ROOT)
+            server.RequestHandlerClass = ShowcaseHandler
+            # No runtime.start(): this isolated center only reads the selected source.
+            yield server, entry_id
+        finally:
+            if server is not None:
+                server.server_close()
+            if runtime is not None:
+                runtime.close()
+            store.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
@@ -144,13 +213,12 @@ def main():
     validate_translation(translation)
     refinement = json.loads(args.refinement.read_text(encoding='utf8')) if args.refinement else None
     source = ShowcaseSource(args.root, args.project, translation['language'], translation, refinement)
-    source.snapshot()  # Validate before opening the listener.
-    server = JournalServer(('127.0.0.1', args.port), source)
-    print(f'http://127.0.0.1:{server.server_port}/journal', flush=True)
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+    with preview_server(source, args.port) as (server, entry_id):
+        print(f'http://127.0.0.1:{server.server_port}/products/{entry_id}', flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == '__main__':

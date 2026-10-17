@@ -434,16 +434,16 @@ test("uncertain transport retries reuse an intent key until success", async () =
   assert.notEqual(requests[2].idempotencyKey, requests[3].idempotencyKey);
 });
 
-test("product detail routes are entry scoped while the legacy journal stays unchanged", () => {
+test("product detail routes are entry scoped with no standalone API fallback", () => {
   assert.match(journalHTML, /id="productSwitcherDialog"/);
   assert.match(journalApp, /\^\\\/products\\\/\(\[\^\/\]\+\)/);
   assert.match(journalApp, /fetchFullScopedJournal\(\)/);
   assert.match(journalApp, /scopedJournalPath\('\/journal'\).*limit=100/);
   assert.match(journalApp, /scopedJournalPath\('\/usage'\).*period=/);
   assert.match(journalApp, /fetchScopedText\(id === 'runtime' \? state\.data\.runtimeLogUrl : cycle\?\.logUrl/);
-  assert.match(journalApp, /else await fetchJSON\('\/api\/product-media\/capture'/);
-  assert.ok(journalApp.includes("else await fetchJSON('/api/product-media/capture'"));
-  assert.ok(journalApp.includes("scope.center ? await Promise.all([fetchFullScopedJournal(), fetchCenter('/summary')]) : null"));
+  assert.match(journalApp, /fetchCenter\(scopedJournalPath\('\/media\/capture'\), options/);
+  assert.doesNotMatch(journalApp, /['"]\/api\/(?:journal|language|action|product-media|log-tail)(?:[/'"?])/);
+  assert.ok(journalApp.includes("await Promise.all([fetchFullScopedJournal(), fetchCenter('/summary')])"));
   assert.match(journalApp, /fetchAllCenterEntries\(\)/);
   assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| 'unknown'/);
   assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| 'unknown'/);

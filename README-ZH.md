@@ -112,9 +112,9 @@ make center
 <a id="语言与文档"></a>
 ## 🌐 语言与文档
 
-一个语言设置统一控制 Dashboard、文档入口和新产品工作。首次使用跟随电脑的显示语言：中文系统使用 `zh-CN`，其他语言使用 `en`；WSL 会优先读取 Windows 的显示语言。
+产品中心的“设置”分别管理界面语言与新工作的默认产品语言。界面语言控制中心、产品详情中的界面标签和本地帮助页。首次默认跟随电脑显示语言：中文系统使用 `zh-CN`，其他语言使用 `en`；WSL 会优先读取 Windows 的显示语言。
 
-在 Dashboard 中选择语言，或执行 `make language LANGUAGE=en`（中文为 `LANGUAGE=zh-CN`）；Windows 可执行 `python scripts/core/localization.py set --language en`。这些入口更新同一个偏好。产品周期开始后，语言在多轮 AI 执行、暂停和重启之间保持固定。运行中也能修改偏好，但从下一个产品周期才生效；Dashboard 会显示当前与下个周期的语言。产品周期的切换方式和 Windows 启动参数见[语言说明](i18n/README.md)。
+在“设置”中单独选择默认产品语言，并在新建工作时确认。已有产品的语言在多轮 AI 执行、暂停和重启之间保持固定；切换界面语言或新工作默认值不会翻译历史记录。中心独立保存这些偏好。`make language LANGUAGE=en` 与 `python scripts/core/localization.py set --language en` 配置所在目录的底层独立循环，不修改已保存的中心偏好。两类设置与产品周期边界见[语言说明](i18n/README.md)。
 
 所有附带技能统一使用英文编写，面向用户的工作结果仍跟随产品语言。命令、标识符、协议标题和底层工具原始错误保留原样。自定义源文件、已有产品、日志与共识历史会保留，切换语言不会追溯翻译这些内容。
 
@@ -219,7 +219,7 @@ cd Autonomous-Company
 | 最近一轮输出 | `make last` | `.\scripts\windows\last-win.ps1` |
 | 周期摘要 | `make cycles` | `.\scripts\windows\cycles-win.ps1` |
 | 停止 | 前台：`make stop`；后台守护：`make pause` | `.\scripts\windows\stop-win.ps1` |
-| 可视化看板 | `make dashboard` | `.\scripts\windows\dashboard-win.ps1` |
+| 产品中心与详情（`http://127.0.0.1:8810/center`） | `make dashboard` | `.\scripts\windows\dashboard-win.ps1` |
 | [多产品管理中心](docs/product-center.md) | `make center` | `.\scripts\windows\center-win.ps1` |
 | 安装守护 | `make install` | 由 `start-win.ps1` 自动安装/启动 WSL daemon |
 | 卸载守护 | `make uninstall` | `wsl -d Ubuntu --cd <repo_wsl_path> bash -lc 'make uninstall'` |

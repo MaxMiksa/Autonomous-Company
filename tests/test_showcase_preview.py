@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 import tempfile
 import hashlib
+import http.client
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -55,10 +57,126 @@ class ShowcasePreviewTests(unittest.TestCase):
         return showcase.ShowcaseSource(self.root, self.project, language,
                                        self.translation if translation is None else translation)
 
+    def long_history(self):
+        for number in range(2, 33):
+            cycle = products.reserve_cycle(self.root, self.project, f'fixture-attempt-{number}', number, 'codex', 'fixture-model')
+            products.update_cycle(self.root, cycle['cycleId'], 'completed')
+            write_report(self.root, cycle['cycleId'], {
+                'title': f'Original round {number}', 'summary': f'Recorded evidence {number}',
+                'phase': 'blocked', 'blocker': 'Still needs permission.', 'final': True,
+            }, self.project)
+        (self.root / 'logs' / f'{self.cycle_id}.log').write_bytes(b'Original oldest log\n')
+        original = showcase.JournalSource(self.root, 'zh-CN', scope=showcase.ProductScope(
+            'product', product_id=self.translation['productId'], project=self.project))
+        limited = original.snapshot()
+        self.assertEqual(len(limited['cycles']), 32)
+        self.assertEqual(limited['cycles'][-1]['id'], self.cycle_id)
+        self.assertEqual(limited['cycles'][-1]['detailStatus'], 'limited')
+        self.assertNotIn('workReport', limited['cycles'][-1])
+        for row in limited['cycles']:
+            # Build reviewed fixture hashes through the existing per-record path,
+            # independently of the new full-detail showcase projection.
+            if row['detailStatus'] == 'limited':
+                row = next(item for item in original.snapshot(detail_cycle_id=row['id'])['cycles'] if item['id'] == row['id'])
+            self.translation['cycles'][row['id']] = {
+                'sourceSha256': showcase.report_digest(row['workReport']),
+                'title': f'已审校第{row["number"]}轮', 'summary': '保留真实证据', 'blocker': '仍待授权。',
+            }
+        return limited
+
+    def test_long_history_uses_real_reports_for_initial_details_and_log_reads(self):
+        self.long_history()
+        before = {path.relative_to(self.root): path.read_bytes() for path in self.root.rglob('*') if path.is_file()}
+        with showcase.preview_server(self.source()) as (server, entry_id):
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=10)
+                self.addCleanup(connection.close)
+                base = f'/api/center/v1/entries/{entry_id}'
+                for route in (base + '/journal?limit=100', base + '/records/' + self.cycle_id):
+                    connection.request('GET', route)
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    data = json.loads(response.read())['data']
+                    row = data['cycles'][-1] if 'cycles' in data else data
+                    self.assertEqual(row['id'], self.cycle_id)
+                    self.assertEqual(row['detailStatus'], 'recorded')
+                    self.assertEqual(row['workReport']['title'], '已审校第1轮')
+                    self.assertEqual(row['workReport']['blocker'], '仍待授权。')
+                    self.assertEqual(row['status'], 'completed')
+                connection.request('GET', base + '/resources/log-' + self.cycle_id)
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.read(), b'Original oldest log\n')
+            finally:
+                server.shutdown()
+                thread.join()
+        self.assertEqual({path.relative_to(self.root): path.read_bytes() for path in self.root.rglob('*') if path.is_file()}, before)
+
+    def test_long_history_null_placeholder_hash_is_rejected_before_listening(self):
+        self.long_history()
+        self.translation['cycles'][self.cycle_id]['sourceSha256'] = showcase.report_digest(None)
+        with patch.object(showcase, 'CenterServer') as server:
+            with self.assertRaisesRegex(ValueError, 'Original report changed'):
+                with showcase.preview_server(self.source()):
+                    self.fail('Incomplete translation must not open a listener')
+            server.assert_not_called()
+
+    def test_long_history_changed_report_or_erased_blocker_cannot_bypass_review(self):
+        self.long_history()
+        source = self.source()
+        source.snapshot()
+        erased = deepcopy(self.translation)
+        erased['cycles'][self.cycle_id]['blocker'] = ''
+        with self.assertRaisesRegex(ValueError, 'cannot erase'):
+            self.source(erased).snapshot(detail_cycle_id=self.cycle_id)
+        write_report(self.root, self.cycle_id, {
+            'title': 'Changed oldest report', 'summary': 'New evidence requires review.',
+            'phase': 'blocked', 'blocker': 'Need permission before the next action.', 'final': True,
+        }, self.project)
+        for params in ({}, {'detail_cycle_id': self.cycle_id}):
+            with self.subTest(params=params), self.assertRaisesRegex(ValueError, 'Original report changed'):
+                source.snapshot(**params)
+
     def test_wrong_product_and_language_are_rejected(self):
         for change in ({"productId": "other-product"}, {"language": "en"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.source({**self.translation, **change})
+
+    def test_center_preview_uses_scoped_reads_and_rejects_all_writes(self):
+        before = {path.relative_to(self.root): path.read_bytes() for path in self.root.rglob('*') if path.is_file()}
+        with patch.object(showcase.CenterRuntime, 'start', side_effect=AssertionError('No execution in a showcase')):
+            with showcase.preview_server(self.source()) as (server, entry_id):
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+                    self.addCleanup(connection.close)
+                    for route in ('/center', f'/products/{entry_id}'):
+                        connection.request('GET', route)
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, 200)
+                        response.read()
+                    connection.request('GET', f'/api/center/v1/entries/{entry_id}/journal?limit=100')
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    data = json.loads(response.read())['data']
+                    self.assertTrue(data['readOnly'])
+                    self.assertEqual(data['language'], 'zh-CN')
+                    self.assertEqual(data['project']['stableId'], self.translation['productId'])
+                    self.assertEqual(data['cycles'][0]['workReport']['title'], '等待证据')
+                    self.assertFalse(data['entry']['capabilities']['execute'])
+                    connection.request('POST', '/api/center/v1/queue/resume', '{}', {'Content-Type': 'application/json'})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 403)
+                    self.assertEqual(json.loads(response.read())['code'], 'READ_ONLY_SOURCE')
+                    with server.store.transaction() as tx:
+                        self.assertFalse(tx.get('controls', 'queue')['dispatchEnabled'])
+                finally:
+                    server.shutdown()
+                    thread.join()
+        self.assertEqual({path.relative_to(self.root): path.read_bytes() for path in self.root.rglob('*') if path.is_file()}, before)
 
     def test_missing_or_extra_cycles_are_rejected(self):
         for cycles in ({}, {**self.translation["cycles"], "cycle-extra": self.translation["cycles"][self.cycle_id]}):

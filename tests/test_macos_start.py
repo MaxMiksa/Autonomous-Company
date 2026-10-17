@@ -1,6 +1,5 @@
-"""Dashboard Start/Stop regressions with a temporary HOME and fake launchctl."""
+"""Service Start/Stop regressions with a temporary HOME and fake launchctl."""
 
-import importlib.util
 import os
 from pathlib import Path
 import plistlib
@@ -31,9 +30,6 @@ class MacosStartTests(unittest.TestCase):
         self.project = self.root / 'Repo & "trial"'
         shutil.copytree(REPO / "scripts", self.project / "scripts")
         install_fixture_boundary(self.project)
-        (self.project / "dashboard").mkdir()
-        for name in ("server.py", "journal_data.py", "observability_data.py"):
-            shutil.copy2(REPO / "dashboard" / name, self.project / "dashboard" / name)
         self.home = self.root / "home"
         self.plist = self.home / f"Library/LaunchAgents/{LABEL}.plist"
         self.plist.parent.mkdir(parents=True)
@@ -76,9 +72,6 @@ case "$1" in
   start) [ -f "$LOADED" ] || exit 113 ;;
   *) exit 99 ;;
 esac''')
-        spec = importlib.util.spec_from_file_location("start_dashboard", self.project / "dashboard/server.py")
-        self.dashboard = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.dashboard)
 
     def fake(self, name, body):
         path = self.bin / name
@@ -97,13 +90,19 @@ esac''')
             shutil.copy2(self.plist, self.loaded)
         return self.plist.read_bytes()
 
+    def run_script(self, relative, *arguments):
+        result = subprocess.run(["/bin/bash", str(self.project / relative), *arguments],
+                                cwd=self.project, capture_output=True, text=True, timeout=120)
+        return {"ok": result.returncode == 0, "exitCode": result.returncode,
+                "output": (result.stdout + result.stderr).strip()}
+
     def start(self):
         with mock.patch.dict(os.environ, self.env, clear=True):
-            return self.dashboard.run_dashboard_action("start", system_name="Darwin")
+            return self.run_script("scripts/macos/start-daemon.sh")
 
     def stop(self):
         with mock.patch.dict(os.environ, self.env, clear=True):
-            return self.dashboard.run_dashboard_action("stop", system_name="Darwin")
+            return self.run_script("scripts/core/stop-loop.sh", "--pause-daemon")
 
     def assert_pause_rejected(self):
         result = self.stop()

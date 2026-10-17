@@ -1,49 +1,12 @@
 """Managed roots must reject legacy service/config writes before side effects."""
-import http.client
-import importlib.util
-import json
 from pathlib import Path
 import platform
 import shutil
 import subprocess
 import tempfile
-import threading
 import unittest
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('center_legacy_server', ROOT / 'dashboard/server.py')
-legacy = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(legacy)
-
-
-class CenterLegacyHttpTests(unittest.TestCase):
-    def test_managed_root_rejects_every_legacy_write_without_calling_adapter(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / '.autonomous-company-center.json').write_text('{}')
-            with mock.patch.object(legacy, 'REPO_ROOT', root), \
-                    mock.patch.object(legacy, 'run_dashboard_action') as action, \
-                    mock.patch.object(legacy, 'capture_product_media') as capture, \
-                    mock.patch.object(legacy.localization, 'set_language') as language:
-                server = legacy.ThreadingHTTPServer(('127.0.0.1', 0), legacy.DashboardHandler)
-                worker = threading.Thread(target=server.serve_forever, daemon=True)
-                worker.start()
-                try:
-                    for path in ('/api/action/start', '/api/action/stop', '/api/product-media/capture', '/api/language'):
-                        connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1], timeout=5)
-                        connection.request('POST', path, '{}', {'Content-Type': 'application/json'})
-                        response = connection.getresponse()
-                        self.assertEqual(response.status, 409, path)
-                        self.assertEqual(json.loads(response.read())['code'], 'CENTER_MANAGED')
-                        connection.close()
-                    action.assert_not_called()
-                    capture.assert_not_called()
-                    language.assert_not_called()
-                finally:
-                    server.shutdown()
-                    server.server_close()
-                    worker.join(5)
 
 
 @unittest.skipUnless(platform.system() == 'Windows', 'Native PowerShell entrypoints')

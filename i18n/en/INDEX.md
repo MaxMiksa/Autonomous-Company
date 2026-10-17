@@ -54,7 +54,7 @@ Stop sequence:
 | Diagnostics | `scripts/windows/monitor-win.ps1` | Stream live logs |
 | Diagnostics | `scripts/windows/last-win.ps1` | Show the most recent Cycle's full output |
 | Diagnostics | `scripts/windows/cycles-win.ps1` | Show Cycle summaries |
-| Diagnostics | `scripts/windows/dashboard-win.ps1` | Start the local web Dashboard |
+| Diagnostics | `scripts/windows/dashboard-win.ps1` | Start the product center and product details on port 8810 by default |
 | Keepalive | `scripts/windows/awake-guardian-win.ps1` | Prevent sleep while running (`start/stop/status/run`) |
 | Keepalive | `scripts/windows/wsl-anchor-win.ps1` | Keep the WSL session alive (`start/stop/status/run`) |
 | Autostart | `scripts/windows/enable-autostart-win.ps1` | Create the logon startup task |
@@ -63,7 +63,7 @@ Stop sequence:
 | Daemon | `scripts/wsl/install-wsl-daemon.sh` | Install and enable `autonomous-company.service` |
 | Daemon | `scripts/wsl/uninstall-wsl-daemon.sh` | Uninstall the WSL daemon |
 | Daemon | `scripts/wsl/wsl-daemon-status.sh` | Query WSL daemon status |
-| Daemon | `scripts/wsl/dashboard-wsl.sh` | Query, start, and stop the `systemd --user` service for the Linux/WSL Dashboard |
+| Daemon | `scripts/wsl/dashboard-wsl.sh` | Query, start, and stop the existing `systemd --user` service with ownership checks |
 | Daemon | `scripts/macos/install-daemon.sh` | Install or uninstall the macOS launchd daemon |
 | Core | `scripts/core/auto-loop.sh` | Run the main loop, circuit breaker, logging, and consensus updates |
 | Core | `scripts/core/engine-adapters.sh` | Provide a shared engine invocation and result contract; does not manage services or governance policy |

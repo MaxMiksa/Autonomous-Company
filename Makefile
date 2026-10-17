@@ -60,8 +60,8 @@ usage-status: ## Show hard-budget pause state
 monitor: ## Tail live logs (Ctrl+C to exit)
 	./scripts/core/monitor.sh
 
-dashboard: ## Start local dashboard server (Windows, Linux/WSL, or macOS)
-	python3 dashboard/server.py
+dashboard: ## Open the product center and its scoped work journals
+	python3 dashboard/center_server.py
 
 .PHONY: center
 center: ## Open the multi-product center (explicitly register sources in its UI)

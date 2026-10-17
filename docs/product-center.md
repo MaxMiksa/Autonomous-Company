@@ -16,9 +16,9 @@ Windows:
 .\scripts\windows\center-win.ps1 -Port 8810
 ```
 
-Open `http://127.0.0.1:8810/center`. Existing `make dashboard` and `/journal` retain the single-runtime interface. The center's legacy journal view is read-only; its controls use scoped center requests.
+Open `http://127.0.0.1:8810/center`. `make dashboard`, `make center` and both Windows web launchers open this same product center. Open each product's details from the center; old `/journal` links return to the center. Existing run directories must be explicitly registered as read-only sources before their records appear.
 
-打开 `http://127.0.0.1:8810/center`。原来的 `make dashboard` 仍提供单运行目录界面；中心中的旧记录视图只读，执行操作使用明确绑定产品的中心请求。
+打开 `http://127.0.0.1:8810/center`。`make dashboard`、`make center` 和两个 Windows 网页入口均启动同一产品中心，从中心进入各产品详情；旧 `/journal` 链接返回中心。旧运行目录需要明确接入为只读来源，才会显示其记录。
 
 Use **Import existing product / 接入已有产品** to inspect a complete run directory. It initially grants read access only. You can also explicitly register a source at startup:
 
@@ -96,9 +96,9 @@ Existing saved preferences and request configuration snapshots remain intact. Ne
 
 ### Upgrading from v1.x / 从 v1.x 升级
 
-Update a clean framework checkout using your existing Git installation workflow, then start the product center from that checkout. Existing single-runtime launch commands remain available outside center-managed directories. Register older run directories in the center to read their recorded products; registration does not update their code or grant execution permission. New exploration contexts use the center's current committed framework revision.
+Update a clean framework checkout using your existing Git installation workflow, then start the product center from that checkout. All web launch commands use the center and product details. Register older run directories in the center to read their recorded products; registration preserves their identities, does not update their code, and does not grant execution or takeover permission. Lower-level loop and service commands retain their ownership and governance checks. New exploration contexts use the center's current committed framework revision.
 
-按原有 Git 安装方式更新干净的框架目录，再从该目录启动产品中心。未被中心接管的目录仍可使用原单运行启动方式。将旧运行目录接入中心后可以阅读其产品记录；接入不会更新旧副本代码，也不会直接授予执行权限。新探索使用中心当前已提交的框架版本创建运行上下文。
+按原有 Git 安装方式更新干净的框架目录，再从该目录启动产品中心。所有网页启动入口统一使用中心和产品详情。将旧运行目录接入中心后可以阅读其产品记录；接入保留原身份，不更新旧副本代码，也不授予执行或接管权限。底层循环和服务命令继续保留归属与治理检查。新探索使用中心当前已提交的框架版本创建运行上下文。
 
 Before replacing or rolling back a managed runtime, stop its owned work and confirm cleanup, then preserve the center state, original runtime directory, local configuration and accumulated cycle records. Updating the framework does not automatically upgrade other runtime copies. Incompatible or ambiguous old contexts stay read-only until an explicit compatible takeover is possible.
 

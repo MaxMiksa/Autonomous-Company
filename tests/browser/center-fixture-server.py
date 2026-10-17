@@ -83,7 +83,7 @@ try:
     runtime._worker = preparation_failure
     # A health result is injected to test scoped links, not preview processes.
     with patch('observability_data.preview_available', return_value=True):
-        server = CenterServer(('127.0.0.1', 0), case.store, case.catalog, runtime, case.root)
+        server = CenterServer(('127.0.0.1', 0), case.store, case.catalog, runtime, ROOT)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         print(json.dumps({'url': f'http://127.0.0.1:{server.server_address[1]}',

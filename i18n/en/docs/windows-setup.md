@@ -105,8 +105,8 @@ Notes:
 - `.\scripts\windows\start-win.ps1` updates only explicitly supplied settings in `.auto-loop.env`, preserves other existing settings such as budgets, and starts `autonomous-company.service`, `awake guardian`, and `wsl anchor`.
 - Start and stop operations verify the checkout bound to the service. They refuse to control a service belonging to another worktree. Confirm which working directory you intend to use; do not rebind an existing service just to bypass the check.
 - `.\scripts\windows\stop-win.ps1` stops `autonomous-company.service`, `awake guardian`, and `wsl anchor`.
-- `.\scripts\windows\dashboard-win.ps1` starts the local web Dashboard, at `http://127.0.0.1:8787` by default.
-- You can also run `make dashboard` from the WSL repository directory. The Linux/WSL Dashboard starts and stops the runtime only through the installed `systemd --user autonomous-company.service`; it does not launch a separate foreground or `nohup` loop.
+- `.\scripts\windows\dashboard-win.ps1` and `center-win.ps1` start the same product center, at `http://127.0.0.1:8810/center` by default. Open each product's details from the center.
+- You can also run `make dashboard` or `make center` from the WSL repository directory. Opening the web service does not take over or start old runs. Use **Import existing product** or `-Source <complete-run-directory>` to read their history. Execution requires an explicit environment and product-scoped authorization in the center; lower-level service commands retain their service ownership checks.
 
 Recommended parameters:
 
@@ -124,13 +124,13 @@ Script locations:
 
 ### Runtime and Interface Language
 
-The initial default comes from the Windows display language, not the WSL locale. Chinese display languages select `zh-CN`; other languages select `en`. The Dashboard and runtime share one setting. Save your preference in the Dashboard at any time, or run:
+The product center's Settings saves the interface language separately from the default product language for new work. The interface choice controls the center, detail labels and local help; its initial default follows the Windows display language, selecting `zh-CN` for Chinese and `en` otherwise. Confirm the product language when creating work; existing products retain their original language. Lower-level standalone loops have separate language settings in their run directory, for example:
 
 ```powershell
 python scripts/core/localization.py set --language en
 ```
 
-The startup parameter `./scripts/windows/start-win.ps1 -Language en` saves the same preference. An existing product cycle keeps its original language across pauses and restarts; a changed preference applies to the next product cycle. All skills are written in English, while their user-facing results follow the product language. See [language settings](../README.md).
+The startup parameter `./scripts/windows/start-win.ps1 -Language en` also saves that run directory's loop language preference. These commands do not change saved center preferences; a newly created center can read installation configuration for its initial new-work defaults. An existing standalone loop product cycle keeps its original language across pauses and restarts; a changed preference applies to the next product cycle. All skills are written in English, while their user-facing results follow the product language. See [language settings](../README.md).
 
 ## 5. Optional: Start at Logon
 

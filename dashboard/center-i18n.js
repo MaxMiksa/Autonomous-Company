@@ -1,5 +1,6 @@
 window.CENTER_MESSAGES = {
   "zh-CN": {
+    helpDocuments: "帮助文档", docsReadme: "使用说明 ↗", docsSetup: "安装与配置 ↗", docsTroubleshooting: "故障排查 ↗", docsLanguage: "语言设置说明 ↗",
     reviewProductLock: "核对遗留目录锁",
     "back": "返回",
     "confirmCancelRequest": "确认取消请求",
@@ -117,6 +118,7 @@ window.CENTER_MESSAGES = {
     sourceList: "已登记来源", sourceNumber: "来源 {number}", currentSource: "当前来源", sourceProject: "项目 {project}", sourceProjectLabel: "项目", sourceIdShort: "ID …{id}", sourceDetails: "来源详情", sourceLocation: "登记位置", sourceIdentifier: "来源 ID", sourceLastVerified: "最近核验", selectSource: "设为当前来源", reconnectSource: "重新连接目录", reconnectPath: "新的本机目录", reconnectHint: "先只读检查新目录，身份与已有记录一致后再连接。", takeover: "由中心接管", release: "解除中心接管", previewStart: "启动预览", previewStop: "停止预览", captureMedia: "更新产品媒体", detachEntry: "从中心移除", sourceSelected: "当前来源已更新。", sourceReconnected: "来源已重新连接。", managementComplete: "操作已完成。", operationAttention: "操作需要处理：{reason}", selectCurrentFirst: "请先把该来源设为当前来源。", noSources: "没有可用来源。", registeredDocuments: "登记文档", unmanagedSource: "尚未由产品中心管理", sourceUnavailableReason: "来源当前不可用", releaseFirst: "请先解除中心接管。", operationInProgress: "操作进行中…", queuePausedOnRestart: "中心重启后队列默认暂停。"
   },
   en: {
+    helpDocuments: "Help documents", docsReadme: "User guide ↗", docsSetup: "Setup and configuration ↗", docsTroubleshooting: "Troubleshooting ↗", docsLanguage: "Language settings ↗",
     reviewProductLock: "Review abandoned directory lock",
     "back": "Back",
     "confirmCancelRequest": "Confirm cancellation",

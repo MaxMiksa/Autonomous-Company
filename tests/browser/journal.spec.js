@@ -3,12 +3,13 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import net from "node:net";
+import { createInterface } from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const envelope = data => ({ schemaVersion: 1, revision: 1, centerId: 'fixture', observedAt: new Date().toISOString(), data: { ...data, total: data.cycles.length, nextBefore: null } });
 const python = process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 async function refreshRecords(page) {
@@ -17,20 +18,35 @@ async function refreshRecords(page) {
   await page.locator("#closeSettingsButton").click();
 }
 
+async function centerWrite(page, journal, route, data) {
+  const response = await page.request.post(`${journal.url}/api/center/v1${route}`, { data, headers: { Origin: journal.url } });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return (await response.json()).data;
+}
+
+async function setLanguage(page, journal, language) {
+  const prefs = (await (await page.request.get(`${journal.url}/api/center/v1/preferences`)).json()).data;
+  await centerWrite(page, journal, '/preferences', { expectedRevision: prefs.revision,
+    idempotencyKey: `language-${language}-${prefs.revision}`, preferences: { language } });
+}
+
+async function reimportProduct(page, journal, excludedEntry = null) {
+  const candidate = await centerWrite(page, journal, '/imports/probe', { root: journal.directory });
+  const result = await centerWrite(page, journal, '/imports/commit', { candidateId: candidate.candidateId,
+    candidateHash: candidate.candidateHash, idempotencyKey: candidate.candidateId });
+  for (const item of result.items) {
+    const entry = (await (await page.request.get(`${journal.url}/api/center/v1/entries/${item.entryId}`)).json()).data;
+    if (entry.kind === 'product' && entry.entryId !== excludedEntry) { Object.assign(journal, item); return; }
+  }
+  throw new Error('Fixture registration did not produce a product');
+}
+
 async function changeIdentityFixture(directory, code) {
   return promisify(execFile)(python, ["-c", [
     "import json, sys", "from pathlib import Path",
     "sys.path.insert(0, str(Path(sys.argv[1]) / 'scripts/core'))",
     "import product_identity as products", "root = Path(sys.argv[2])", code,
   ].join("\n"), repository, directory], { windowsHide: true });
-}
-
-async function unusedPort() {
-  const server = net.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
 }
 
 const test = base.extend({
@@ -83,42 +99,31 @@ const test = base.extend({
       cycleId: cycles.at(-1).cycle_id, recordedAt, modifiedAt: recordedAt, source: "runner",
       path: deliveryPath, sha256: createHash("sha256").update(deliveryText).digest("hex"),
     }));
-    // Exercise the optional backup route without relying on private local files
-    // or keeping a second production dashboard in the repository.
-    const legacyDirectory = path.join(directory, "legacy-backup");
-    await fs.mkdir(legacyDirectory);
-    await fs.writeFile(path.join(legacyDirectory, "index.html"),
-      '<!doctype html><title>Saved dashboard backup</title><h1>Saved dashboard backup</h1><pre id="archive"></pre><script src="/app.js"></script>');
-    await fs.writeFile(path.join(legacyDirectory, "app.js"),
-      'fetch("/api/status").then(response => response.json()).then(data => { document.getElementById("archive").textContent = data.consensusHead; });');
-    const port = await unusedPort();
-    const url = `http://127.0.0.1:${port}`;
-    const child = spawn(process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || process.env.PYTHON
-      || (process.platform === "win32" ? "python" : "python3"), [
-      path.join(repository, "dashboard", "journal_server.py"), "--port", String(port), "--repo", directory,
-      "--legacy-dir", legacyDirectory,
-    ], { cwd: repository, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.stderr.on("data", (chunk) => { output += chunk; });
+    const child = spawn(python, ['-u', path.join(repository, 'tests/browser/fixture-server.py'), '--repo', directory],
+      { cwd: repository, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = '';
+    child.stderr.on('data', chunk => { output += chunk; });
+    const closed = new Promise(resolve => child.once('close', resolve));
+    const lines = createInterface({ input: child.stdout });
     try {
-      let ready = false;
-      for (let attempt = 0; attempt < 160; attempt += 1) {
-        if (child.exitCode !== null) throw new Error(`Journal exited: ${output}`);
-        try { ready = (await fetch(`${url}/api/journal`)).ok; } catch {}
-        if (ready) break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      if (!ready) throw new Error(`Journal startup timed out: ${output}`);
-      await use({ url, directory });
+      const started = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Center startup timed out: ${output}`)), 15000);
+        const finish = (error, value) => { clearTimeout(timer); error ? reject(error) : resolve(value); };
+        child.once('error', error => finish(error));
+        child.once('exit', code => finish(new Error(`Center exited ${code}: ${output}`)));
+        lines.once('line', line => { try { finish(null, JSON.parse(line)); } catch (error) { finish(error); } });
+      });
+      const journal = { ...started, directory,
+        get detailUrl() { return `${this.url}/products/${this.entryId}`; },
+        get apiUrl() { return `${this.url}/api/center/v1/entries/${this.entryId}/journal`; },
+      };
+      await use(journal);
     } finally {
-      child.kill();
-      if (child.exitCode === null) {
-        await Promise.race([
-          new Promise((resolve) => child.once("exit", resolve)),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
-        ]);
-      }
+      child.stdin.end();
+      let timer;
+      await Promise.race([closed, new Promise(resolve => { timer = setTimeout(() => { child.kill(); resolve(); }, 5000); })]);
+      clearTimeout(timer);
+      lines.close();
       if (path.dirname(path.resolve(directory)) !== path.resolve(os.tmpdir())
           || !path.basename(directory).startsWith("company-journal-browser-")) {
         throw new Error("Refusing cleanup outside the browser fixture directory");
@@ -129,7 +134,7 @@ const test = base.extend({
 });
 
 test('spec compliance: manual tabs, compact mobile navigation and journal return state', async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#cycleNumber')).toHaveText('03');
   await page.locator('#tab-work').focus();
   await page.locator('#tab-work').press('ArrowRight');
@@ -151,7 +156,7 @@ test('spec compliance: manual tabs, compact mobile navigation and journal return
 
 test('compact product information overlays the journal and restores the desktop sidebar', async ({ page, journal }) => {
   await page.setViewportSize({ width: 1000, height: 800 });
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#cycleNumber')).toHaveText('03');
   await expect(page.locator('#projectSidebar')).toBeHidden();
   const timeline = page.locator('.current-column');
@@ -194,8 +199,8 @@ test('compact product information overlays the journal and restores the desktop 
 test('spec compliance: disconnected logs preserve reading position, copy and source time', async ({ page, journal }) => {
   let failed = false;
   let log = Array.from({length: 250}, (_, index) => `record ${index} long log line`).join('\n');
-  await page.route('**/api/journal/log?*', route => failed ? route.abort() : route.fulfill({contentType: 'application/json', body: JSON.stringify({ok: true, available: true, text: log, truncated: true})}));
-  await page.goto(`${journal.url}/journal`);
+  await page.route('**/api/center/v1/entries/*/resources/log-*?*', route => failed ? route.abort() : route.fulfill({contentType: 'text/plain', body: log}));
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#cycleNumber')).toHaveText('03');
   await page.locator('#tab-logs').click();
   await page.locator('#logSelect').selectOption('cycle-0001-fixture');
@@ -219,7 +224,7 @@ test('spec compliance: disconnected logs preserve reading position, copy and sou
 });
 
 test('spec compliance: journal widths and mixed usage preserve all records', async ({ page, journal }, testInfo) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#cycleNumber')).toHaveText('03');
   for (const width of [320, 359, 360, 390, 640, 641, 650, 651, 760, 761, 1000, 1001, 1064, 1440, 1450, 1800]) {
     await page.setViewportSize({width, height: 900});
@@ -247,26 +252,21 @@ test('spec compliance: journal widths and mixed usage preserve all records', asy
 test("journal renders source history and never treats a report as live telemetry", async ({ page, journal }) => {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toContainText("03");
   await expect(page.locator("#cycleTitle")).toContainText("第 3 轮工作已完成");
   await expect(page.locator("body")).not.toContainText("等待用户检查新界面");
   await expect(page.locator("#projectSidebar #projectName")).toHaveText("Journal Fixture");
   await expect(page.locator(".topbar #projectName")).toHaveCount(0);
-  const snapshot = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const snapshot = (await (await page.request.get(journal.apiUrl)).json()).data;
   expect(snapshot.consensus).not.toHaveProperty("nextAction");
   await expect(page.locator("body")).toContainText(/只读|预览/);
   await expect(page.locator("body")).not.toContainText("本轮执行中");
-  await expect(page.locator("#runtimeActionButton")).toBeDisabled();
-  await expect(page.locator("#runtimeControls")).toBeHidden();
+  await expect(page.locator("#runtimeActionButton, #runtimeControls")).toHaveCount(0);
   await expect(page.locator("#readOnlyIndicator svg")).toHaveAttribute("data-lucide", "eye");
   await page.locator("#settingsButton").click();
-  await expect(page.locator("#languageSelect")).toBeDisabled();
-  const consensusLink = page.locator('[data-i18n="openConsensus"]');
-  await expect(consensusLink).toBeVisible();
-  const consensus = await page.request.get(new URL(await consensusLink.getAttribute('href'), journal.url).href);
-  expect(consensus.ok()).toBeTruthy();
-  expect(await consensus.text()).toBe(snapshot.consensus.raw);
+  await expect(page.locator('#languageSelect, [data-i18n="openConsensus"]')).toHaveCount(0);
+  await expect(page.locator('#settingsDialog a[href^="/docs/"]')).toHaveCount(4);
   await page.locator("#closeSettingsButton").click();
   expect(await page.evaluate(() => window.journalInjected)).toBeUndefined();
   expect(errors).toEqual([]);
@@ -284,32 +284,41 @@ test("stable identity keeps moved history and document access, then isolates a s
     "products.relocate_identity(root, row['productId'], 'projects/moved-fixture')",
     "(root / '.autonomous-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTONOMOUS_COMPANY_LANGUAGE=en\\n')",
   ].join("\n"));
-  await page.goto(`${journal.url}/journal`);
+  await reimportProduct(page, journal);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toHaveText("01");
-  const document = page.locator('#projectSidebar a[href="/api/journal/document?path=projects%2Fmoved-fixture%2FDELIVERY.md"]');
+  const document = page.locator('#projectSidebar a[href*="/resources/artifact-"]');
   await expect(document).toBeVisible();
-  const snapshot = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const snapshot = (await (await page.request.get(journal.apiUrl)).json()).data;
   expect(snapshot.cycles.find((cycle) => cycle.id === snapshot.latestProjectCycleId).projectId).toBe("projects/journal-fixture");
-  const moved = await page.request.get(`${journal.url}/api/journal/document?path=projects%2Fmoved-fixture%2FDELIVERY.md`);
+  const resource = new URL(await document.getAttribute('href'), journal.url).href;
+  const moved = await page.request.get(resource);
   expect(moved.ok()).toBeTruthy();
   expect(await moved.text()).toContain("Browser fixture delivery");
-  expect((await page.request.get(`${journal.url}/api/journal/document?path=projects%2Fjournal-fixture%2FDELIVERY.md`)).ok()).toBeFalsy();
+  expect((await page.request.get(`${journal.url}/api/center/v1/entries/${journal.entryId}/resources/artifact-unregistered`)).ok()).toBeFalsy();
   await changeIdentityFixture(journal.directory, [
     "(root / 'projects/moved-fixture/.autonomous-company/identity.json').unlink()",
     "products.register_project(root, 'projects/moved-fixture')",
   ].join("\n"));
   await refreshRecords(page);
   await expect(document).toHaveCount(0);
-  await expect(page.locator("#cycleNumber")).toHaveCount(0);
-  expect((await page.request.get(`${journal.url}/api/journal/document?path=projects%2Fmoved-fixture%2FDELIVERY.md`)).ok()).toBeFalsy();
+  await expect(page.locator('#currentCycle')).not.toContainText('Synthetic identity fixture report');
+  expect((await page.request.get(resource)).ok()).toBeFalsy();
+  const originalEntry = journal.entryId;
+  await reimportProduct(page, journal, originalEntry);
+  expect(journal.entryId).not.toBe(originalEntry);
+  await page.goto(journal.detailUrl);
+  await expect(page.locator('#cycleNumber')).toHaveCount(0);
+  await expect(page.locator('#projectSidebar a[href*="/resources/artifact-"]')).toHaveCount(0);
 });
 
-test("unproven legacy document is visibly unassociated after identity registration", async ({ page, journal }) => {
+test("unproven legacy document remains inaccessible after identity registration", async ({ page, journal }) => {
   await changeIdentityFixture(journal.directory, "products.register_project(root, 'projects/journal-fixture')");
-  await page.goto(`${journal.url}/journal`);
-  await expect(page.locator("#projectSidebar")).toContainText("尚未确认所属产品");
-  await expect(page.locator('#projectSidebar a[href*="DELIVERY.md"]')).toHaveCount(0);
-  expect((await page.request.get(`${journal.url}/api/journal/document?path=projects%2Fjournal-fixture%2FDELIVERY.md`)).ok()).toBeFalsy();
+  await reimportProduct(page, journal);
+  await page.goto(journal.detailUrl);
+  await expect(page.locator("#projectSidebar")).toContainText("尚无可读取的成果文档");
+  await expect(page.locator('#projectSidebar a[href*="/resources/artifact-"]')).toHaveCount(0);
+  expect((await page.request.get(`${journal.url}/api/center/v1/entries/${journal.entryId}/resources/artifact-${"a".repeat(32)}`)).ok()).toBeFalsy();
 });
 
 test("relocated exploration keeps its recorded report and identity-bound document", async ({ page, journal }) => {
@@ -328,10 +337,11 @@ test("relocated exploration keeps its recorded report and identity-bound documen
     "products.relocate_identity(root, identity['id'], 'projects/moved-fixture')",
     "(root / '.autonomous-company.local').write_text('ACTIVE_PROJECT=projects/moved-fixture\\nAUTONOMOUS_COMPANY_LANGUAGE=en\\n')",
   ].join("\n"));
-  await page.goto(`${journal.url}/journal`);
+  await reimportProduct(page, journal);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleTitle")).toHaveText("Synthetic relocated exploration");
-  await expect(page.locator('#projectSidebar a[href="/api/journal/document?path=projects%2Fmoved-fixture%2FDELIVERY.md"]')).toBeVisible();
-  const snapshot = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  await expect(page.locator('#projectSidebar a[href*="/resources/artifact-"]')).toBeVisible();
+  const snapshot = (await (await page.request.get(journal.apiUrl)).json()).data;
   const current = snapshot.cycles.find((cycle) => cycle.id === snapshot.latestProjectCycleId);
   expect(current.workReportStatus).toBe("valid");
   expect(current.workReport.project).toBe("projects/journal-fixture");
@@ -379,7 +389,7 @@ test("real static preview loads web assets and denies private same-origin reads"
 });
 
 test("history stays open after refresh and its log belongs to the selected cycle", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   const row = page.locator("#historyList [data-disclosure]").first();
   await row.locator(".disclosure-trigger").click();
   await expect(row).toHaveAttribute("open", "");
@@ -392,29 +402,29 @@ test("history stays open after refresh and its log belongs to the selected cycle
 });
 
 test("usage preserves unknown coverage and artifacts open through the real server", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toContainText("03");
   await page.locator("#tab-usage").click();
   await expect(page.locator("body")).toContainText(/部分|未知|不完整/);
   await page.locator("#tab-work").click();
-  const delivery = page.locator('#projectSidebar a[href="/api/journal/document?path=projects%2Fjournal-fixture%2FDELIVERY.md"]');
+  const delivery = page.locator('#projectSidebar a[href*="/resources/artifact-"]');
   await expect(delivery.first()).toBeVisible();
   const response = await page.request.get(new URL(await delivery.first().getAttribute("href"), journal.url).href);
   expect(response.ok()).toBeTruthy();
   expect(await response.text()).toContain("Browser fixture delivery");
   const write = await page.request.post(`${journal.url}/api/action/start`, { data: {} });
-  expect(write.status()).toBe(403);
+  expect(write.status()).toBe(404);
 });
 
 test("failed refresh remains visible and recovers without losing the journal", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toContainText("03");
-  await page.route("**/api/journal", (route) => route.fulfill({
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({
     status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "Unavailable" }),
   }));
   await refreshRecords(page);
   await expect(page.getByRole("alert")).toBeVisible();
-  await page.unroute("**/api/journal");
+  await page.unroute("**/api/center/v1/entries/*/journal?*");
   await refreshRecords(page);
   await expect(page.getByRole("alert")).toBeHidden();
   await expect(page.locator("#cycleNumber")).toContainText("03");
@@ -422,7 +432,7 @@ test("failed refresh remains visible and recovers without losing the journal", a
 
 test("narrow layout and settings remain usable by keyboard", async ({ page, journal }) => {
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toContainText("03");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await page.locator("#settingsButton").focus();
@@ -433,25 +443,17 @@ test("narrow layout and settings remain usable by keyboard", async ({ page, jour
   await expect(page.locator("#settingsButton")).toBeFocused();
 });
 
-test("an explicitly supplied backup is served and reads the same archive", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/legacy`);
-  await expect(page.getByRole("heading", { name: "Saved dashboard backup" })).toBeVisible();
-  await expect(page.locator("#archive")).toContainText("Journal Fixture");
-  expect((await page.request.get(`${journal.url}/legacy/assets/app.js`)).status()).toBe(200);
-  await page.goto(journal.url);
-  await expect(page.locator("#cycleNumber")).toContainText("03");
-});
-
 test("empty archive follows English preference and remains navigable", async ({ page, journal }) => {
   await fs.writeFile(path.join(journal.directory, "logs", "usage.jsonl"), "");
-  await fs.writeFile(path.join(journal.directory, ".autonomous-company.local"), "AUTONOMOUS_COMPANY_LANGUAGE=en\n");
-  await page.goto(`${journal.url}/journal`);
+  await setLanguage(page, journal, "en");
+  await page.goto(journal.detailUrl);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("heading", { name: "No cycle records yet" })).toBeVisible();
   await page.locator("#tab-logs").click();
-  await expect(page.locator("#logSelect option")).toHaveCount(1);
-  await expect(page.locator("#logSelect")).toHaveValue("runtime");
+  await expect(page.locator("#logSelect option")).toHaveCount(0);
   await expect(page.locator("#logStatus")).toContainText(/empty|no log/i);
+  await expect(page.locator("#copyLogButton")).toBeDisabled();
+  await expect(page.locator("#refreshLogButton")).toBeDisabled();
   await page.locator("#tab-usage").click();
   await expect(page.locator("#usageSummary")).toContainText("no usage records");
 });
@@ -466,14 +468,14 @@ test("failed latest cycle never inherits an earlier consensus as its results", a
     version: 1, cycleId: "cycle-0004-failed", project: "projects/journal-fixture",
     recordedAt: new Date().toISOString(), source: "runtime_context",
   }));
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toContainText("04");
   await expect(page.locator("#currentCycle")).toContainText("执行失败");
   await expect(page.locator("#currentCycle")).not.toContainText("已完成当前轮次验证");
 });
 
 test("product timeline shows continuous authoritative numbers and exploration by default", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   const template = data.cycles[0];
   const cycle = (id, number, identityKind, status, summary, projectStatus = "current") => ({
     ...template, id, number, sequenceNumber: identityKind === "product" ? number + 3 : identityKind === "exploration" ? number : null, identityKind, numbering: "persistent", projectStatus, status,
@@ -493,10 +495,11 @@ test("product timeline shows continuous authoritative numbers and exploration by
   data.cycles = [...products, ...exploration, legacy];
   data.latestProjectCycleId = "product-4";
   data.cycleNumbering = { mode: "persistent", hasLegacy: true };
+  await setLanguage(page, journal, "en");
   data.language = "en";
   data.languageState = null;
-  await page.route("**/api/journal", (route) => route.fulfill({ json: data }));
-  await page.goto(`${journal.url}/journal`);
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ json: envelope(data) }));
+  await page.goto(journal.detailUrl);
 
   await expect(page.locator("#cycleNumber")).toHaveText("07");
   await expect(page.locator("#historyList .history-number-value")).toHaveText(["06", "05", "04", "03", "02", "01", "09"]);
@@ -528,16 +531,17 @@ test("product timeline shows continuous authoritative numbers and exploration by
 });
 
 test("exploration-only archives keep the original current and history timeline", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   data.cycles = data.cycles.map((cycle, index) => ({
     ...cycle, identityKind: "exploration", projectStatus: "current",
     summary: `Exploration-only record ${3 - index}`, report: `Exploration-only record ${3 - index}`,
   }));
   data.latestProjectCycleId = data.cycles[0].id;
+  await setLanguage(page, journal, "en");
   data.language = "en";
   data.languageState = null;
-  await page.route("**/api/journal", (route) => route.fulfill({ json: data }));
-  await page.goto(`${journal.url}/journal`);
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ json: envelope(data) }));
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#cycleNumber")).toHaveText("03");
   await expect(page.locator("#currentCycle")).toContainText("Pre-product exploration");
   await expect(page.locator("#historyList .history-number-value")).toHaveText(["02", "01"]);
@@ -546,7 +550,7 @@ test("exploration-only archives keep the original current and history timeline",
 
 
 test("cycle timeline preserves disclosures, keyboard focus and selected logs across changed data", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   const summary = page.locator("#historyList > [data-disclosure] .disclosure-trigger").first();
   await summary.click();
   await summary.focus();
@@ -567,7 +571,7 @@ test("cycle timeline preserves disclosures, keyboard focus and selected logs acr
 });
 
 test("current round expands in place and keeps its collapsed state after refresh", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   const heading = page.locator('.current-cycle-heading');
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
   await heading.click();
@@ -583,7 +587,7 @@ test("current round expands in place and keeps its collapsed state after refresh
 });
 
 test("all cycle headings share full-row interaction and retain height when toggled", async ({ page, journal }) => {
-  await page.goto(`${journal.url}/journal`);
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#workspaceProjectName')).toHaveText('Journal Fixture');
   for (const width of [1597, 390]) {
     await page.setViewportSize({ width, height: 919 });
@@ -604,16 +608,16 @@ test("all cycle headings share full-row interaction and retain height when toggl
 });
 
 test("unnamed projects use a preset title in the workspace tab", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   data.project = { ...data.project, displayName: '', name: '' };
   data.entry = null;
-  await page.route('**/api/journal', route => route.fulfill({ json: data }));
-  await page.goto(`${journal.url}/journal`);
+  await page.route('**/api/center/v1/entries/*/journal?*', route => route.fulfill({ json: envelope(data) }));
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#workspaceProjectName')).toHaveText('未命名项目');
 });
 
 test("compact records preserve failures and unknowns while hiding technical details in both languages", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   const current = data.cycles[0];
   current.checkStatus = "completed";
   current.latestCheck = { id: "check-fixture", cycleId: current.id, state: "completed", evidenceStatus: "completed", available: false,
@@ -630,9 +634,10 @@ test("compact records preserve failures and unknowns while hiding technical deta
     { kind: "process.exited", observedAt: data.generatedAt },
   ];
   data.artifacts = [{ kind: "preview", state: "stopped", evidenceStatus: "stale", available: false }];
+  await setLanguage(page, journal, "en");
   let language = "en";
-  await page.route("**/api/journal", (route) => route.fulfill({ json: { ...data, language, languageState: null } }));
-  await page.goto(`${journal.url}/journal`);
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ json: envelope({ ...data, language, languageState: null }) }));
+  await page.goto(journal.detailUrl);
   await expect(page.locator("#currentCycle .record-check")).toContainText("6 passed · 2 failed · 1 errors · 3 skipped");
   await expect(page.locator("#currentCycle .record-check .progress-failed")).toHaveCount(1);
   await expect(page.locator("#currentCycle")).not.toContainText(command);
@@ -641,6 +646,7 @@ test("compact records preserve failures and unknowns while hiding technical deta
   await expect(page.locator("#projectSidebar")).not.toContainText("File changed or missing");
   for (const locale of ["en", "zh-CN"]) {
     language = locale;
+    await setLanguage(page, journal, locale);
     await refreshRecords(page);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     for (const width of [1280, 360]) {
@@ -665,28 +671,27 @@ test("compact records preserve failures and unknowns while hiding technical deta
 });
 
 test("running elapsed freezes on disconnect and rejects older snapshots", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   data.readOnly = false;
   data.runtime = { ...data.runtime, available: true, processState: "running", state: "running", elapsedReliable: true, elapsedSeconds: 60 };
   data.cycles[0] = { ...data.cycles[0], active: true, status: "running", endedAt: null };
+  await setLanguage(page, journal, "en");
   data.language = "en"; data.languageState = null;
-  // The live settings endpoint must agree with this English telemetry fixture.
-  await page.route("**/api/language", route => route.fulfill({ json: { language: "en", nextLanguage: "en" } }));
-  await page.route("**/api/journal", (route) => route.fulfill({ json: data }));
-  await page.goto(`${journal.url}/journal`);
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ json: envelope(data) }));
+  await page.goto(journal.detailUrl);
   await expect(page.locator(".live-elapsed")).toContainText("Running for 1m");
   await page.locator("#settingsButton").click();
   await page.locator("#autoRefresh-control").uncheck();
   await page.locator("#closeSettingsButton").click();
-  await page.unroute("**/api/journal");
-  await page.route("**/api/journal", (route) => route.fulfill({ status: 503, json: { ok: false } }));
+  await page.unroute("**/api/center/v1/entries/*/journal?*");
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ status: 503, json: { ok: false } }));
   await refreshRecords(page);
   await expect(page.locator("#connectionError")).toBeVisible();
-  await expect(page.locator(".live-elapsed")).toHaveCount(0);
+  await expect(page.locator(".live-elapsed")).toHaveText("Elapsed time unconfirmed");
   await expect(page.locator("#refreshStatus")).toContainText("Last updated");
-  await page.unroute("**/api/journal");
-  await page.route("**/api/journal", (route) => route.fulfill({ json: { ...data,
-    generatedAt: new Date(Date.parse(data.generatedAt) - 1000).toISOString(), cycles: [] } }));
+  await page.unroute("**/api/center/v1/entries/*/journal?*");
+  await page.route("**/api/center/v1/entries/*/journal?*", (route) => route.fulfill({ json: envelope({ ...data,
+    generatedAt: new Date(Date.parse(data.generatedAt) - 1000).toISOString(), cycles: [] }) }));
   await refreshRecords(page);
   await expect(page.locator("#cycleNumber")).toHaveText("03");
   await expect(page.locator("#connectionError")).toBeVisible();
@@ -694,18 +699,19 @@ test("running elapsed freezes on disconnect and rejects older snapshots", async 
 
 
 test("earlier check evidence stays visible without replacing the latest failure", async ({ page, journal }) => {
-  const data = await (await page.request.get(`${journal.url}/api/journal`)).json();
+  const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   const current = data.cycles[0];
   const older = { id: 'older-check', state: 'completed', evidenceStatus: 'completed', available: true, freshness: 'fresh', reportStatus: 'fresh', exitCode: 0,
-    tests: { tests: 2, failures: 0, errors: 0, skipped: 0 }, recordedAt: current.startedAt, path: 'docs/old-check.xml' };
+    tests: { tests: 2, failures: 0, errors: 0, skipped: 0 }, recordedAt: current.startedAt, path: 'docs/old-check.xml', url: `/api/center/v1/entries/${journal.entryId}/resources/artifact-old-check?sourceId=${journal.sourceId}` };
   const latest = { ...older, id: 'latest-check', path: 'docs/latest-check.xml', exitCode: 1, tests: { tests: 2, failures: 1, errors: 0, skipped: 0 } };
   current.latestCheck = latest; current.checks = [latest, older]; current.checkStatus = "completed";
-  await page.route('**/api/journal', route => route.fulfill({ json: { ...data, language: 'en', languageState: null } }));
-  await page.goto(`${journal.url}/journal`);
+  await setLanguage(page, journal, 'en');
+  await page.route('**/api/center/v1/entries/*/journal?*', route => route.fulfill({ json: envelope({ ...data, language: 'en', languageState: null }) }));
+  await page.goto(journal.detailUrl);
   await expect(page.locator('#currentCycle .record-check')).toContainText('1 failed');
   await expect(page.locator('#currentCycle .record-check-history')).toHaveCount(1);
   await expect(page.locator('#currentCycle .record-check-history')).toContainText('2 passed');
-  await expect(page.locator('#currentCycle .record-check-history a')).toHaveAttribute('href', /old-check.xml/);
+  await expect(page.locator('#currentCycle .record-check-history a')).toHaveAttribute('href', /resources\/artifact-old-check\?sourceId=/);
   for (const state of ['running', 'interrupted', 'stale']) {
     current.checkStatus = state; current.latestCheck = { ...latest, evidenceStatus: state, state };
     await refreshRecords(page);

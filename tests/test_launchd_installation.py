@@ -2,10 +2,9 @@
 
 Set AUTONOMOUS_COMPANY_TEST_LAUNCHD=1 to require these tests (missing prerequisites fail).
 Each case rewrites only the fixed label in temporary source copies, uses a fresh
-HOME and a harmless loop probe, and calls the actual Dashboard Start/Stop chain.
+HOME and a harmless loop probe, and calls the actual Service Start/Stop chain.
 """
 
-import importlib.util
 import os
 from pathlib import Path
 import platform
@@ -45,9 +44,6 @@ class LaunchdRuntimeTests(unittest.TestCase):
         sys.path.insert(0, str(REPO / 'tests'))
         from isolation_fixture import install as install_fixture_boundary
         install_fixture_boundary(self.project)
-        (self.project / "dashboard").mkdir()
-        for name in ("server.py", "journal_data.py", "observability_data.py"):
-            shutil.copy2(REPO / "dashboard" / name, self.project / "dashboard" / name)
         for relative in ("scripts/core/launchd-config.py", "scripts/core/stop-loop.sh",
                          "scripts/macos/install-daemon.sh", "scripts/macos/start-daemon.sh",
                          "scripts/macos/launchd-job.py"):
@@ -70,9 +66,6 @@ class LaunchdRuntimeTests(unittest.TestCase):
         self.env = {"HOME": str(self.home), "PATH": os.environ["PATH"],
                     "PYTHONDONTWRITEBYTECODE": "1"}
         self.addCleanup(self.cleanup_agent)
-        spec = importlib.util.spec_from_file_location("launchd_probe_dashboard", self.project / "dashboard/server.py")
-        self.dashboard = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.dashboard)
 
     def control(self, *args):
         return subprocess.run(["/bin/launchctl", *args], env=self.env,
@@ -87,15 +80,21 @@ class LaunchdRuntimeTests(unittest.TestCase):
         self.assertNotEqual(remaining.returncode, 0,
                             "isolated launchd probe remained loaded after cleanup: " + remaining.stdout)
 
+    def run_script(self, relative, *arguments):
+        result = subprocess.run(["/bin/bash", str(self.project / relative), *arguments],
+                                cwd=self.project, capture_output=True, text=True, timeout=120)
+        return {"ok": result.returncode == 0, "exitCode": result.returncode,
+                "output": (result.stdout + result.stderr).strip()}
+
     def start(self, settings=None):
         env = dict(self.env, **(settings or {}))
         with mock.patch.dict(os.environ, env, clear=True):
-            result = self.dashboard.run_dashboard_action("start", system_name="Darwin")
+            result = self.run_script("scripts/macos/start-daemon.sh")
         self.assertTrue(result["ok"], result["output"])
 
     def stop(self, environment=None):
         with mock.patch.dict(os.environ, {**self.env, **(environment or {})}, clear=True):
-            return self.dashboard.run_dashboard_action("stop", system_name="Darwin")
+            return self.run_script("scripts/core/stop-loop.sh", "--pause-daemon")
 
     def wait_probe(self):
         result = self.project / "probe-result"

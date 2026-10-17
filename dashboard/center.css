@@ -24,6 +24,8 @@
 & { margin: 0; min-height: 100vh; background: var(--paper); }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: var(--blue); }
+.settings-help { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: var(--text-body); }
+.settings-help a { text-underline-offset: 3px; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .skip-link { position: fixed; z-index: 100; left: 18px; top: -60px; padding: 10px 14px; background: var(--ink); color: white; }

@@ -161,6 +161,33 @@ class CenterHttpTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.runtime.create_request.assert_not_called()
 
+    def test_old_pages_redirect_to_center_and_global_routes_are_absent(self):
+        for path in ("/index.html", "/journal", "/journal/", "/journal/index.html",
+                     "/legacy", "/legacy/", "/legacy/index.html"):
+            status, raw, headers = self.request("GET", path)
+            self.assertEqual(status, 302, path)
+            self.assertEqual(headers["Location"], "/center")
+            self.assertEqual(raw, b"")
+        for path in ("/api/journal", "/api/status", "/api/usage", "/api/language", "/api/log-tail",
+                     "/api/journal/log?id=anything", "/api/journal/document?path=README.md",
+                     "/api/product-media/" + "a" * 32 + "/preview.png", "/legacy/assets/app.js"):
+            self.assertEqual(self.request("GET", path)[0], 404, path)
+        for path in ("/api/action/start", "/api/action/stop", "/api/action/refresh",
+                     "/api/language", "/api/product-media/capture"):
+            self.assertEqual(self.request("POST", path, "{}")[0], 404, path)
+        self.runtime.create_request.assert_not_called()
+        self.runtime.queue_action.assert_not_called()
+        self.assertFalse(hasattr(self.server, "legacy"))
+
+    def test_shared_assets_are_explicit_and_logo_bytes_unchanged(self):
+        for path, mime in (("/ui-assets/ui.css", "text/css"), ("/ui-assets/ui.js", "application/javascript"),
+                           ("/brand-logo.png", "image/png")):
+            status, raw, headers = self.request("GET", path)
+            self.assertEqual(status, 200)
+            self.assertTrue(headers["Content-Type"].startswith(mime))
+            self.assertEqual(raw, (center_server.DASHBOARD_DIR / path[1:]).read_bytes())
+        self.assertEqual(self.request("GET", "/ui-assets/../center_store.py")[0], 404)
+
     def test_catalog_revision_types_are_rejected_at_the_real_http_write_boundary(self):
         import shutil
         from test_center_catalog import CenterCatalogTests

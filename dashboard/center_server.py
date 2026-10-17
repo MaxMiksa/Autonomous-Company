@@ -25,7 +25,7 @@ if str(DASHBOARD_DIR) not in sys.path:
 from center_store import CenterError, CenterStore  # noqa: E402
 from center_catalog import CenterCatalog  # noqa: E402
 from center_runtime import CenterRuntime  # noqa: E402
-from journal_data import JournalSource  # noqa: E402
+from documentation import DOCUMENTS, documentation_page  # noqa: E402
 
 
 API = "/api/center/v1"
@@ -45,8 +45,6 @@ STATIC = {
     "/center.js": ("center.js", "application/javascript; charset=utf-8"),
     "/center.css": ("center.css", "text/css; charset=utf-8"),
     "/center-i18n.js": ("center-i18n.js", "application/javascript; charset=utf-8"),
-    "/journal": ("index.html", "text/html; charset=utf-8"),
-    "/journal/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/i18n.js": ("i18n.js", "application/javascript; charset=utf-8"),
@@ -77,7 +75,6 @@ class CenterServer(ThreadingHTTPServer):
         self.catalog.managed_observer = runtime.observe_source
         self.catalog.execution_query = runtime.execution_query
         self.framework_root = Path(framework_root)
-        self.legacy = JournalSource(self.framework_root)
         super().__init__(address, CenterHandler)
         self._refresh_stop = threading.Event()
         self._refresh_thread = threading.Thread(target=self._refresh_sources, daemon=True)
@@ -206,25 +203,17 @@ class CenterHandler(BaseHTTPRequestHandler):
                 self.respond((DASHBOARD_DIR / asset[0]).read_bytes(), asset[1])
             elif path.startswith(API + "/"):
                 self.get_api(path[len(API):], query)
-            elif path == "/api/journal":
-                self.json(self.server.legacy.snapshot())
-            elif path == "/api/status":
-                self.json(self.server.legacy.legacy_status())
-            elif path == "/api/usage":
-                self.json(self.server.legacy.legacy_usage(query.get("period", "day"), query.get("date")))
-            elif path == "/api/language":
-                self.json(self.server.legacy.language())
-            elif not query and (media := re.fullmatch(r"/api/product-media/([0-9a-f]{32})/([A-Za-z0-9_.-]+\.(?:png|svg))", path)):
-                content, mime = self.server.legacy.media_resource(*media.groups())
-                self.respond(content, mime)
-            elif path == "/api/journal/log" and set(query) == {"id"}:
-                self.json(self.server.legacy.log(query["id"]))
-            elif path == "/api/journal/document" and set(query) == {"path"}:
-                content, _ = self.server.legacy.document(query["path"])
-                self.respond(content.encode("utf-8"), "text/plain; charset=utf-8")
-            elif path == "/api/log-tail":
-                lines = max(1, min(int(query.get("lines", "180")), 1000))
-                self.json({"ok": True, "readOnly": True, "lines": lines, "logTail": self.server.legacy.log_tail(lines)})
+            elif path in {"/index.html", "/journal", "/journal/", "/journal/index.html",
+                          "/legacy", "/legacy/", "/legacy/index.html"}:
+                self.send_response(302)
+                self.send_header("Location", "/center")
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            elif not query and path.startswith("/docs/") and path[6:] in DOCUMENTS:
+                content = documentation_page(path[6:], self.server.framework_root,
+                                             self.server.runtime.preferences()["language"])
+                self.respond(content.encode("utf-8"), "text/html; charset=utf-8")
             else:
                 self.error("NOT_FOUND", "Resource not found.", 404)
         except Exception as error:
