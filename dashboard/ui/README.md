@@ -4,7 +4,7 @@ Follow [UI/UX specification](../../docs/design/UI-UX-SPEC.md): business layout r
 
 ## Build
 
-Run `npm ci --prefix dashboard/ui`, `npm run check --prefix dashboard/ui`, and `npm run build --prefix dashboard/ui`. Source and generated `../ui-assets/` ship together. Python serves the allowlisted assets; users need no Node server, CDN or remote fonts. The lockfile pins dependencies. Component sources come from the official `new-york-v4` registry under [MIT](SHADCN-LICENSE.md). Local adaptations: utility/import aliases, light-only Sonner theme (no Next.js provider).
+Run `npm ci --prefix dashboard/ui`, `npm run check --prefix dashboard/ui`, and `npm run build --prefix dashboard/ui`. Source and generated `../ui-assets/` ship together. Python serves the allowlisted assets; users need no Node server, CDN or remote fonts. The lockfile pins dependencies. Component sources come from the official `new-york-v4` registry under [MIT](SHADCN-LICENSE.md). Local adaptations: utility/import aliases, browser-local light/dark Sonner theme (no Next.js provider).
 
 ## Ownership
 

@@ -1,6 +1,8 @@
 @layer base {
 /* Five shared type sizes; rem values scale with the user's root font size. */
 :root {
+  color-scheme: light;
+  --ui-primary-foreground: #fff;
   --font-ui: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
   --font-code: "Cascadia Code", Consolas, monospace;
   --text-caption: .875rem;
@@ -50,6 +52,35 @@
   --ui-focus: #1257c4;
   --ui-overlay: rgb(6 18 38 / .35);
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ui-background: #17202e;
+  --ui-canvas: #0e141f;
+  --ui-foreground: #e3eaf5;
+  --ui-primary: #adcaff;
+  --ui-primary-foreground: #132541;
+  --ui-muted: #a8b6cd;
+  --ui-success: #7edba0;
+  --ui-danger: #ff9999;
+  --ui-attention: #f2ca77;
+  --ui-link: #9dc5ff;
+  --ui-border: #354257;
+  --ui-input-border: #687b98;
+  --ui-surface: #1d293a;
+  --ui-hover: #25344a;
+  --ui-rail: #7d9bc6;
+  --ui-label-background: #243955;
+  --ui-label-border: #49658c;
+  --ui-label-foreground: #c1d9ff;
+  --ui-header-background: #111a27;
+  --ui-history-foreground: #f4bc86;
+  --ui-focus: #9dc5ff;
+  --ui-overlay: rgb(0 0 0 / .65);
+  --ui-frame-shadow: 0 0 22px rgb(0 0 0 / .3);
+}
+.theme-preference { display: grid; gap: 8px; }
+.theme-preference small { font-size: var(--text-caption); color: var(--ui-muted); font-weight: 400; }
+
 body { font-size: var(--text-body); line-height: var(--line-body); }
 button, input, select, textarea { font: inherit; }
 small { font-size: var(--text-caption); }
@@ -76,7 +107,7 @@ button, input, select, textarea { letter-spacing: 0; }
 button, a, summary { touch-action: manipulation; }
 input::placeholder, textarea::placeholder { color: var(--ui-muted); opacity: 1; }
 time, .cycle-number, .history-number, .round-number, .usage-total, .numeric { font-variant-numeric: tabular-nums; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ui-background); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

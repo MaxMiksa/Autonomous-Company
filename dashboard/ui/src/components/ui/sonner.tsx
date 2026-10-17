@@ -7,11 +7,18 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const theme = "light"
+  const readTheme = () => document.documentElement.dataset.theme === "dark" ? "dark" : "light"
+  const [theme, setTheme] = React.useState<"light" | "dark">(readTheme)
+  React.useEffect(() => {
+    const update = () => setTheme(readTheme())
+    window.addEventListener("dashboard:theme", update)
+    update()
+    return () => window.removeEventListener("dashboard:theme", update)
+  }, [])
 
   return (
     <Sonner

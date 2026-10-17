@@ -1,5 +1,5 @@
 import { animate } from "motion/mini";
-import { spring } from "motion";
+import { animateView, spring, type AnimationPlaybackControls } from "motion";
 
 export const timing = { micro: 120, local: 180, layout: 220, drawer: 240, page: 300 };
 export const sidebarMotion = {
@@ -12,6 +12,27 @@ const running = new Set<() => void>();
 const resizeStable = new Set<() => void>();
 const preference = matchMedia("(prefers-reduced-motion: reduce)");
 export const quiet = () => preference.matches || document.hidden || Boolean((window as any).__disableDashboardMotion);
+
+let themeRevision = 0;
+export async function theme(update: () => void) {
+  const revision = ++themeRevision;
+  const root = document.documentElement;
+  if (quiet() || !document.startViewTransition) { delete root.dataset.themeTransition; update(); return; }
+  root.dataset.themeTransition = 'blur';
+  try {
+    const transition = animateView(update, {
+      duration: .5, ease: [.2, .7, .2, 1], interrupt: 'immediate',
+    }).old({ filter: ['blur(0px)', 'blur(6px)'], opacity: [1, 0] })
+      .new({ filter: ['blur(6px)', 'blur(0px)'], opacity: [0, 1] });
+    // Motion 14 returns GroupAnimation, but its builder's then declaration says void.
+    const controls = await (transition as unknown as PromiseLike<AnimationPlaybackControls>);
+    const finish = () => controls.complete();
+    running.add(finish);
+    try { await controls.finished; } finally { controls.cancel(); running.delete(finish); }
+  } finally {
+    if (revision === themeRevision) delete root.dataset.themeTransition;
+  }
+}
 
 // Motion owns interpolation and interrupted values; the app owns lifecycle completion.
 const scopes = new WeakMap<HTMLElement, () => void>();
@@ -152,4 +173,4 @@ addEventListener('resize', () => {
   finishAll(true); const revision = ++resizeRevision; document.documentElement.dataset.motionResize = '';
   requestAnimationFrame(() => requestAnimationFrame(() => { if (revision === resizeRevision) delete document.documentElement.dataset.motionResize; }));
 });
-(window as any).DashboardMotion = { workspace, tween, timing };
+(window as any).DashboardMotion = { workspace, tween, theme, timing };

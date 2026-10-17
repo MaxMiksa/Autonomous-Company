@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
+    <script src="/theme.js"></script>
     <script src="/navigation.js"></script>
     <title>Autonomous Company · 工作记录</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -154,6 +155,7 @@
         <h2 id="settingsTitle" data-i18n="settings">设置</h2>
         <button id="closeSettingsButton" class="icon-button close-button" aria-label="关闭"><span data-icon="x"></span></button>
       </div>
+      <label class="theme-preference"><span data-i18n="appearance">外观</span><select data-theme-select aria-describedby="themeHint"><option value="system" data-i18n="themeSystem">跟随系统（默认）</option><option value="light" data-i18n="themeLight">浅色</option><option value="dark" data-i18n="themeDark">深色</option></select><small id="themeHint" class="disabled-reason" data-i18n="themeHint">跟随浏览器或电脑的深浅设置，也可手动选择。</small></label>
       <div class="preview-note">
         <label class="auto-refresh"><input id="autoRefresh" type="checkbox" checked><span data-i18n="autoRefresh">自动刷新</span></label>
         <button id="refreshButton" class="icon-button" title="刷新记录" aria-label="刷新记录"><span data-icon="refresh-cw"></span></button>

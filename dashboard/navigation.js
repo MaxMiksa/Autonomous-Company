@@ -48,6 +48,7 @@
       resume() {
         root.querySelectorAll('[data-parked-id]').forEach(node => { node.id = node.dataset.parkedId; delete node.dataset.parkedId; });
         root.inert = false; root.removeAttribute('aria-hidden'); view.active = true;
+        window.DashboardTheme?.sync(root);
         view.controller?.resume();
       },
       dispose() { view.pause(); events.abort(); view.controller?.dispose(); view.ui?.dispose(); root.remove(); },
@@ -55,6 +56,7 @@
     view.document = viewDocument(view);
     frame.append(root);
     view.ui = window.createDashboardUI(view.document);
+    window.DashboardTheme?.sync(root);
     view.controller = factories.get(kind)(view);
     return view;
   }

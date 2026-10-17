@@ -33,6 +33,7 @@ IDENTIFIER = r"[A-Za-z0-9_-]{1,128}"
 RESOURCE_IDENTIFIER = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,255}"
 MAX_BODY = 64 * 1024
 STATIC = {
+    "/theme.js": ("theme.js", "application/javascript; charset=utf-8"),
     "/navigation.js": ("navigation.js", "application/javascript; charset=utf-8"),
     "/ui-assets/ui.js": ("ui-assets/ui.js", "application/javascript; charset=utf-8"),
     "/ui-assets/ui.css": ("ui-assets/ui.css", "text/css; charset=utf-8"),

@@ -1253,8 +1253,9 @@ test('catalog controls preserve search, preview choice and whole-row navigation'
   }
 });
 
-test('reviewed layouts use white fields, compact settings and continuous product history', async ({ page, center }) => {
+test('reviewed light layouts override system dark and retain compact settings and continuous product history', async ({ page, center }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => localStorage.setItem('autonomous-company.theme', 'light'));
   await openCenter(page, center);
   await expect(page.locator('.product-group-title').first()).toContainText('Recent products');
   const headings = await page.locator('.product-head').first().locator('th').allTextContents();
@@ -1846,4 +1847,195 @@ test('reconnect failure keeps retry focus and clears its error after the path ch
   await expect(page.locator('#sourceManagerStatus')).toHaveClass(/error/);
   await expect(reconnect).toBeEnabled(); await expect(reconnect).toBeFocused();
   await root.fill('/fixture/new'); await expect(page.locator('#sourceManagerStatus')).toBeEmpty();
+});
+
+test('appearance persists across center, journal, cached return and reload without backend writes', async ({ page, center, context }) => {
+  await openCenter(page, center);
+  const writes = [];
+  page.on('request', request => { if (!['GET', 'HEAD'].includes(request.method())) writes.push(request.url()); });
+  await page.locator('#settingsButton').click();
+  const choice = page.locator('#settingsDialog [data-theme-select]');
+  await expect(choice).toHaveValue('system');
+  await choice.selectOption('dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('.app-frame')).toHaveCSS('background-color', 'rgb(23, 32, 46)');
+  await expect(page.locator('.ac-dialog:has(#settingsDialog)')).toHaveCSS('background-color', 'rgb(23, 32, 46)');
+  await page.locator('#settingsDialog .dialog-close').first().click();
+  await page.locator(`a.product-link[href="/products/${center.entryId}"]`).click();
+  await expect(page.locator('#tab-work')).toBeVisible();
+  for (const tab of ['usage', 'logs', 'work']) {
+    await page.locator(`#tab-${tab}`).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  }
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsDialog [data-theme-select]')).toHaveValue('dark');
+  await page.locator('#settingsDialog [data-theme-select]').selectOption('light');
+  await page.locator('#closeSettingsButton').click();
+  await page.locator('#journalBackLink').click();
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsDialog [data-theme-select]')).toHaveValue('light');
+  await page.locator('#settingsDialog [data-theme-select]').selectOption('dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsDialog [data-theme-select]')).toHaveValue('dark');
+  const second = await context.newPage();
+  await second.goto(`${center.url}/center`);
+  await expect(second.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.locator('#settingsDialog [data-theme-select]').selectOption('light');
+  await expect(second.locator('html')).toHaveAttribute('data-theme', 'light');
+  await second.close();
+  expect(writes).toEqual([]);
+});
+
+test('appearance works at mobile width when preferences fail and storage is unavailable', async ({ page, center }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Blocked', 'SecurityError'); } });
+  });
+  await page.route('**/api/center/v1/preferences', route => route.fulfill({ status: 503, json: {} }));
+  await page.goto(`${center.url}/center`);
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsDialog [data-theme-select]')).toBeEnabled();
+  await page.locator('#settingsDialog [data-theme-select]').selectOption('dark');
+  await expect(page.locator('.app-frame')).toHaveCSS('background-color', 'rgb(23, 32, 46)');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator('#settingsDialog [data-theme-select]')).toBeInViewport();
+  await page.locator('#settingsDialog [data-theme-select]').selectOption('light');
+  await expect(page.locator('.app-frame')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+});
+
+for (const kind of ['center', 'journal']) {
+  test(`${kind} saved dark appearance applies before UI bundle loads`, async ({ page, center }) => {
+    await page.addInitScript(() => localStorage.setItem('autonomous-company.theme', 'dark'));
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    await page.route('**/ui-assets/ui.js', async route => { await pending; await route.continue(); });
+    try {
+      await page.goto(`${center.url}/${kind === 'center' ? 'center' : `products/${center.entryId}`}`, { waitUntil: 'commit' });
+      await expect(page.locator('.app-frame')).toHaveCSS('background-color', 'rgb(23, 32, 46)');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      expect(await page.evaluate(() => Boolean(window.createDashboardUI))).toBe(false);
+    } finally { release(); }
+    await page.locator('#settingsButton').click();
+    await expect(page.locator('#settingsDialog [data-theme-select]')).toHaveValue('dark');
+  });
+}
+
+test('appearance uses the adopted blur fade both ways and releases effects after rapid changes', async ({ page, center }) => {
+  await page.addInitScript(() => localStorage.setItem('autonomous-company.theme-animation', 'blinds'));
+  await openCenter(page, center);
+  await page.locator('#settingsButton').click();
+  await page.evaluate(() => {
+    window.themeFades = [];
+    const start = document.startViewTransition.bind(document);
+    document.startViewTransition = (...args) => {
+      const transition = start(...args);
+      transition.ready.then(() => requestAnimationFrame(() => {
+        window.themeFades.push(document.getAnimations()
+          .filter(animation => animation.playState === 'running' && animation.effect?.pseudoElement === '::view-transition-new(root)')
+          .map(animation => ({ duration: animation.effect.getTiming().duration, frames: animation.effect.getKeyframes() })));
+      })).catch(() => {});
+      return transition;
+    };
+  });
+  const choice = page.locator('#settingsDialog [data-theme-select]');
+  for (const theme of ['dark', 'light']) {
+    await choice.selectOption(theme);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme-transition');
+  }
+  expect(await page.evaluate(() => document.getAnimations().filter(animation => animation.effect?.pseudoElement?.startsWith('::view-transition-')).length)).toBe(0);
+  const fades = await page.evaluate(() => window.themeFades.flat());
+  const opacity = fades.filter(animation => animation.frames[0].opacity);
+  const blur = fades.filter(animation => animation.frames[0].filter);
+  expect(opacity).toHaveLength(2); expect(blur).toHaveLength(2);
+  for (const animation of [...opacity, ...blur]) expect(animation.duration).toBe(500);
+  for (const animation of opacity) expect(animation.frames.map(frame => frame.opacity)).toEqual(['0', '1']);
+  for (const animation of blur) expect(animation.frames.map(frame => frame.filter)).toEqual(['blur(6px)', 'blur(0px)']);
+  await expect(page.locator('[data-theme-animation], [data-theme-preview]')).toHaveCount(0);
+  await choice.evaluate(async select => {
+    for (const value of ['dark', 'light', 'dark']) { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); await new Promise(resolve => setTimeout(resolve, 40)); }
+  });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme-transition');
+  await expect(choice).toHaveValue('dark');
+  expect(await page.evaluate(() => localStorage.getItem('autonomous-company.theme'))).toBe('dark');
+  await page.locator('#settingsDialog .dialog-close').first().click();
+  await expect(page.locator('#settingsButton')).toBeFocused();
+});
+
+for (const mode of ['reduced-motion', 'unsupported']) {
+  test(`appearance switches immediately with ${mode}`, async ({ page, center }) => {
+    if (mode === 'reduced-motion') await page.emulateMedia({ reducedMotion: 'reduce' });
+    else await page.addInitScript(() => { document.startViewTransition = undefined; });
+    await openCenter(page, center);
+    await page.locator('#settingsButton').click();
+    await page.locator('#settingsDialog [data-theme-select]').selectOption('dark');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme-transition');
+    await expect(page.locator('.app-frame')).toHaveCSS('background-color', 'rgb(23, 32, 46)');
+  });
+}
+
+
+for (const kind of ['center', 'journal']) {
+  for (const colorScheme of ['dark', 'light']) {
+    test(`${kind} default system appearance resolves ${colorScheme} before UI bundle loads`, async ({ page, center }) => {
+      await page.emulateMedia({ colorScheme });
+      let release;
+      const pending = new Promise(resolve => { release = resolve; });
+      await page.route('**/ui-assets/ui.js', async route => { await pending; await route.continue(); });
+      try {
+        await page.goto(`${center.url}/${kind === 'center' ? 'center' : `products/${center.entryId}`}`, { waitUntil: 'commit' });
+        await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme);
+        await expect(page.locator('.app-frame')).toHaveCSS('background-color', colorScheme === 'dark' ? 'rgb(23, 32, 46)' : 'rgb(255, 255, 255)');
+        expect(await page.evaluate(() => Boolean(window.createDashboardUI))).toBe(false);
+      } finally { release(); }
+      await page.locator('#settingsButton').click();
+      await expect(page.locator('[data-theme-select]')).toHaveValue('system');
+    });
+  }
+}
+
+test('system appearance follows live changes, respects overrides and synchronizes preference across pages', async ({ page, center, context }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await openCenter(page, center);
+  await page.locator('#settingsButton').click();
+  const choice = page.locator('#settingsDialog [data-theme-select]');
+  await expect(choice).toHaveValue('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await choice.selectOption('dark');
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme-transition');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await choice.selectOption('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(await page.evaluate(() => localStorage.getItem('autonomous-company.theme'))).toBe('system');
+  await page.reload();
+  await page.locator('#settingsButton').click();
+  await expect(choice).toHaveValue('system');
+  await page.locator('#settingsDialog .dialog-close').first().click();
+  await page.locator(`a.product-link[href="/products/${center.entryId}"]`).click();
+  await page.locator('#settingsButton').click();
+  await expect(choice).toHaveValue('system');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const second = await context.newPage();
+  await second.emulateMedia({ colorScheme: 'light' });
+  await second.goto(`${center.url}/center`);
+  await expect(second.locator('html')).toHaveAttribute('data-theme', 'light');
+  await choice.selectOption('dark');
+  await expect(second.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await choice.selectOption('system');
+  await expect(second.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await choice.selectOption('light');
+  await second.evaluate(() => localStorage.removeItem('autonomous-company.theme'));
+  await expect(choice).toHaveValue('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await second.close();
 });
