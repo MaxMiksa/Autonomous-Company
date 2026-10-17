@@ -67,7 +67,7 @@ export function reconcile(container: HTMLElement, nodes: Node[]) {
   nodes.forEach((node, index) => { if (container.childNodes[index] !== node) container.insertBefore(node, container.childNodes[index] || null); });
 }
 
-function fluidNavigation(navigation: HTMLElement) {
+function fluidNavigation(navigation: HTMLElement, returning: boolean) {
   const { width, height } = navigation.getBoundingClientRect();
   const inset = matchMedia('(max-width: 640px)').matches ? 0 : 12;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -84,6 +84,7 @@ function fluidNavigation(navigation: HTMLElement) {
   navigation.append(svg); navigation.dataset.fluidNavigation = '';
   const controls: ReturnType<typeof animate>[] = [];
   const options = { duration: .36, type: spring, bounce: 0, autoplay: false };
+  const frames = <T,>(from: T, to: T) => returning ? [to, from] : [from, to];
   const styles = new Map(children.map(node => [node, node.style.transform]));
   const clear = () => {
     controls.forEach(control => control.cancel()); svg.remove(); delete navigation.dataset.fluidNavigation;
@@ -91,11 +92,11 @@ function fluidNavigation(navigation: HTMLElement) {
     children.forEach(node => { node.style.transform = styles.get(node) || ''; node.style.removeProperty('opacity'); });
   };
   try {
-    controls.push(animate(path, { d: [`path("${collapsed}")`, `path("${expanded}")`] }, options));
-    controls.push(animate(navigation, { opacity: [0, 1] }, options));
+    controls.push(animate(path, { d: frames(`path("${collapsed}")`, `path("${expanded}")`) }, options));
+    controls.push(animate(navigation, { opacity: frames(0, 1) }, options));
     for (const node of children) {
       const transform = getComputedStyle(node).transform;
-      controls.push(animate(node, { transform: [`translateY(8px) ${transform === 'none' ? '' : transform}`, transform], opacity: [0, 1] }, options));
+      controls.push(animate(node, { transform: frames(`translateY(8px) ${transform === 'none' ? '' : transform}`, transform), opacity: frames(0, 1) }, options));
     }
   } catch { clear(); return null; }
   return { controls, clear };
@@ -112,30 +113,31 @@ export function workspace(root: HTMLElement, origin: DOMRect, done: () => void, 
   document.body.append(surface);
   const start = `translate(${origin.left - box.left}px,${origin.top - box.top}px) scale(${origin.width / box.width},${origin.height / Math.max(box.height, innerHeight - box.top - 24)})`;
   const animations: Animation[] = [];
-  const fluid = navigation ? fluidNavigation(navigation) : null;
+  const fluid = navigation ? fluidNavigation(navigation, returning) : null;
   let reverseDone: (() => void) | undefined = returning ? done : undefined;
   let direction = returning ? -1 : 1;
   let finished = false;
   const clean = () => { animations.forEach(animation => animation.cancel()); fluid?.clear(); surface.remove(); root.style.removeProperty('z-index'); main.style.removeProperty('opacity'); running.delete(finish); };
   const finish = () => { if (finished) return; finished = true; clean(); if (direction < 0) reverseDone?.(); else entered(); };
+  // Fresh exits use the same quick-start curve as entries; interruptions reverse in place.
+  const frames = <T,>(from: T, to: T) => returning ? [to, from] : [from, to];
   try {
-    animations.push(surface.animate([{ transform: start }, { transform: 'translate(0,0) scale(1,1)' }], { duration: timing.page, easing, fill: 'both' }));
+    animations.push(surface.animate({ transform: frames(start, 'translate(0,0) scale(1,1)') }, { duration: timing.page, easing, fill: 'both' }));
     // Keep fixed descendants viewport-anchored and outgoing content at its reading position.
-    animations.push(main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: timing.page, easing, fill: 'both' }));
+    animations.push(main.animate({ opacity: frames(0, 1) }, { duration: timing.page, easing, fill: 'both' }));
   } catch { finish(); }
   const watch = () => { const currentDirection = direction; Promise.all([...animations.map(animation => animation.finished), ...(fluid?.controls.map(control => control.finished) || [])]).then(() => { if (direction === currentDirection) finish(); }, () => {}); };
-  if (returning) animations.forEach(animation => { animation.currentTime = timing.page; animation.reverse(); });
-  fluid?.controls.forEach(control => { control.time = returning ? control.duration : 0; control.speed = direction; control.play(); });
+  fluid?.controls.forEach(control => { control.time = 0; control.play(); });
   if (!finished) { running.add(finish); watch(); }
   return { get finished() { return finished; }, finish, forward() {
-    direction = 1; animations.forEach(animation => { animation.playbackRate = 1; animation.play(); });
-    fluid?.controls.forEach(control => { control.speed = 1; control.play(); }); watch();
+    direction = 1; animations.forEach(animation => { animation.playbackRate = returning ? -1 : 1; animation.play(); });
+    fluid?.controls.forEach(control => { control.speed = returning ? -1 : 1; control.play(); }); watch();
   }, reverse(callback: () => void) {
     reverseDone = callback; direction = -1;
     if (!surface.isConnected || quiet()) { finish(); return; }
     // Reverse the existing timeline: no endpoint write and no replacement frame.
     animations.forEach(animation => animation.reverse());
-    fluid?.controls.forEach(control => { control.speed = -1; control.play(); }); watch();
+    fluid?.controls.forEach(control => { control.speed = returning ? 1 : -1; control.play(); }); watch();
   } };
 }
 function finishAll(resizing = false) { [...running].forEach(finish => { if (!resizing || !resizeStable.has(finish)) finish(); }); }

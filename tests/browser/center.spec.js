@@ -204,12 +204,13 @@ test('local motion settles safely on resize, reduced motion and backgrounding', 
   expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
 });
 
-test('detail navigation fades out on the reversed page timeline', async ({ page, center }) => {
+test('detail return starts promptly on both the header and page timelines', async ({ page, center }) => {
   await openCenter(page, center);
   await page.locator('.product-link').first().click();
   await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
   const result = await page.evaluate(async () => {
     const navigation = document.querySelector('.topbar > .navline');
+    const main = document.querySelector('#mainContent');
     document.querySelector('#journalBackLink').click();
     const animation = navigation.getAnimations()[0];
     if (!animation) return null;
@@ -217,16 +218,24 @@ test('detail navigation fades out on the reversed page timeline', async ({ page,
     const rate = animation.playbackRate;
     animation.pause();
     const duration = Number(animation.effect.getTiming().duration);
-    const opacity = [duration, duration / 2, 0].map(time => { animation.currentTime = time; return Number(getComputedStyle(navigation).opacity); });
+    const opacity = [0, duration / 3, duration].map(time => { animation.currentTime = time; return Number(getComputedStyle(navigation).opacity); });
+    const bodyAnimation = main.getAnimations()[0];
+    bodyAnimation.pause(); bodyAnimation.currentTime = 100;
+    const bodyOpacity = Number(getComputedStyle(main).opacity);
+    const bodyDuration = Number(bodyAnimation.effect.getTiming().duration);
+    bodyAnimation.play();
     animation.play();
-    return { rate, opacity };
+    return { rate, opacity, bodyOpacity, bodyDuration };
   });
   expect(result).not.toBeNull();
-  expect(result.rate).toBe(-1);
+  expect(result.rate).toBe(1);
   expect(result.opacity[0]).toBe(1);
   expect(result.opacity[1]).toBeGreaterThan(0);
-  expect(result.opacity[1]).toBeLessThan(1);
+  expect(result.opacity[1]).toBeLessThan(0.5);
   expect(result.opacity[2]).toBe(0);
+  expect(result.bodyDuration).toBe(300);
+  expect(result.bodyOpacity).toBeGreaterThan(0);
+  expect(result.bodyOpacity).toBeLessThan(0.5);
 });
 
 test('detail header keeps its width through a delayed response and places the read-only icon beside the title', async ({ page, center }, testInfo) => {
