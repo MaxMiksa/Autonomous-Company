@@ -484,6 +484,7 @@ button.project-info-trigger { position: fixed; top: calc(var(--overview-tab-top)
 
 .view-frame { display: contents; }
 .workspace-view { min-width: 0; border-radius: var(--ui-frame-radius); }
+.workspace-view[data-workspace-motion] { background: transparent; }
 .app-frame { position: relative; }
 .workspace-view[aria-hidden=true] { position: absolute; inset: 0; pointer-events: none; }
 .workspace-motion-surface { position: fixed; z-index: 2; pointer-events: none; background: var(--ui-background); border: 0; border-radius: 12px; transform-origin: top left; }

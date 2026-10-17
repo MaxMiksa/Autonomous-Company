@@ -106,6 +106,7 @@ export function workspace(root: HTMLElement, origin: DOMRect, done: () => void, 
   const main = root.querySelector<HTMLElement>('main')!;
   const navigation = root.querySelector<HTMLElement>('.topbar > .navline');
   root.style.zIndex = '4';
+  root.dataset.workspaceMotion = '';
   const box = main.getBoundingClientRect();
   const surface = document.createElement('div');
   surface.className = 'workspace-motion-surface'; surface.setAttribute('aria-hidden', 'true');
@@ -117,12 +118,12 @@ export function workspace(root: HTMLElement, origin: DOMRect, done: () => void, 
   let reverseDone: (() => void) | undefined = returning ? done : undefined;
   let direction = returning ? -1 : 1;
   let finished = false;
-  const clean = () => { animations.forEach(animation => animation.cancel()); fluid?.clear(); surface.remove(); root.style.removeProperty('z-index'); main.style.removeProperty('opacity'); running.delete(finish); };
+  const clean = () => { animations.forEach(animation => animation.cancel()); fluid?.clear(); surface.remove(); delete root.dataset.workspaceMotion; root.style.removeProperty('z-index'); main.style.removeProperty('opacity'); running.delete(finish); };
   const finish = () => { if (finished) return; finished = true; clean(); if (direction < 0) reverseDone?.(); else entered(); };
   // Fresh exits use the same quick-start curve as entries; interruptions reverse in place.
   const frames = <T,>(from: T, to: T) => returning ? [to, from] : [from, to];
   try {
-    animations.push(surface.animate({ transform: frames(start, 'translate(0,0) scale(1,1)') }, { duration: timing.page, easing, fill: 'both' }));
+    animations.push(surface.animate({ transform: frames(start, 'translate(0,0) scale(1,1)'), opacity: frames(0, 1) }, { duration: timing.page, easing, fill: 'both' }));
     // Keep fixed descendants viewport-anchored and outgoing content at its reading position.
     animations.push(main.animate({ opacity: frames(0, 1) }, { duration: timing.page, easing, fill: 'both' }));
   } catch { finish(); }

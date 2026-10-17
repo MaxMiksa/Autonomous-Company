@@ -223,9 +223,16 @@ test('detail return starts promptly on both the header and page timelines', asyn
     bodyAnimation.pause(); bodyAnimation.currentTime = 100;
     const bodyOpacity = Number(getComputedStyle(main).opacity);
     const bodyDuration = Number(bodyAnimation.effect.getTiming().duration);
+    const surface = document.querySelector('.workspace-motion-surface');
+    const surfaceAnimation = surface.getAnimations()[0];
+    surfaceAnimation.pause(); surfaceAnimation.currentTime = 100;
+    const surfaceOpacity = Number(getComputedStyle(surface).opacity);
+    const coveringBackground = getComputedStyle(main.closest('.workspace-view')).backgroundColor;
+    const centerVisible = !document.querySelector('[data-view=center]').hidden;
+    surfaceAnimation.play();
     bodyAnimation.play();
     animation.play();
-    return { rate, opacity, bodyOpacity, bodyDuration };
+    return { rate, opacity, bodyOpacity, bodyDuration, surfaceOpacity, coveringBackground, centerVisible };
   });
   expect(result).not.toBeNull();
   expect(result.rate).toBe(1);
@@ -236,6 +243,11 @@ test('detail return starts promptly on both the header and page timelines', asyn
   expect(result.bodyDuration).toBe(300);
   expect(result.bodyOpacity).toBeGreaterThan(0);
   expect(result.bodyOpacity).toBeLessThan(0.5);
+  expect(result.surfaceOpacity).toBeCloseTo(result.bodyOpacity, 4);
+  expect(result.coveringBackground).toBe('rgba(0, 0, 0, 0)');
+  expect(result.centerVisible).toBe(true);
+  await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
+  await expect(page.locator('[data-workspace-motion]')).toHaveCount(0);
 });
 
 test('detail header keeps its width through a delayed response and places the read-only icon beside the title', async ({ page, center }, testInfo) => {
