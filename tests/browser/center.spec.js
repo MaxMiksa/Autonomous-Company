@@ -1332,6 +1332,9 @@ test('reviewed layouts use white fields, compact settings and continuous product
   expect(layout.icon).toBe(layout.node);
   expect(layout.statusInName).toBeTruthy();
   expect(layout.overflow).toBeFalsy();
+  await page.locator('#settingsButton').click();
+  await expect(page.locator('#settingsDialog')).toBeVisible();
+  await expect(page.locator('[data-i18n="openConsensus"]')).toBeHidden();
 });
 
 test('catalog selection slides to the active filter and stays aligned after resizing', async ({ page, center }) => {

@@ -707,6 +707,7 @@ window.DashboardNavigation.register('journal', (view) => {
     $('modeNote').textContent = data ? message(scope.center ? centerModeKey() : readOnly() ? 'preview' : 'live') : '';
     $('autoRefresh').disabled = Boolean(data && readOnly() && !scope.center);
     document.querySelectorAll('.legacy-link').forEach((node) => { node.hidden = scope.center || data?.legacyAvailable !== true; });
+    $('consensusLink').hidden = scope.center || !data;
     document.querySelectorAll('.dialog-links a[href^="/docs/"]').forEach((node) => { node.hidden = readOnly(); });
     const reason = runtime.pauseReason || data?.budgetPause?.reason;
     const paused = ['paused', 'waiting_limit', 'circuit_break'].includes(runtime.state);

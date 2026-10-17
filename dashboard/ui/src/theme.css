@@ -447,6 +447,10 @@ html[data-ui=shadcn] .project-info-drawer .ac-owned-content { height: auto; over
 .project-info-drawer .project-sidebar { margin: 0; }
 .journal-layout[data-sidebar-compact] { grid-template-columns: minmax(0, 1fr) 0px; column-gap: 0; }
 .journal-layout[data-sidebar-compact] > #projectSidebarHome { visibility: hidden; }
+@media (max-width: 1080px) {
+  .journal-layout { grid-template-columns: minmax(0, 1fr) 0px; column-gap: 0; }
+  .journal-layout > #projectSidebarHome { display: none; }
+}
 .workspace-view:has(.journal-layout[data-sidebar-compact]) .project-info-trigger { display: inline-flex; }
 button.project-info-trigger { position: fixed; top: calc(var(--overview-tab-top) + 12px); right: calc(var(--ui-frame-gap) + 1px); z-index: 90; flex-direction: column; width: 40px; min-height: 88px; gap: 6px; padding: 10px 8px; border-radius: 12px 0 0 12px; border-right: 0; background: #fff; box-shadow: -3px 0 10px rgb(16 38 89 / .07); }
 .project-info-trigger [data-i18n=projectOverview] { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 2px; }

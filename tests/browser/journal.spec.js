@@ -262,6 +262,11 @@ test("journal renders source history and never treats a report as live telemetry
   await expect(page.locator("#readOnlyIndicator svg")).toHaveAttribute("data-lucide", "eye");
   await page.locator("#settingsButton").click();
   await expect(page.locator("#languageSelect")).toBeDisabled();
+  const consensusLink = page.locator('[data-i18n="openConsensus"]');
+  await expect(consensusLink).toBeVisible();
+  const consensus = await page.request.get(new URL(await consensusLink.getAttribute('href'), journal.url).href);
+  expect(consensus.ok()).toBeTruthy();
+  expect(await consensus.text()).toBe(snapshot.consensus.raw);
   await page.locator("#closeSettingsButton").click();
   expect(await page.evaluate(() => window.journalInjected)).toBeUndefined();
   expect(errors).toEqual([]);
