@@ -1,6 +1,6 @@
 {
   "INDEX.md": "e7ec99b5ae7198ae2e0d5cd4ef0fe2a650a167f89c00941684edfddc95eef124",
-  "PROMPT.md": "19d3568a1815b1f1600412e564004f63b6de388621e854630f3bb1a679b7dd60",
+  "PROMPT.md": "2c0309b34c7ed9c08a0be1f26b73a836962e80ffc0279b4f12fe87fbde0296de",
   ".claude/agents/ceo-bezos.md": "04655828d6c110787651efc71d53ab2e6d04f26356b3c7de8f00c909aa645de2",
   ".claude/agents/cfo-campbell.md": "63186e51dad6191930907dd8f0847fa8d78080c43f3d9d1576629c30b5f01545",
   ".claude/agents/critic-munger.md": "ca59c72d8b8a91436b1fe60866af2318bb0540e83551c244882427c6fc52b18b",
@@ -14,9 +14,9 @@
   ".claude/agents/qa-bach.md": "8a978a70de635de0c49a1cfc5a330ff3ce074d738f8cb76c9c88f9151960b050",
   ".claude/agents/research-thompson.md": "f34818ac1c966bf9c96c5fece843343d39e35e828ac7064b0084bb2efbbc5b52",
   ".claude/agents/sales-ross.md": "1abba59b58e42bc2193de192e9a9ee1db3d381c4ed684ea2bc19c0753723ffd1",
-  ".claude/agents/ui-duarte.md": "ba2ce5a03054bec748f1f9915e7a2318d7d5d5e686a03ed606838c1f88008e0b",
+  ".claude/agents/ui-duarte.md": "9dc8f7ea5b322267d323d5fbc0847aa693bf8667ef0e0f5fe303ee00fa625d5f",
   "docs/windows-setup.md": "03149c7fd0c43149e934c8d1c7564d057d03b31846c26192169bbbc763cdc078",
-  "CLAUDE.md": "3eb7539d2ad1be059bf69bc55c8652ac373752c8a0baf1bc252599ce8ccf9636",
+  "CLAUDE.md": "98669c9fda37c2a8d6aae2dc7fd6eb441a35c9bbd31909adc39e067343de9d03",
   "ENGINE_ADAPTERS.md": "411625af622a98dd502e0928f274827fa9cd090ef4259bcb63b85337845fca10",
   "docs/usage-governance.md": "d10069939325b85e77f9f26baa05aa0033a706453e3a059996226d0968175b17",
   "docs/troubleshooting.md": "61bce1a6823516202f878ab0db8c25c90c2bb09b3e1cdeaaede6fb7b2a714937"

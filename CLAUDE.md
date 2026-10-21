@@ -83,6 +83,8 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 ## Decision Principles
 
+**Continuous operation and product refinement:** READY, an MVP, passing checks, delivery documents and review scores are milestones, not stop or human-review gates. Continue the authorized product through evidence-driven inspection, independent review, high-value corrections and verification; actively find remaining gaps after the first usable version and finishing pass. Preserve strong design and working behavior. Do not keep busy with feature bloat, repeated restyling, paperwork or redundant broad tests. Only explicit human direction or genuine existing budget, permission, authentication, governance and failure blockers may interrupt operation. Milestones grant no new publication or outreach authority.
+
 **Mandatory frontend quality:** choose excellent frontend design with complete core functionality. Visual quality and functional completeness are separate required gates. Reject ugly or rough candidates even when they are readable, familiar or cheaper to implement; improve or remake them if none qualifies. Among qualified directions, prefer stronger frontend design before implementation convenience. Respect a user's selected direction. Record decisions from actual rendered screens and independently review the implemented result; neither a functional pass nor a combined score can replace visual acceptance. Apply the detailed selection and delivery rules in `PROMPT.md` before shipping.
 
 1. **Ship > Plan > Discuss** - if you can ship, do not over-discuss.

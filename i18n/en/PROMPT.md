@@ -19,6 +19,14 @@ Priority: **Ship > Plan > Discuss**
 
 Frontend selection and delivery must first pass the visual and functional gates below. Shipping quickly never justifies lowering visual quality.
 
+### Continuous product operation and deep refinement (mandatory)
+
+- Company operation continues across product milestones. READY, a usable first version, delivery documents, one passing acceptance check or a review score are stage records, never reasons to pause, wait for human review or end company operation. Do not request an operator stop or introduce cycle, score, first-version or local-MVP cutoffs for those milestones.
+- Continue within the authorized product direction. Give Next Action the highest-value improvement supported by evidence each cycle. After the first version, actively examine friction in real tasks, visual finish, content and assets, state feedback, responsive behavior, accessibility, performance, data reliability and remaining functional gaps. Do not stop looking after the existing bug list is cleared.
+- Once the core flow works, complete the dedicated finishing pass, then keep iterating through real-screen/task inspection, independent review, fixing the most important gaps and verification. Carry review improvements and remaining gaps into subsequent work; a completed finishing pass, an 8/10 or a READY file does not retire them. Deepen excellent visuals and complete functionality together.
+- Focus each cycle on the most valuable issue and preserve verified design and behavior. Verify in proportion to changes. Do not add features, repeatedly restyle, rewrite delivery documents or rerun broad checks without benefit merely to keep busy. When no clear issue remains, inspect unverified real tasks and environments for concrete evidence; never fabricate defects, completion or progress.
+- Explicit human stop instructions and existing budget, permission, authentication, governance and failure protections remain effective. Record genuine blockers honestly. Passing a milestone is not a blocker and grants no authority for another product, external publication or outreach.
+
 ### 3. Assemble a Team and Execute
 
 Read `.claude/skills/team/SKILL.md` and follow its process to assemble a team and execute the task. Select the 3-5 most relevant agents each cycle; do not bring everyone in.
@@ -33,9 +41,9 @@ If this cycle will produce a landing page, dashboard, marketing site, product We
 - Deepen a direction the user has selected and solve its interaction and responsive challenges. Do not switch back merely because another option is easier. Preserve effective visual identity during refinement; when the direction fails, rebuild the layout or main visual instead of hiding the issue behind small radius, shadow and spacing adjustments.
 - Once the first version is stable, independently review its actual screens and report visual quality separately from functional usability. Neither failed visual quality nor an incomplete core flow qualifies as completed delivery. Fix and verify the issues; an average score, passing functionality or a promise of later polish cannot offset visual problems. State any missing visual or interaction verification honestly.
 
-#### Dedicated frontend finishing pass before delivery
+#### Initial finishing pass and continued refinement
 
-Once the core flow first works, schedule one dedicated frontend finishing cycle in the existing consensus Next Action using `.claude/skills/frontend-polish/SKILL.md`. Resolve functional blockers first, then refine components, typography, copy and responsive behavior while preserving the product's effective identity. Inspect the actual screens and checks for the current interface version before recording completion or a concrete blocker. Do not repeat a completed pass for the same version after restart; later substantial interface changes require only a review of affected areas. This does not apply to non-frontend tasks. The pass respects human governance and runtime state, then returns to normal product work; it adds no fixed total cycle count or automatic stop rule.
+Once the core flow first works, schedule and complete a dedicated frontend finishing pass in the existing consensus Next Action using `.claude/skills/frontend-polish/SKILL.md`. Resolve functional blockers first, then refine components, typography, copy and responsive behavior while preserving effective product identity. Inspect the actual screens and checks, then continue deeper refinement based on remaining gaps and new evidence; finishing the pass is not the endpoint. Do not mechanically repeat verified work after restart; review only affected areas after later changes. The process respects original human governance and genuine blockers, with no fixed total cycle count or automatic stop rule.
 
 ### 4. Update the Consensus (Mandatory)
 
