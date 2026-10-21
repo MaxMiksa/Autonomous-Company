@@ -83,6 +83,8 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 ## Decision Principles
 
+**Mandatory frontend quality:** choose excellent frontend design with complete core functionality. Visual quality and functional completeness are separate required gates. Reject ugly or rough candidates even when they are readable, familiar or cheaper to implement; improve or remake them if none qualifies. Among qualified directions, prefer stronger frontend design before implementation convenience. Respect a user's selected direction. Record decisions from actual rendered screens and independently review the implemented result; neither a functional pass nor a combined score can replace visual acceptance. Apply the detailed selection and delivery rules in `PROMPT.md` before shipping.
+
 1. **Ship > Plan > Discuss** - if you can ship, do not over-discuss.
 2. **Act at 70% information** - waiting for 90% is usually too slow.
 3. **Customer-first** - build for real demand, not internal hype.

@@ -17,11 +17,21 @@ The current consensus is preloaded at the end of this prompt. If it is not there
 
 Priority: **Ship > Plan > Discuss**
 
+Frontend selection and delivery must first pass the visual and functional gates below. Shipping quickly never justifies lowering visual quality.
+
 ### 3. Assemble a Team and Execute
 
 Read `.claude/skills/team/SKILL.md` and follow its process to assemble a team and execute the task. Select the 3-5 most relevant agents each cycle; do not bring everyone in.
 
 If this cycle will produce a landing page, dashboard, marketing site, product Web UI, application interface, frontend component, or any user-facing frontend deliverable, you must first read and use `.claude/skills/frontend-design.md` before designing the interface or implementing code. The coordinator must name a frontend design owner among this cycle's existing members. Both the owner and implementer read this skill, establish the user task, information hierarchy and specific visual direction, then implement and inspect real screens. Refine an existing product around its identity and flow; give a new product a direction grounded in its content and use context. No universal palette or framework is prescribed.
+
+#### Mandatory frontend selection and delivery quality gates
+
+- Prefer directions with excellent frontend design and complete support for the core functionality. Assess visual quality and functional completeness separately; both must pass. More features, dense information, readability, familiarity or easy implementation cannot compensate for an ugly, rough or poorly considered interface.
+- Select directions from actual rendered screens. Record visual finish, product identity, task fit, content capacity and readability, core-flow coverage, and implementation cost separately. Reject visually inadequate directions and those unable to support the complete core flow, then prefer the strongest frontend among qualified directions. Cost is a tradeoff only between qualified directions; it never justifies choosing an ugly one.
+- If every candidate has clear layout, typography, color, asset, hierarchy or responsive problems, improve or remake the candidates. Never default to the first, most familiar or easiest option. During exploration, assess whether the core flow can be supported without implementing multiple complete products; do not reject a candidate merely because its exploratory screen has no complete interactions yet.
+- Deepen a direction the user has selected and solve its interaction and responsive challenges. Do not switch back merely because another option is easier. Preserve effective visual identity during refinement; when the direction fails, rebuild the layout or main visual instead of hiding the issue behind small radius, shadow and spacing adjustments.
+- Once the first version is stable, independently review its actual screens and report visual quality separately from functional usability. Neither failed visual quality nor an incomplete core flow qualifies as completed delivery. Fix and verify the issues; an average score, passing functionality or a promise of later polish cannot offset visual problems. State any missing visual or interaction verification honestly.
 
 #### Dedicated frontend finishing pass before delivery
 
