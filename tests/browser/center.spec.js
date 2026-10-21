@@ -1400,6 +1400,8 @@ for (const count of [100, 1000]) test(`synthetic ${count} products use bounded l
   await expect(page.locator('.product-row')).toHaveCount(1);
   await expect(page.locator('#productSearch')).toBeFocused();
   await testInfo.attach('synthetic-list-motion.json', { body: JSON.stringify({ count, cpuRate: 4, ...measurement }, null, 2), contentType: 'application/json' });
+  // Drain intercepted refreshes before the center fixture stops its server.
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 for (const emptyCase of ['search', 'filter']) {
