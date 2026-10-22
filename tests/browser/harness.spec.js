@@ -94,3 +94,50 @@ test.describe('legacy lazy details', () => {
     expect(await response.text()).toBe('Bound legacy delivery evidence');
   });
 });
+
+test.describe('late historical accounting', () => {
+  test.use({ centerCycles: 36 });
+  test('old loaded usage is marked stale and a successful detail read installs its late accounting', async ({ page, center }) => {
+    let late = false, historyReads = 0;
+    page.on('request', request => { const url = new URL(request.url()); if (url.pathname.endsWith('/journal') && url.searchParams.has('before')) historyReads += 1; });
+    await page.route(`**/api/center/v1/entries/${center.entryId}/records/${center.firstCycleId}?*`, async route => {
+      const response = await route.fetch(), payload = await response.json();
+      if (late) {
+        payload.data.usage.totalTokens += 800; payload.data.costUsd = 8.5; payload.data.costStatus = 'reported';
+        payload.data.partitions.usage.revision += 1;
+      }
+      await route.fulfill({ response, json: payload });
+    });
+    await page.route(`**/api/center/v1/entries/${center.entryId}/usage?*`, async route => {
+      const response = await route.fetch(), payload = await response.json();
+      if (late) {
+        payload.data.usage.totalTokens += 800;
+        const group = payload.data.groups.find(group => group.cycleId === center.firstCycleId);
+        group.usage.totalTokens += 800;
+        payload.data.partitions.usage.revision += 1;
+      }
+      await route.fulfill({ response, json: payload });
+    });
+    await page.goto(`${center.url}/products/${center.entryId}`);
+    await page.locator('#settingsButton').click();
+    await page.locator('#autoRefresh-control').uncheck();
+    await page.locator('#closeSettingsButton').click();
+    await page.locator('.history-more').click();
+    await expect(page.locator('.cycle-row')).toHaveCount(36);
+    late = true;
+    await page.locator('#settingsButton').click();
+    await page.locator('#refreshButton').click();
+    await page.locator('#closeSettingsButton').click();
+    await page.locator('#tab-usage').click();
+    const old = page.locator(`#usageRows tr[data-cycle-id="${center.firstCycleId}"]`);
+    await expect(page.locator('#usageSummary')).toContainText('810');
+    await expect(old.locator('td').nth(5)).toHaveText('10');
+    await expect(old.locator('td').last()).toHaveText('Not refreshed');
+    await page.locator('#tab-work').click();
+    await page.locator('#historyList [data-disclosure]').last().locator('.disclosure-trigger').click();
+    await page.locator('#tab-usage').click();
+    await expect(old.locator('td').nth(5)).toHaveText('810');
+    await expect(old.locator('td').last()).not.toHaveText('Not refreshed');
+    expect(historyReads).toBe(1);
+  });
+});

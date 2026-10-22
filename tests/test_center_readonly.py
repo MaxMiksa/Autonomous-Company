@@ -73,6 +73,30 @@ class ReadOnlyObservationTests(unittest.TestCase):
         with patch.object(observer, '_process', return_value={'alive': True, 'executionDomain': {'platform': 'posix'}}):
             self.assertIsNone(observer.status(reader))
 
+    def test_cold_start_reads_missing_cache_during_first_five_monotonic_seconds(self):
+        for seconds in (0, 1):
+            with self.subTest(seconds=seconds):
+                observer, reader = ReadOnlyObserver(), self.reader()
+                stopped = {'alive': False, 'executionDomain': {'platform': 'posix'}}
+                with patch('center_readonly.time.monotonic', return_value=seconds), patch.object(observer, '_process', return_value=stopped) as process:
+                    status = observer.status_many([reader])[0]
+                process.assert_called_once_with('recorded-source', 12)
+                self.assertEqual(status['parsed']['loop']['state'], 'stopped')
+                self.assertEqual(observer._cache['recorded-source'], (seconds, status))
+
+    def test_fresh_none_cache_is_reused_without_refreshing_its_timestamp(self):
+        observer, reader = ReadOnlyObserver(), self.reader()
+        observer._cache['recorded-source'] = (0, None)
+        with patch('center_readonly.time.monotonic', return_value=1), patch.object(observer, '_process') as process:
+            self.assertEqual(observer.status_many([reader]), [None])
+        process.assert_not_called()
+        reader.pairs.assert_not_called()
+        self.assertEqual(observer._cache['recorded-source'], (0, None))
+        with patch('center_readonly.time.monotonic', return_value=5), patch.object(observer, '_process', return_value=None) as process:
+            self.assertEqual(observer.status_many([reader]), [None])
+        process.assert_called_once_with('recorded-source', 12)
+        self.assertEqual(observer._cache['recorded-source'], (5, None))
+
     def test_batch_preserves_independent_evidence_and_rejects_changed_pid(self):
         observer = ReadOnlyObserver()
         first, second = self.reader(), self.reader()

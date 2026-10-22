@@ -173,8 +173,8 @@ class ReadOnlyObserver:
                 stack.enter_context(lock)
             pending = []
             for root, reader in unique.items():
-                stamp, _ = self._cache.get(root, (0, None))
-                if time.monotonic() - stamp < 5:
+                cached = self._cache.get(root)
+                if cached is not None and time.monotonic() - cached[0] < 5:
                     continue
                 try:
                     state = reader.pairs('.auto-loop-state')

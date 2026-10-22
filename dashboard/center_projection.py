@@ -308,6 +308,7 @@ class CenterProjection:
             include_events=bool(record_id), include_documents=bool(record_id),
             ledger_records=(legacy, list(warnings)), detail_cycle_id=record_id)
         data['cycles'] = project_cycles(data['cycles'], selected_index, scope)
+        usage_observed_at = now()
         for cycle in data['cycles']:
             if cycle.get('harnessVersion'):
                 cycle['active'] = bool(data['runtime'].get('active') and data['runtime'].get('currentCycleId') == cycle['id'])
@@ -373,6 +374,11 @@ class CenterProjection:
             cycle_report = cycle.get('workReport')
             health = cycle.get('eventsHealth') or {}
             cycle['partitions'] = {
+                'usage': version('usage', {**{key: cycle.get(key) for key in ('usage', 'costUsd', 'costStatus')},
+                    'attempts': [{'attemptId': attempt.get('attemptId'), 'usage': attempt.get('usage')}
+                                 for attempt in cycle.get('attempts', [])]}, target=target,
+                    status='available' if (cycle.get('usage') or {}).get('status') in {'available', 'reported'} and
+                        cycle.get('costStatus') == 'reported' else 'partial', as_of=usage_observed_at),
                 'report': version('report', [cycle_report, cycle.get('workReportStatus'), cycle.get('summary'), cycle.get('reportObservedAt')], target=target,
                     status='available' if cycle.get('workReportStatus') == 'valid' or cycle.get('reportObservedAt') else 'missing',
                     as_of=cycle_report.get('recorded_at') if cycle_report else cycle.get('reportObservedAt')) if record_id or cycle.get('harnessVersion') else self.not_requested(),

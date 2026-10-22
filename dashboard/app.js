@@ -272,7 +272,7 @@ window.DashboardNavigation.register('journal', (view) => {
       const previousRow = oldRows.get(cycle.id);
       const old = previousRow && { ...previousRow, artifacts: previousRow.artifacts?.filter(item => item.kind === 'document') };
       if (Array.isArray(cycle.artifacts)) cycle.artifacts = cycle.artifacts.filter(item => item.kind === 'document');
-      for (const [kind, fields] of [['report', ['workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt']], ['checks', ['checks', 'latestCheck', 'checkStatus']], ['documents', ['artifacts']], ['events', ['events', 'eventStatus', 'eventsHealth']]]) {
+      for (const [kind, fields] of [['usage', ['usage', 'costUsd', 'costStatus']], ['report', ['workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt']], ['checks', ['checks', 'latestCheck', 'checkStatus']], ['documents', ['artifacts']], ['events', ['events', 'eventStatus', 'eventsHealth']]]) {
         const metadata = cycle.partitions?.[kind] || data.partitions?.[kind];
         if (metadata?.errorCode === 'NOT_REQUESTED') {
           if (old?.activeAttemptId === cycle.activeAttemptId) {
@@ -296,6 +296,20 @@ window.DashboardNavigation.register('journal', (view) => {
       if (cycle.detailStatus === 'limited' && old?.detailStatus === 'recorded' && old.activeAttemptId === cycle.activeAttemptId
         && !cycle.active && cycle.status === old.status && cycle.protocolState === old.protocolState) cycle.detailStatus = 'recorded';
     }
+  }
+  function retainHistoricalCycles(data, previous) {
+    const ids = new Set(data.cycles.map(cycle => cycle.id));
+    for (const cycle of previous.cycles) {
+      if (ids.has(cycle.id)) continue;
+      const usage = cycle.partitions?.usage;
+      data.cycles.push({ ...cycle, partitions: { ...cycle.partitions, usage: { ...usage,
+        freshness: usage?.freshness === 'unknown' || !usage ? 'unknown' : 'stale' } } });
+    }
+  }
+  function usageRowFresh(cycle) {
+    const metadata = cycle.partitions?.usage;
+    return state.data?.projectionVersion !== 2 || metadata?.freshness === 'fresh'
+      && !['unavailable', 'invalid'].includes(metadata.status);
   }
   async function fetchScopedText(value, timeout = 15000) {
     const url = safeScopedResource(value);
@@ -721,7 +735,7 @@ window.DashboardNavigation.register('journal', (view) => {
           const current = state.data.cycles.find(cycle => cycle.id === cycleId);
           if (!current || current.activeAttemptId !== detail.activeAttemptId) return;
           const result = { ...detail, cycles: [detail] }; installCycleComponents(result, { cycles: [current] });
-          const fields = ['workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt', 'artifacts', 'checks', 'latestCheck', 'checkStatus', 'events', 'eventStatus', 'eventsHealth'];
+          const fields = ['usage', 'costUsd', 'costStatus', 'workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt', 'artifacts', 'checks', 'latestCheck', 'checkStatus', 'events', 'eventStatus', 'eventsHealth'];
           Object.assign(current, Object.fromEntries(fields.map(key => [key, detail[key]])), { detailStatus: 'recorded', partitions: detail.partitions });
           state.detailReadAt.set(cycleId, performance.now());
           state.detailErrors?.delete(cycleId); render(); return;
@@ -1287,6 +1301,7 @@ window.DashboardNavigation.register('journal', (view) => {
     }
     for (const cycle of cycles) {
       const row = element('tr');
+      row.dataset.cycleId = cycle.id;
       row.append(element('td', '', cycle.identityKind === 'exploration' ? message('explorationNumber', { number: paddedCycleNumber(cycle) }) : `${message('cycle')} ${paddedCycleNumber(cycle)}`), element('td', '', formatTime(cycle.startedAt, true)), element('td', '', statusLabel(cycle.status)));
       for (const field of ['inputTokens', 'outputTokens', 'totalTokens']) {
         const cell = element('td', 'numeric', number(cycle.usage?.[field]));
@@ -1294,7 +1309,9 @@ window.DashboardNavigation.register('journal', (view) => {
         row.append(cell);
       }
       const status = knownNumber(cycle.usage?.totalTokens) ? (cycle.usage?.status === 'partial' ? 'partial' : 'reported') : 'unavailable';
-      row.append(element('td', '', message(status)));
+      const health = element('td', '', message(usageRowFresh(cycle) ? status : 'usageRowStale'));
+      if (!usageRowFresh(cycle)) health.title = message('usageRowAsOf', { time: fullTime(cycle.partitions?.usage?.asOf) });
+      row.append(health);
       rows.append(row);
     }
   }
@@ -1538,8 +1555,7 @@ window.DashboardNavigation.register('journal', (view) => {
         }
         installCycleComponents(data, reset ? null : state.data);
         if (!reset) {
-          const ids = new Set(data.cycles.map(cycle => cycle.id));
-          data.cycles.push(...state.data.cycles.filter(cycle => !ids.has(cycle.id)));
+          retainHistoricalCycles(data, state.data);
         }
         if (state.mediaCache) { data.artifacts = state.mediaCache.artifacts; data.productMedia = state.mediaCache.productMedia; data.partitions.media = state.mediaCache.metadata; }
       } else if (state.data && Number.isFinite(Date.parse(data.generatedAt)) && Date.parse(data.generatedAt) < Date.parse(state.data.generatedAt)) throw new Error('Out-of-order journal snapshot');

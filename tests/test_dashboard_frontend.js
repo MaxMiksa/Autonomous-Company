@@ -382,7 +382,7 @@ function scopedUsageHarness() {
     fetchCenter = globalThis.request;
     render = renderRuntime = renderSidebar = refreshCenterContext = scheduleRefresh = connectionNotice = () => {};
     renderUsage = () => globalThis.recordUsage(state.scopedUsage);
-    globalThis.journal = { state, refresh, refreshScopedUsage, refreshMedia };
+    globalThis.journal = { state, refresh, refreshScopedUsage, refreshMedia, loadCycleDetail, projection, retainHistoricalCycles, usageRowFresh };
   });`, context);
   const snapshot = { ok: true, entryId: 'entry-a', sourceId: 'source-a', sourceRevision: 1, cycles: [], total: 0, generatedAt: '2026-10-01T00:00:00Z' };
   context.journal.state.data = snapshot;
@@ -448,6 +448,37 @@ test('v2 core advances while usage and media are pending or fail', async () => {
   assert.equal(h.state.data.currentCycleId, 'newer-cycle');
   assert.equal(h.state.scopedUsage.stale, true);
   assert.equal(h.state.data.partitions.media.status, 'unavailable');
+});
+
+test('late historical usage installs from detail while unread history remains explicitly stale', async () => {
+  const h = scopedUsageHarness();
+  const row = (id, tokens = 100, revision = 1) => ({ id, status: 'completed', protocolState: 'closed', activeAttemptId: null,
+    detailStatus: 'recorded', usage: { totalTokens: tokens, status: 'available' }, costUsd: tokens === 900 ? 8.5 : .5, costStatus: 'reported',
+    partitions: { usage: { revision, status: 'available', freshness: 'fresh', asOf: '2026-10-23T01:00:00Z' },
+      report: { errorCode: 'NOT_REQUESTED' }, documents: { errorCode: 'NOT_REQUESTED' }, events: { errorCode: 'NOT_REQUESTED' } } });
+  const recent = { ...h.snapshot, projectionVersion: 2, centerId: 'center', sourceBindingVersion: 1, projectionEpoch: 'epoch',
+    snapshotRevision: 1, currentCycleId: '22', cycles: Array.from({ length: 20 }, (_, i) => row(String(22 - i))), total: 22 };
+  h.projection.core(recent);
+  h.state.data = { ...recent, cycles: [...recent.cycles, row('2'), row('1')] };
+  const detail = { ...recent, ...row('1', 900, 2), cycles: undefined };
+  const pending = h.loadCycleDetail('1', true);
+  h.requests[0].resolve(detail); await pending;
+  assert.equal(h.state.data.cycles.at(-1).usage.totalTokens, 900);
+  assert.equal(h.state.data.cycles.at(-1).costUsd, 8.5);
+  assert.equal(h.usageRowFresh(h.state.data.cycles.at(-1)), true);
+  const refreshed = h.refresh(); h.requests[1].resolve(structuredClone(recent)); await refreshed;
+  const historical = h.state.data.cycles.find(cycle => cycle.id === '1');
+  assert.equal(h.state.data.cycles.length, 22);
+  assert.equal(historical.usage.totalTokens, 900);
+  assert.equal(h.usageRowFresh(historical), false);
+  assert.equal(historical.partitions.usage.freshness, 'stale');
+  // A late older detail must not replace the already installed accounting.
+  const delayed = h.loadCycleDetail('1', true);
+  h.requests.at(-1).resolve({ ...detail, ...row('1', 100, 1) }); await delayed;
+  const preserved = h.state.data.cycles.find(cycle => cycle.id === '1');
+  assert.equal(preserved.usage.totalTokens, 900);
+  assert.equal(preserved.costUsd, 8.5);
+  assert.equal(preserved.partitions.usage.errorCode, 'REVISION_CONFLICT');
 });
 
 for (const change of ['new request', 'selection']) {

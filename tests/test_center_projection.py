@@ -349,14 +349,76 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(second['sourceBindingVersion'], first['sourceBindingVersion'])
         self.assertEqual(second['snapshotRevision'], first['snapshotRevision'])
         self.assertGreater(second['cycles'][0]['partitions']['report']['revision'], first['cycles'][0]['partitions']['report']['revision'])
+        self.assertEqual(second['cycles'][0]['partitions']['usage']['revision'], first['cycles'][0]['partitions']['usage']['revision'])
         self.harness.record_usage(old, old_attempt['attemptId'], {'callId': 'late', 'coverage': 'unknown', 'cost': 1,
             'inputTokens': 2, 'outputTokens': 3, 'source': {'type': 'late'}})
         third = self.read()
         self.assertEqual(third['currentCycleId'], current)
         self.assertEqual(third['snapshotRevision'], second['snapshotRevision'])
+        self.assertEqual(third['cycles'][0]['partitions']['usage']['revision'], second['cycles'][0]['partitions']['usage']['revision'])
+        self.assertGreater(third['cycles'][1]['partitions']['usage']['revision'], second['cycles'][1]['partitions']['usage']['revision'])
+        self.assertEqual(third['cycles'][1]['partitions']['report']['revision'], second['cycles'][1]['partitions']['report']['revision'])
         usage = self.catalog.usage(self.entry, {'projectionVersion': '2'})
         self.assertEqual(usage['usage']['totalTokens'], 15)
         self.assertEqual(usage['costUsd'], 2)
+
+    def test_late_historical_usage_has_independent_row_version_without_expanding_recent(self):
+        created = [self.cycle(tokens=100) for _ in range(22)]
+        self.register()
+        recent = self.read(limit='20')
+        historical = self.read(limit='20', before=recent['nextBefore'])
+        self.assertEqual(len(recent['cycles']), 20)
+        self.assertEqual(len(historical['cycles']), 2)
+        old, attempt = created[0]
+        original = next(row for row in historical['cycles'] if row['id'] == old)
+        old_usage = original['partitions']['usage']
+        self.assertEqual(old_usage['target'], {'cycleId': old, 'attemptId': attempt['attemptId']})
+        self.assertEqual(old_usage['freshness'], 'fresh')
+        self.assertIsNotNone(old_usage['revision'])
+        self.assertIsNotNone(old_usage['asOf'])
+        self.assertEqual(historical['partitions']['usage']['errorCode'], 'NOT_REQUESTED')
+        self.harness.record_usage(old, attempt['attemptId'], {'callId': 'late-800', 'coverage': 'unknown',
+            'cost': 8, 'inputTokens': 799, 'outputTokens': 1, 'source': {'type': 'late'}})
+        following = self.read(limit='20')
+        self.assertEqual(following['currentCycleId'], recent['currentCycleId'])
+        self.assertEqual(following['snapshotRevision'], recent['snapshotRevision'])
+        self.assertNotIn(old, {row['id'] for row in following['cycles']})
+        self.assertEqual(following['partitions']['usage']['errorCode'], 'NOT_REQUESTED')
+        for current, previous in zip(following['cycles'], recent['cycles']):
+            self.assertEqual(current['partitions']['usage']['revision'], previous['partitions']['usage']['revision'])
+        detail = self.catalog.record(self.entry, old, query=self.query(recent))
+        self.assertEqual(detail['usage']['totalTokens'], 900)
+        self.assertEqual(detail['costUsd'], 8.5)
+        self.assertEqual(detail['costStatus'], 'partial')
+        self.assertGreater(detail['partitions']['usage']['revision'], old_usage['revision'])
+        self.assertEqual(detail['partitions']['usage']['target'], old_usage['target'])
+        self.assertEqual(detail['partitions']['usage']['freshness'], 'fresh')
+        self.assertNotEqual(detail['partitions']['usage']['asOf'], old_usage['asOf'])
+        self.assertEqual(detail['partitions']['report']['revision'], original['partitions']['report']['revision'])
+        self.assertEqual(self.catalog.usage(self.entry, {'projectionVersion': '2'})['usage']['totalTokens'], 3000)
+        # A fixed-range history reload observes new facts without changing membership.
+        reloaded = self.read(limit='20', before=recent['nextBefore'])
+        self.assertEqual([row['id'] for row in reloaded['cycles']], [row['id'] for row in historical['cycles']])
+        updated = next(row for row in reloaded['cycles'] if row['id'] == old)
+        self.assertEqual(updated['partitions']['usage']['revision'], detail['partitions']['usage']['revision'])
+        self.assertEqual(updated['usage']['totalTokens'], 900)
+
+    def test_legacy_row_usage_is_requested_independently_of_global_usage(self):
+        cycle = self.legacy()
+        self.register()
+        recent = self.read()
+        row = recent['cycles'][0]
+        partition = row['partitions']['usage']
+        self.assertEqual(partition['target'], {'cycleId': cycle, 'attemptId': 'legacy:' + cycle})
+        self.assertEqual(partition['status'], 'partial')
+        self.assertEqual(partition['freshness'], 'fresh')
+        self.assertIsNotNone(partition['revision'])
+        self.assertIsNone(partition['errorCode'])
+        self.assertIsNone(row['costUsd'])
+        self.assertEqual(recent['partitions']['usage']['errorCode'], 'NOT_REQUESTED')
+        detail = self.catalog.record(self.entry, cycle, query=self.query(recent))
+        self.assertEqual(detail['partitions']['usage']['revision'], partition['revision'])
+        self.assertEqual(detail['partitions']['usage']['target'], partition['target'])
 
     def test_usage_is_full_scope_and_mirrors_do_not_double_charge(self):
         self.cycle()
