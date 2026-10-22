@@ -174,6 +174,7 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt = "\n\n## Company Harness active contract\n" + json.dumps(cycle["contract"], ensure_ascii=False)
     prompt += "\nThis contract is one primary deliverable. Stay inside its scope. Use python3 /workspace/scripts/core/company_harness_client.py. "
     prompt += "Publish progress with --id and --payload JSON (reportRevision,title,summary,reportedPhase,blocker). "
+    prompt += 'Progress blocker is a string: use "" unless reportedPhase is blocked. '
     prompt += "Before exit, submit --id STABLE_ID --result completed|partial|blocked|failed --evidence RELATIVE_PATH (repeatable). "
     prompt += "Use --handoff RELATIVE_JSON_PATH for a file containing {nextContract:{objective,workKind,timeClass,scope,inputRefs,completionOrHandoff,prerequisiteRefs,reviewRequirement}}. "
     prompt += "Evidence is versioned by actual SHA256 bytes. Read receipts; fix rejected requests within the same deadline. "
@@ -198,6 +199,9 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
         prompt += "Reconcile existing work; never continue product development. Submit partial/blocked/failed, never completed. "
         prompt += "For partial, cite an existing business artifact as primary and write ONLY the nextContract envelope to /workspace/" + protocol_handoff_path(attempt_id)
         prompt += ". This attempt-only handoff.json is limited to 16 KiB and cannot be primary business evidence. Use --handoff for it; put transient client --payload JSON in logs if needed."
+    else:
+        prompt += "\nNORMAL EXECUTION: put transient --payload JSON in logs/ and the --handoff nextContract JSON in docs/ (for example docs/harness/next-contract.json). "
+        prompt += "Do not use .company-harness-protocol/ during normal execution; that collection route is reserved for recovery."
     write_fact(host_path(root, attempt_id + ".prompt.json"), {"prompt": prompt})
     return manifest
 
