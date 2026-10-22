@@ -373,6 +373,8 @@ class HarnessStore:
             except HarnessError as error:
                 receipt = {"status": "rejected", "action": action, "messageId": message_id,
                     "errorCode": error.code, "field": error.field, "receivedAt": self.utc_now()}
+                if error.code == "EVIDENCE_SCOPE" and error.detail:
+                    receipt["detail"] = error.detail
             tx.put("message", receipt_id, {"digest": digest, "receipt": receipt})
             return receipt
 

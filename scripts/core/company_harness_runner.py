@@ -221,7 +221,7 @@ def evidence_path(root, cycle, receipt, relative):
         return safe_path(Path(receipt["docsRoot"]), relative[5:])
     if relative == "memories/consensus.md" or (project and relative.startswith(project + "/")):
         return safe_path(root, relative)
-    raise HarnessError("EVIDENCE_SCOPE", "path")
+    raise HarnessError("EVIDENCE_SCOPE", "path", relative)
 
 
 def validate_recovery_submission(attempt, payload, read_protocol):

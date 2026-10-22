@@ -69,11 +69,11 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
         if action == "publish_progress":
             return self.client.publish_progress(request.get("id"), payload)
         if action == "submit":
-            from company_harness_runner import validate_recovery_submission
-            from company_harness_client import PROTOCOL_LIMIT
+            from company_harness_runner import evidence_path, validate_recovery_submission
+            from company_harness_client import PROTOCOL_LIMIT, protocol_handoff_path
             from isolation_workspace import regular_bytes
             with self.store._transaction() as tx:
-                self.store._context(tx, self.context, business=False)
+                cycle, _ = self.store._context(tx, self.context, business=False)
             def capture(attempt):
                 workspace = self.live_workspace()
                 def protocol(ref):
@@ -84,6 +84,12 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
                         raise HarnessError("PROTOCOL_MATERIAL_TOO_LARGE", "handoffRef")
                     return regular_bytes(candidate, PROTOCOL_LIMIT + 1)
                 validate_recovery_submission(attempt, payload, protocol)
+                view = workspace or self.store.root
+                receipt = {"attemptId": attempt["attemptId"], "docsRoot": str(view / "docs")}
+                if attempt["recoveryId"]:
+                    receipt["protocolRoot"] = str(view / Path(protocol_handoff_path(attempt["attemptId"])).parent)
+                for ref in payload.get("evidenceRefs", []):
+                    evidence_path(view, cycle, receipt, ref.get("path"))
                 return self.capture_versions(attempt, workspace)
             return self.store.submit_with_versions(self.context, request.get("id"), payload, capture)
         if action == "request_extension":

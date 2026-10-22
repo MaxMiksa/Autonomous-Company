@@ -75,6 +75,26 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(receipt['status'], 'accepted')
         self.assertEqual(restarted.snapshot()['cycles'][0]['submissions'][0]['acceptanceVersions'], {'projects': 'retried'})
 
+    def test_unsupported_evidence_path_is_rejected_before_ack_and_can_be_corrected_in_place(self):
+        content = b'reproducible review script'
+        ref = {'evidenceId': 'review-script', 'sha256': hashlib.sha256(content).hexdigest(),
+               'path': 'logs/recompute_pdf_review.py'}
+        payload = {'result': 'completed', 'unfinishedItems': [], 'evidenceRefs': [ref],
+                   'primaryEvidenceId': ref['evidenceId']}
+        with running_bridge(self.socket, self.store, self.context, 'bound-token'):
+            refused = self.call('submit', 'correct-path', payload)
+            self.assertEqual(refused['status'], 'rejected')
+            self.assertEqual(refused['errorCode'], 'EVIDENCE_SCOPE')
+            self.assertIn(ref['path'], json.dumps(refused))
+            self.assertEqual(self.call('submit', 'correct-path', payload), refused)
+            cycle = self.store.snapshot()['cycles'][0]
+            self.assertEqual(cycle['submissions'], [])
+            self.assertIsNone(cycle['attempts'][0]['acceptedSubmissionId'])
+            corrected = {**payload, 'evidenceRefs': [{**ref, 'path': 'docs/qa/recompute_pdf_review.py'}]}
+            accepted = self.call('submit', 'corrected-path', corrected)
+            self.assertEqual(accepted['status'], 'accepted')
+            self.assertEqual(self.call('submit', 'corrected-path', corrected), accepted)
+
     def test_checkpoint_transfers_bounded_readable_worker_material(self):
         content = "An actual checkpoint"
         ref = {"evidenceId": "cp-v1", "sha256": hashlib.sha256(content.encode()).hexdigest()}
