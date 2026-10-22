@@ -4,7 +4,6 @@ No provider is launched here. Dispatch, stops, governance and OS supervision
 remain owned by auto-loop. Durable usage intents replay accounting, never work.
 """
 import argparse
-import base64
 from datetime import datetime
 import hashlib
 import importlib.util
@@ -22,6 +21,7 @@ import tempfile
 import time
 
 from company_harness import HarnessError, HarnessStore
+from company_harness_inputs import load_inputs, write_inputs
 from company_harness_client import PROTOCOL_LIMIT, PROTOCOL_ROOT, protocol_handoff_path, validate_protocol_handoff
 from product_identity import atomic_write, cycle_projection, safe_path, update_cycle
 from usage_lib import append_cycle_record, begin_cycle, build_cycle_record, check_budget, load_budget_config
@@ -119,9 +119,20 @@ def begin_attempt(store, root, cycle_id):
     if os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access") != "danger-full-access":
         raise HarnessError("UNSUPPORTED_INNER_SANDBOX", "CODEX_SANDBOX_MODE", "Harness v1 preserves explicit stricter modes and refuses unsupported nested sandbox execution")
     limits, cycle = policy(), row(store, cycle_id)
+    materials = load_inputs(store, cycle['contract'])
+    directory = Path(tempfile.mkdtemp(prefix='ac-harness-'))
+    try:
+        write_inputs(materials, directory / 'inputs')
+        return begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory)
+    except BaseException:
+        shutil.rmtree(directory)
+        raise
+
+
+def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     config = load_budget_config(os.environ)
     ledger, pause = root / "logs/usage.jsonl", root / ".auto-loop-budget-paused"
-    check_budget(ledger, budget_config=config, pause_path=pause, target_date=datetime.now().date())
+    check_budget(ledger, budget_config=config, pause_path=pause, target_date=datetime.now().date(), consume_resume=False)
     if pause.exists():
         raise HarnessError("BUDGET_PAUSED")
     recovery = cycle["recoveries"][0] if cycle["recoveries"] else None
@@ -134,35 +145,20 @@ def begin_attempt(store, root, cycle_id):
             recovery = store.begin_recovery(cycle_id, "recovery-" + cycle_id, budget_seconds=limits["RECOVERY_SECONDS"], reason="Protocol correction budget exhausted")
     if recovery and sum(a["recoveryId"] is not None for a in cycle["attempts"]) >= limits["RECOVERY_ATTEMPTS"]:
         raise HarnessError("RECOVERY_EXHAUSTED")
+    timer = recovery['timer'] if recovery else cycle['budgetTimer']
+    consumed, reliable = store._elapsed(timer)
+    seconds = math.floor(timer['limitSeconds'] - consumed)
+    if reliable != 'reliable' or seconds < 1:
+        raise HarnessError('BUDGET_EXHAUSTED')
+    owner = ownership(root)
     attempt_id = "attempt-" + secrets.token_hex(16)
-    attempt = store.begin_attempt(cycle_id, attempt_id, ownership(root), recovery_id=recovery["recoveryId"] if recovery else None,
+    check_budget(ledger, budget_config=config, pause_path=pause, target_date=datetime.now().date())
+    if pause.exists():
+        raise HarnessError('BUDGET_PAUSED')
+    attempt = store.begin_attempt(cycle_id, attempt_id, owner, recovery_id=recovery["recoveryId"] if recovery else None,
         log_refs=[{"log": f"logs/{attempt_id}.log", "events": f"logs/{attempt_id}.events.jsonl", "metadata": f"logs/{attempt_id}.json"}])
     cycle = row(store, cycle_id)
-    timer = cycle["recoveries"][0]["timer"] if recovery else cycle["budgetTimer"]
-    consumed, reliable = store._elapsed(timer)
-    seconds = math.floor(timer["limitSeconds"] - consumed)
-    if reliable != "reliable" or seconds < 1:
-        raise HarnessError("BUDGET_EXHAUSTED")
-    directory = Path(tempfile.mkdtemp(prefix="ac-harness-"))
     inputs = directory / "inputs"
-    inputs.mkdir()
-    index, total_bytes, seen = [], 0, set()
-    for ref in cycle["contract"].get("inputRefs", []) + cycle["contract"].get("prerequisiteRefs", []):
-        if ref["evidenceId"] in seen:
-            continue
-        seen.add(ref["evidenceId"])
-        evidence = store.read_evidence(ref["evidenceId"])
-        if not evidence or evidence["sha256"] != ref["sha256"]:
-            raise HarnessError("EVIDENCE_MISSING", "inputRefs")
-        data = base64.b64decode(evidence["content"], validate=True) if evidence.get("contentEncoding") == "base64" else evidence["content"].encode("utf-8")
-        total_bytes += len(data)
-        if len(index) >= 16 or total_bytes > 8 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != ref["sha256"]:
-            raise HarnessError("INPUT_PACKAGE_INVALID", "inputRefs")
-        extension = mimetypes.guess_extension(evidence["mediaType"]) or ".bin"
-        name = str(len(index)) + "-" + ref["sha256"] + extension
-        (inputs / name).write_bytes(data)
-        index.append({"evidenceId": ref["evidenceId"], "sha256": ref["sha256"], "mediaType": evidence["mediaType"], "file": name})
-    (inputs / "index.json").write_text(json.dumps(index, ensure_ascii=False))
     manifest = {"root": str(root), "context": attempt["context"], "token": secrets.token_hex(32),
         "socket": str(directory / "h.sock"), "ready": str(directory / "ready"), "temporary": str(directory),
         "collectRelative": ".autonomous-company/harness/" + attempt_id + ".collect.json",
@@ -401,10 +397,8 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
             from isolation_workspace import regular_bytes
             validate_recovery_submission(attempt, submission["payload"], lambda ref:
                 regular_bytes(evidence_path(root, cycle, collected, ref.get("path")), PROTOCOL_LIMIT + 1))
-            acceptance_path = host_path(root, attempt_id + ".acceptance.json")
-            acceptance = read_fact(acceptance_path) if acceptance_path.exists() else None
-            if (not acceptance or acceptance["submissionId"] != submission["submissionId"]
-                    or not acceptance.get("versions") or acceptance["versions"] != collected.get("versions")):
+            acceptance = submission.get("acceptanceVersions")
+            if not acceptance or acceptance != collected.get("versions"):
                 raise HarnessError("POST_SUBMISSION_CHANGE", "versions")
             refs = capture_evidence(store, root, cycle, attempt, collected, submission)
             valid = True

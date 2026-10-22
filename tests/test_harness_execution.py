@@ -56,6 +56,25 @@ class BridgeTests(unittest.TestCase):
             self.assertEqual(self.call("submit", "stable", {"result": "failed", "unfinishedItems": []}), first)
             self.assertEqual(self.call("submit", "stable", {"result": "blocked", "unfinishedItems": []})["errorCode"], "ID_CONFLICT")
 
+    def test_acceptance_baseline_and_receipt_rollback_together_on_database_write_failure(self):
+        import company_harness
+        payload = {"result": "failed", "unfinishedItems": []}
+        original = company_harness._Transaction.put
+        def fail_receipt(tx, kind, identity, value):
+            if kind == 'message' and value['receipt']['action'] == 'submit':
+                raise OSError('injected receipt persistence failure')
+            return original(tx, kind, identity, value)
+        with patch.object(company_harness._Transaction, 'put', fail_receipt):
+            with self.assertRaisesRegex(OSError, 'receipt persistence'):
+                self.store.submit_with_versions(self.context, 'atomic', payload, lambda _: {'projects': 'first'})
+        restarted = HarnessStore(self.root, create=True)
+        cycle = restarted.snapshot()['cycles'][0]
+        self.assertEqual(cycle['submissions'], [])
+        self.assertIsNone(cycle['attempts'][0]['acceptedSubmissionId'])
+        receipt = restarted.submit_with_versions(self.context, 'atomic', payload, lambda _: {'projects': 'retried'})
+        self.assertEqual(receipt['status'], 'accepted')
+        self.assertEqual(restarted.snapshot()['cycles'][0]['submissions'][0]['acceptanceVersions'], {'projects': 'retried'})
+
     def test_checkpoint_transfers_bounded_readable_worker_material(self):
         content = "An actual checkpoint"
         ref = {"evidenceId": "cp-v1", "sha256": hashlib.sha256(content.encode()).hexdigest()}
@@ -88,6 +107,75 @@ class RunnerTests(unittest.TestCase):
         self.identity = reserve_cycle(self.root, "", "reserved-once", 1)
         self.cycle_id = self.identity["cycleId"]
         runner.prepare(self.store, self.root, self.cycle_id)
+
+    def input_contract(self, count, size=1):
+        refs = []
+        for number in range(count):
+            ref = self.store.bind_evidence(self.cycle_id, 'input-' + str(size) + '-' + str(number), bytes([number]) * size,
+                                          media_type='application/octet-stream')
+            refs.append({key: ref[key] for key in ('evidenceId', 'sha256')})
+        with self.store._transaction() as tx:
+            cycle = self.store._cycle(tx, self.cycle_id)
+            cycle['contract'].update(inputRefs=refs, prerequisiteRefs=refs)
+            self.store._save_cycle(tx, cycle)
+        return refs
+
+    def test_invalid_input_packages_do_not_create_dispatch_intent_or_consume_budget_ack(self):
+        from usage_lib import append_cycle_record, build_cycle_record, load_budget_config, resume_budget
+        with patch.dict(os.environ, {'USAGE_HARD_LIMIT_TOKENS': '10'}):
+            pause = self.root / '.auto-loop-budget-paused'
+            record = build_cycle_record(cycle_id='prior-usage', cycle_number=1, started_at=runner.now(), ended_at=runner.now(),
+                status='completed', exit_code=0, engine='codex', model='fixture', metadata_raw='{"input_tokens":10,"output_tokens":4}')
+            append_cycle_record(self.root / 'logs/usage.jsonl', record, budget_config=load_budget_config(os.environ), pause_path=pause)
+            self.assertTrue(resume_budget(pause))
+            acknowledgement = pause.with_name(pause.name + '.resume')
+            original_ack = acknowledgement.read_bytes()
+            for count, size in ((17, 1), (9, 1024 * 1024)):
+                with self.subTest(count=count, size=size):
+                    self.input_contract(count, size)
+                    before = self.store.snapshot()
+                    with patch.object(runner.tempfile, 'mkdtemp', side_effect=AssertionError('validation must precede temp creation')):
+                        with self.assertRaisesRegex(HarnessError, 'INPUT_PACKAGE_INVALID'):
+                            runner.begin_attempt(self.store, self.root, self.cycle_id)
+                    after = self.store.snapshot()
+                    self.assertEqual(after['snapshotRevision'], before['snapshotRevision'])
+                    self.assertEqual(after['cycles'][0]['attempts'], [])
+                    self.assertIsNone(after['cycles'][0]['activeAttemptId'])
+                    self.assertIsNone(after['cycles'][0]['startedAt'])
+                    self.assertFalse((self.root / 'logs/usage.jsonl.pending').exists())
+                    self.assertEqual(acknowledgement.read_bytes(), original_ack)
+                    self.assertEqual(list((self.root / '.autonomous-company').glob('harness/attempt-*.json')), [])
+
+    def test_input_materialization_failure_cleans_temp_before_dispatch_intent(self):
+        self.input_contract(1)
+        created, original = [], runner.tempfile.mkdtemp
+        def owned_directory(**kwargs):
+            path = original(**kwargs)
+            created.append(Path(path))
+            return path
+        def fail_materialization(materials, directory):
+            directory.mkdir()
+            (directory / 'partial').write_bytes(b'partial package')
+            raise OSError('injected package write failure')
+        before = self.store.snapshot()['snapshotRevision']
+        with patch.object(runner.tempfile, 'mkdtemp', side_effect=owned_directory), patch.object(runner, 'write_inputs', side_effect=fail_materialization):
+            with self.assertRaisesRegex(OSError, 'package write failure'):
+                runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.assertEqual(len(created), 1)
+        self.assertFalse(created[0].exists())
+        self.assertEqual(self.store.snapshot()['snapshotRevision'], before)
+        self.assertIsNone(self.store.snapshot()['cycles'][0]['activeAttemptId'])
+        self.assertFalse((self.root / 'logs/usage.jsonl.pending').exists())
+
+    def test_boundary_input_package_repeated_refs_materialize_once_before_attempt(self):
+        self.input_contract(16)
+        manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, manifest['temporary'], ignore_errors=True)
+        inputs = Path(manifest['inputsDirectory'])
+        index = json.loads((inputs / 'index.json').read_text())
+        self.assertEqual(len(index), 16)
+        self.assertEqual(len(list(inputs.iterdir())), 17)
+        self.assertEqual(self.store.snapshot()['cycles'][0]['activeAttemptId'], manifest['context']['attemptId'])
 
     def test_formal_identity_not_reserved_again_for_correction(self):
         first = runner.begin_attempt(self.store, self.root, self.cycle_id)
@@ -175,7 +263,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(len(after["cycles"][0]["attempts"]), 1)
         self.assertTrue((self.root / "logs/usage.jsonl.pending").exists())
 
-    def stopped_material(self, result="completed", with_handoff=False):
+    def stopped_material(self, result="completed", with_handoff=False, handoff_inputs=None):
         manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
         self.addCleanup(shutil.rmtree, manifest["temporary"], ignore_errors=True)
         attempt_id = manifest["context"]["attemptId"]
@@ -187,15 +275,14 @@ class RunnerTests(unittest.TestCase):
         payload = {"result": result, "unfinishedItems": [], "evidenceRefs": [ref]}
         if with_handoff:
             plan = json.dumps({"nextContract": {"objective": "Continue one bounded research result", "workKind": "research",
-                "scope": ["the unfinished research question"], "inputRefs": [ref], "prerequisiteRefs": [],
+                "scope": ["the unfinished research question"], "inputRefs": handoff_inputs if handoff_inputs is not None else [ref], "prerequisiteRefs": [],
                 "completionOrHandoff": "research note", "timeClass": "regular"}})
             (docs / "handoff.json").write_text(plan)
             handoff = {"evidenceId": "handoff-v1", "sha256": hashlib.sha256(plan.encode()).hexdigest(), "path": "docs/handoff.json"}
             payload.update(handoffRef=handoff, primaryEvidenceId=ref["evidenceId"])
             payload["evidenceRefs"].append(handoff)
-        self.store.submit(manifest["context"], "accepted", payload)
         versions = {"projects": "p", "docs": "d", "memories": "m"}
-        runner.write_fact(runner.host_path(self.root, attempt_id + ".acceptance.json"), {"submissionId": "accepted", "versions": versions})
+        self.store.submit_with_versions(manifest["context"], "accepted", payload, lambda _: versions)
         runner.write_fact(runner.host_path(self.root, attempt_id + ".collect.json"), {**{key: manifest["context"][key] for key in ("cycleId", "attemptId", "generation")},
             "collected": True, "docsRoot": str(docs), "versions": versions})
         metadata = {"exit_code": 0, "status": "success", "input_tokens": 10, "output_tokens": 4}
@@ -239,6 +326,69 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result["action"], "retry")
         self.assertIn("POST_SUBMISSION_CHANGE", result["error"])
         self.assertEqual(len(self.store.snapshot()["cycles"]), 1)
+
+    def test_oversized_next_contract_returns_same_cycle_correction_before_close(self):
+        refs = []
+        for number in range(17):
+            evidence = self.store.bind_evidence(self.cycle_id, 'next-input-' + str(number), 'Closed input ' + str(number))
+            refs.append({key: evidence[key] for key in ('evidenceId', 'sha256')})
+        manifest, metadata = self.stopped_material(with_handoff=True, handoff_inputs=refs)
+        result = runner.finish_attempt(self.store, self.root, manifest['context']['attemptId'], metadata,
+            {'cleanupFailed': False, 'supervisorOwner': 'verified-tree'})
+        self.assertEqual(result['action'], 'retry')
+        self.assertFalse(result['validSubmission'])
+        self.assertIn('INPUT_PACKAGE_INVALID', result['error'])
+        cycle = self.store.snapshot()['cycles'][0]
+        self.assertNotEqual(cycle['protocolState'], 'closed')
+        self.assertIsNone(cycle['activeAttemptId'])
+        self.assertTrue(cycle['attempts'][0]['writersStopped'])
+
+    def test_lost_ack_retry_keeps_first_atomic_baseline_and_detects_unlisted_business_write(self):
+        from isolation_workspace import fingerprint
+        manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, manifest['temporary'], ignore_errors=True)
+        attempt_id = manifest['context']['attemptId']
+        workspace = self.root / 'live-view'
+        for name in ('projects', 'docs', 'memories'):
+            (workspace / name).mkdir(parents=True)
+        artifact = workspace / 'docs/result.txt'
+        artifact.write_text('The declared primary evidence')
+        extra = workspace / 'projects/unlisted-business.txt'
+        extra.write_text('Before durable submit')
+        payload = {'result': 'completed', 'unfinishedItems': [], 'evidenceRefs': [{
+            'evidenceId': 'primary-version', 'path': 'docs/result.txt', 'sha256': hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
+        with running_bridge(manifest['socket'], self.store, manifest['context'], manifest['token']) as server:
+            original = server.dispatch
+            def lose_ack(value):
+                original(value)
+                raise OSError('injected post-commit acknowledgement write failure')
+            with patch.object(server, 'live_workspace', return_value=workspace), patch.object(server, 'dispatch', side_effect=lose_ack):
+                first = request('submit', 'stable', payload, socket_path=manifest['socket'], token=manifest['token'])
+            self.assertEqual(first['errorCode'], 'INVALID_REQUEST')
+            accepted = self.store.snapshot()['cycles'][0]['submissions'][0]
+            baseline = accepted['acceptanceVersions']
+            self.assertEqual(baseline['projects'], fingerprint(workspace / 'projects'))
+            extra.write_text('After durable submit, outside declared evidence')
+            with patch.object(server, 'capture_versions', side_effect=AssertionError('replay must never resample')):
+                retry = request('submit', 'stable', payload, socket_path=manifest['socket'], token=manifest['token'])
+                conflict = request('submit', 'stable', {**payload, 'result': 'partial'}, socket_path=manifest['socket'], token=manifest['token'])
+            self.assertEqual(retry['status'], 'accepted')
+            self.assertEqual(conflict['errorCode'], 'ID_CONFLICT')
+        restarted = HarnessStore(self.root, create=True)
+        self.assertEqual(restarted.snapshot()['cycles'][0]['submissions'][0]['acceptanceVersions'], baseline)
+        versions = {name: fingerprint(workspace / name) for name in ('projects', 'docs', 'memories')}
+        # An obsolete or forged sidecar cannot replace the transaction's first baseline.
+        runner.write_fact(runner.host_path(self.root, attempt_id + '.acceptance.json'), {'submissionId': 'stable', 'versions': versions})
+        runner.write_fact(runner.host_path(self.root, attempt_id + '.collect.json'), {
+            **{key: manifest['context'][key] for key in ('cycleId', 'attemptId', 'generation')},
+            'collected': True, 'docsRoot': str(workspace / 'docs'), 'versions': versions})
+        result = runner.finish_attempt(restarted, self.root, attempt_id, {'exit_code': 0, 'status': 'success'},
+            {'cleanupFailed': False, 'supervisorOwner': 'owned-tree'})
+        self.assertTrue(result['actualSuccess'])
+        self.assertFalse(result['validSubmission'])
+        self.assertIn('POST_SUBMISSION_CHANGE', result['error'])
+        closed = runner.close_cycle(restarted, self.root, self.cycle_id, True)
+        self.assertEqual(closed['outcome'], 'failed')
 
     def test_finish_receipt_repairs_missing_cycle_result_after_second_write_crash(self):
         manifest, metadata = self.stopped_material()

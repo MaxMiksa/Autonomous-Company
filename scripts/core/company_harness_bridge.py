@@ -12,7 +12,7 @@ import socketserver
 import threading
 
 from company_harness import HarnessError, HarnessStore
-from product_identity import atomic_write, safe_path
+from product_identity import safe_path
 
 MAX_REQUEST = 64 * 1024
 
@@ -73,23 +73,19 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             from company_harness_client import PROTOCOL_LIMIT
             from isolation_workspace import regular_bytes
             with self.store._transaction() as tx:
-                cycle, attempt = self.store._context(tx, self.context, business=False)
-            workspace = self.live_workspace()
-            def protocol(ref):
-                if workspace is None:
-                    raise HarnessError("COLLECTION_UNCONFIRMED")
-                candidate = safe_path(workspace, ref["path"])
-                if candidate.stat().st_size > PROTOCOL_LIMIT:
-                    raise HarnessError("PROTOCOL_MATERIAL_TOO_LARGE", "handoffRef")
-                return regular_bytes(candidate, PROTOCOL_LIMIT + 1)
-            validate_recovery_submission(attempt, payload, protocol)
-            snapshot = self.capture_versions()
-            receipt = self.client.submit(request.get("id"), payload)
-            if receipt.get("status") == "accepted" and snapshot:
-                proof_path = safe_path(self.store.root, ".autonomous-company/harness/" + self.context["attemptId"] + ".acceptance.json")
-                if not proof_path.exists():
-                    atomic_write(proof_path, {"submissionId": request.get("id"), "versions": snapshot})
-            return receipt
+                self.store._context(tx, self.context, business=False)
+            def capture(attempt):
+                workspace = self.live_workspace()
+                def protocol(ref):
+                    if workspace is None:
+                        raise HarnessError("COLLECTION_UNCONFIRMED")
+                    candidate = safe_path(workspace, ref["path"])
+                    if candidate.stat().st_size > PROTOCOL_LIMIT:
+                        raise HarnessError("PROTOCOL_MATERIAL_TOO_LARGE", "handoffRef")
+                    return regular_bytes(candidate, PROTOCOL_LIMIT + 1)
+                validate_recovery_submission(attempt, payload, protocol)
+                return self.capture_versions(attempt, workspace)
+            return self.store.submit_with_versions(self.context, request.get("id"), payload, capture)
         if action == "request_extension":
             if set(payload) != {"reason", "remainingSeconds"}:
                 raise HarnessError("INVALID_REQUEST", "payload")
@@ -130,14 +126,11 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             raise HarnessError("OWNER_MISMATCH", "isolatedView")
         return Path(record["view"]) / "workspace"
 
-    def capture_versions(self):
+    def capture_versions(self, attempt, workspace):
         from isolation_workspace import fingerprint, protocol_version
-        workspace = self.live_workspace()
         if workspace is None:
             return None
         versions = {name: fingerprint(workspace / name) for name in ("projects", "docs", "memories")}
-        cycle = self.store.snapshot()["cycles"]
-        attempt = next(a for c in cycle for a in c["attempts"] if a["attemptId"] == self.context["attemptId"])
         if attempt["recoveryId"]:
             try:
                 versions["protocol"] = protocol_version(workspace, self.context["attemptId"])

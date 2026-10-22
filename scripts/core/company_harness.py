@@ -309,7 +309,7 @@ class HarnessStore:
             self._save_cycle(tx, cycle)
             return attempt
 
-    def _model_message(self, context, action, message_id, payload):
+    def _model_message(self, context, action, message_id, payload, *, capture_acceptance=None):
         with self._transaction() as tx:
             receipt_id, digest, previous = self._replay(tx, context, action, message_id, payload)
             if previous:
@@ -356,8 +356,12 @@ class HarnessStore:
                     self._verify_refs(tx, cycle, payload.get("evidenceRefs", []), allow_pending=True)
                     if payload["result"] in {"completed", "partial"} and not payload.get("evidenceRefs"):
                         raise HarnessError("EVIDENCE_MISSING", "evidenceRefs")
+                    # The host baseline and accepted receipt commit together.
+                    # Replays return above before observing the workspace again.
+                    acceptance = capture_acceptance(attempt) if capture_acceptance is not None else None
                     attempt["acceptedSubmissionId"] = message_id
-                    cycle["submissions"].append({"submissionId": message_id, "attemptId": attempt["attemptId"], "payload": payload, "acceptedAt": self.utc_now()})
+                    cycle["submissions"].append({"submissionId": message_id, "attemptId": attempt["attemptId"], "payload": payload,
+                        "acceptedAt": self.utc_now(), "acceptanceVersions": acceptance})
                     cycle["protocolState"] = "submitted"
                 else:
                     raise HarnessError("UNKNOWN_ACTION")
@@ -383,6 +387,10 @@ class HarnessStore:
 
     def submit(self, context, submission_id, payload):
         return self._model_message(context, "submit", submission_id, payload)
+
+    def submit_with_versions(self, context, submission_id, payload, capture_versions):
+        """Host-only reception; capture runs once inside the acceptance transaction."""
+        return self._model_message(context, "submit", submission_id, payload, capture_acceptance=capture_versions)
 
     def bind_evidence(self, cycle_id, evidence_id, content, *, media_type="text/plain", source=None):
         """Host collector supplies readable immutable key material, never a path hash."""

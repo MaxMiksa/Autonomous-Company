@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from company_harness import HarnessError
+from company_harness_inputs import load_inputs
 
 
 ARTIFACTS = {
@@ -120,6 +121,7 @@ def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_q
     prerequisites = [_ref(ref) for ref in proposal.get('prerequisiteRefs', [])]
     for ref in inputs + prerequisites:
         _evidence(store, ref, cycles)
+    load_inputs(store, {'inputRefs': inputs, 'prerequisiteRefs': prerequisites})
     heads = {}
     for cycle in cycles:
         if cycle.get('outcome') != 'completed':
@@ -139,13 +141,14 @@ def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_q
         head = heads.get(artifact_kind)
         if not head or head not in inputs:
             raise HarnessError('PREREQUISITE_MISSING', artifact_kind)
-        passed = any(
-            record.get('artifactKind') == artifact_kind and record.get('targetRef') == head
-            and record.get('verdict') == 'passed' and kind in record.get('workKinds', [])
-            and any(_ref(ref) in prerequisites for ref in record.get('reviewEvidenceRefs', []))
+        applicable = [record
             for cycle in cycles if cycle.get('outcome') == 'completed'
-            for record in cycle.get('qualityApplicability', []))
-        if not passed:
+            for record in cycle.get('qualityApplicability', [])
+            if record.get('artifactKind') == artifact_kind and record.get('targetRef') == head
+            and kind in record.get('workKinds', [])]
+        current = applicable[-1] if applicable else {}
+        if current.get('verdict') != 'passed' or not any(
+                _ref(ref) in prerequisites for ref in current.get('reviewEvidenceRefs', [])):
             raise HarnessError('REVIEW_REQUIRED', artifact_kind)
     if kind == 'review' and not inputs:
         raise HarnessError('EVIDENCE_MISSING', 'inputRefs')

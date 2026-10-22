@@ -1,5 +1,7 @@
 """Quality bindings and dispatch prerequisites, without invoking a model."""
 import copy
+import base64
+import hashlib
 from pathlib import Path
 import sys
 import unittest
@@ -20,7 +22,8 @@ class MemoryEvidence:
         return copy.deepcopy(self.evidence.get(identity))
 
     def artifact(self, identity, kind, *, product='p', exploration=None):
-        ref = {'evidenceId': identity + '-doc', 'sha256': identity[0] * 64}
+        content = 'Actual material ' + identity
+        ref = {'evidenceId': identity + '-doc', 'sha256': hashlib.sha256(content.encode()).hexdigest()}
         attempt = identity + '-author'
         submission = {'submissionId': identity + '-submit', 'attemptId': attempt,
                       'payload': {'result': 'completed', 'evidenceRefs': [ref]}}
@@ -31,7 +34,7 @@ class MemoryEvidence:
                  'submissions': [submission], 'qualityApplicability': []}
         self.cycles.append(cycle)
         self.evidence[ref['evidenceId']] = {**ref, 'cycleId': identity,
-                                           'source': {'attemptId': attempt}, 'content': 'Actual material'}
+                                           'source': {'attemptId': attempt}, 'content': content, 'mediaType': 'text/plain'}
         return ref, cycle, submission
 
     def reviewed(self, target, allowed, *, verdict='passed'):
@@ -51,6 +54,46 @@ class QualityTests(unittest.TestCase):
         return {'objective': 'One outcome', 'workKind': kind, 'scope': ['one task'],
                 'completionOrHandoff': 'Readable outcome', 'inputRefs': inputs or [],
                 'prerequisiteRefs': prereqs or [], **kwargs}
+
+    def package_refs(self, count, size=20):
+        refs = []
+        for number in range(count):
+            ref, _, _ = self.store.artifact('input-' + str(number), 'research')
+            data = bytes([number]) * size
+            ref['sha256'] = hashlib.sha256(data).hexdigest()
+            self.store.evidence[ref['evidenceId']].update(sha256=ref['sha256'], content=base64.b64encode(data).decode(),
+                                                       contentEncoding='base64', mediaType='application/octet-stream')
+            refs.append(ref)
+        return refs
+
+    def test_input_package_capacity_is_rejected_at_contract_admission(self):
+        for count, size in ((17, 1), (9, 1024 * 1024)):
+            with self.subTest(count=count, size=size):
+                self.store = MemoryEvidence()
+                refs = self.package_refs(count, size)
+                with self.assertRaisesRegex(HarnessError, 'INPUT_PACKAGE_INVALID'):
+                    prepare_contract(self.store, self.proposal('review', refs), {'productId': 'p'})
+
+    def test_input_package_exact_limits_deduplicate_both_reference_arrays(self):
+        for count, size in ((16, 1), (8, 1024 * 1024)):
+            with self.subTest(count=count, size=size):
+                self.store = MemoryEvidence()
+                refs = self.package_refs(count, size)
+                contract = prepare_contract(self.store, self.proposal('review', refs + refs, refs), {'productId': 'p'})
+                self.assertEqual(contract['inputRefs'], refs + refs)
+
+    def test_input_package_rejects_invalid_decoding_and_actual_byte_hash(self):
+        refs = self.package_refs(1)
+        evidence = self.store.evidence[refs[0]['evidenceId']]
+        for update in ({'content': 'not base64!'}, {'content': base64.b64encode(b'other bytes').decode()},
+                       {'contentEncoding': 'unknown'}):
+            with self.subTest(update=update):
+                original = copy.deepcopy(evidence)
+                evidence.update(update)
+                with self.assertRaisesRegex(HarnessError, 'INPUT_PACKAGE_INVALID'):
+                    prepare_contract(self.store, self.proposal('review', refs), {'productId': 'p'})
+                evidence.clear()
+                evidence.update(original)
 
     def test_definition_requires_real_direction_and_independent_review(self):
         with self.assertRaisesRegex(HarnessError, 'PREREQUISITE_MISSING'):
@@ -167,6 +210,32 @@ class QualityTests(unittest.TestCase):
         cycle['report'] = {'reportedPhase': 'review'}
         with self.assertRaisesRegex(HarnessError, 'REVIEW_REQUIRED'):
             prepare_contract(self.store, self.proposal('visual_exploration', [definition], [review]), {'productId': 'p'})
+
+    def test_latest_blocking_review_supersedes_prior_pass_for_same_version(self):
+        definition, _, _ = self.store.artifact('d1', 'definition')
+        passed, _ = self.store.reviewed(definition, ['visual_exploration'])
+        _, blocked = self.store.reviewed(definition, ['visual_exploration'], verdict='changes_required')
+        blocked['submissions'][0]['payload']['review']['issues'] = [{'blocking': True, 'message': 'Core journey missing'}]
+        blocked['qualityApplicability'] = close_review(self.store, blocked, blocked['submissions'][0])
+        with self.assertRaisesRegex(HarnessError, 'REVIEW_REQUIRED'):
+            prepare_contract(self.store, self.proposal('visual_exploration', [definition], [passed]), {'productId': 'p'})
+
+    def test_later_independent_pass_can_resolve_block_but_needs_current_reference(self):
+        definition, _, _ = self.store.artifact('d1', 'definition')
+        old, _ = self.store.reviewed(definition, ['visual_exploration'])
+        self.store.reviewed(definition, ['visual_exploration'], verdict='changes_required')
+        current, _ = self.store.reviewed(definition, ['visual_exploration'])
+        with self.assertRaisesRegex(HarnessError, 'REVIEW_REQUIRED'):
+            prepare_contract(self.store, self.proposal('visual_exploration', [definition], [old]), {'productId': 'p'})
+        value = prepare_contract(self.store, self.proposal('visual_exploration', [definition], [current]), {'productId': 'p'})
+        self.assertEqual(value['workKind'], 'visual_exploration')
+
+    def test_later_review_for_other_work_kind_does_not_revoke_current_scope(self):
+        definition, _, _ = self.store.artifact('d1', 'definition')
+        passed, _ = self.store.reviewed(definition, ['visual_exploration'])
+        self.store.reviewed(definition, ['implementation'], verdict='changes_required')
+        value = prepare_contract(self.store, self.proposal('visual_exploration', [definition], [passed]), {'productId': 'p'})
+        self.assertEqual(value['workKind'], 'visual_exploration')
 
 
 if __name__ == '__main__':
