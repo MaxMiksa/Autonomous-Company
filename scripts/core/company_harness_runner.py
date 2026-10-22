@@ -24,6 +24,7 @@ import time
 from company_harness import HarnessError, HarnessStore
 from company_harness_inputs import load_inputs, write_inputs
 from company_harness_client import PROTOCOL_LIMIT, PROTOCOL_ROOT, protocol_handoff_path, validate_protocol_handoff
+from cycle_reports import PHASES
 from product_identity import atomic_write, cycle_projection, read_state, safe_path, update_cycle
 from usage_lib import append_cycle_record, begin_cycle, build_cycle_record, check_budget, load_budget_config
 
@@ -173,7 +174,9 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     begin_cycle(ledger, record)
     prompt = "\n\n## Company Harness active contract\n" + json.dumps(cycle["contract"], ensure_ascii=False)
     prompt += "\nThis contract is one primary deliverable. Stay inside its scope. Use python3 /workspace/scripts/core/company_harness_client.py. "
-    prompt += "Publish progress with --id and --payload JSON (reportRevision,title,summary,reportedPhase,blocker). "
+    prompt += "For every action, --payload is a PATH to a UTF-8 JSON FILE, never an inline JSON string. "
+    prompt += "Publish progress with --id and --payload FILE (reportRevision,title,summary,reportedPhase,blocker). "
+    prompt += "reportedPhase must be one of " + ", ".join(PHASES) + "; it is distinct from workKind. "
     prompt += 'Progress blocker is a string: use "" unless reportedPhase is blocked. '
     prompt += "Before exit, submit --id STABLE_ID --result completed|partial|blocked|failed --evidence RELATIVE_PATH (repeatable). "
     prompt += "Use --handoff RELATIVE_JSON_PATH for a file containing {nextContract:{objective,workKind,timeClass,scope,inputRefs,completionOrHandoff,prerequisiteRefs,reviewRequirement}}. "
