@@ -3,7 +3,7 @@ window.JOURNAL_MESSAGES = {
   "zh-CN": {
     "contractTask": "任务：{task}", "harnessTiming": "执行 {execution} 秒 · 恢复 {recovery} 秒 · 总计 {total} 秒",
     "checksUnavailable": "检查记录暂时无法读取，结果待确认",
-    "executionCoverage": "{count} 次执行中 {known} 次有用量记录",
+    "executionCoverage": "{count} 次执行尝试中 {known} 次有用量记录",
     "usageIdentityUnknown": "引擎或模型待确认",
     "loadHistory": "加载更早记录", "loadingHistory": "正在读取历史…", "historyReadFailed": "历史读取失败，点击重试",
     "attemptNumber": "第 {number} 次执行", "partitionStale": "上次记录，待更新", "partitionUnavailable": "此部分暂时无法读取",
@@ -403,7 +403,7 @@ window.JOURNAL_MESSAGES = {
   "en": {
     "contractTask": "Task: {task}", "harnessTiming": "Execution {execution}s · Recovery {recovery}s · Total {total}s",
     "checksUnavailable": "Check records unavailable; result unconfirmed",
-    "executionCoverage": "{known} of {count} executions have recorded usage",
+    "executionCoverage": "{known} of {count} execution attempts have recorded usage",
     "usageIdentityUnknown": "Engine or model unconfirmed",
     "loadHistory": "Load earlier records", "loadingHistory": "Loading history…", "historyReadFailed": "History unavailable. Retry",
     "attemptNumber": "Attempt {number}", "partitionStale": "Last recorded value; awaiting update", "partitionUnavailable": "This section is temporarily unavailable",

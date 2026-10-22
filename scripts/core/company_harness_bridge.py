@@ -12,7 +12,7 @@ import socketserver
 import threading
 
 from company_harness import HarnessError, HarnessStore
-from product_identity import safe_path
+from product_identity import atomic_write, safe_path
 
 MAX_REQUEST = 64 * 1024
 
@@ -186,7 +186,9 @@ def main():
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: done.set())
     with running_bridge(manifest["socket"], HarnessStore(args.root, create=True), manifest["context"], manifest["token"]):
-        Path(manifest["ready"]).write_text("ready\n")
+        atomic_write(Path(manifest['ready']), {'pid': os.getpid(), 'loopPid': os.getppid(),
+            'processStart': Path('/proc/self/stat').read_text().rsplit(')', 1)[1].split()[19],
+            'attemptId': manifest['context']['attemptId']})
         done.wait()
 
 

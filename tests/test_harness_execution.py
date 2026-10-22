@@ -252,6 +252,70 @@ class RunnerTests(unittest.TestCase):
             runner.begin_attempt(self.store, self.root, self.cycle_id)
         self.assertEqual(len(self.store.snapshot()["cycles"]), 1)
 
+    def test_fractional_normal_remainder_enters_recovery_without_resetting_its_budget(self):
+        from usage_lib import recover_pending_cycle, load_budget_config
+        tick = [100.0]
+        self.store = HarnessStore(self.root, create=True, clock=lambda: tick[0], boot_id='test-boot')
+        def stopped(manifest):
+            self.store.finish_attempt(manifest['context'], {'outcome': 'failed', 'exitCode': 17},
+                writers_stopped=True, observation='owned supervisor')
+            recover_pending_cycle(self.root / 'logs/usage.jsonl', budget_config=load_budget_config({}),
+                                  pause_path=self.root / '.auto-loop-budget-paused')
+        first = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, first['temporary'], ignore_errors=True)
+        deadline = self.store.snapshot()['cycles'][0]['deadline']
+        tick[0] += 479.5
+        stopped(first)
+        with patch.dict(os.environ, {'COMPANY_HARNESS_RECOVERY_SECONDS': '60'}):
+            recovery = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, recovery['temporary'], ignore_errors=True)
+        self.assertTrue(recovery['recovery'])
+        self.assertEqual(recovery['timeoutSeconds'], 60)
+        self.assertEqual(self.store.snapshot()['cycles'][0]['deadline'], deadline)
+        tick[0] += 59.5
+        stopped(recovery)
+        before = self.store.snapshot()
+        with patch.dict(os.environ, {'COMPANY_HARNESS_RECOVERY_SECONDS': '60'}):
+            with self.assertRaisesRegex(HarnessError, 'BUDGET_EXHAUSTED'):
+                runner.begin_attempt(self.store, self.root, self.cycle_id)
+        after = self.store.snapshot()
+        self.assertEqual(after['snapshotRevision'], before['snapshotRevision'])
+        self.assertEqual(len(after['cycles'][0]['recoveries']), 1)
+        self.assertEqual(len(after['cycles'][0]['attempts']), 2)
+
+    def test_trusted_actual_execution_failure_retries_and_keeps_failed_charge(self):
+        manifest, metadata = self.stopped_material()
+        failed = runner.finish_attempt(self.store, self.root, manifest['context']['attemptId'],
+            {**metadata, 'exit_code': 17, 'status': 'error'}, {'cleanupFailed': False, 'supervisorOwner': 'owned-tree'})
+        self.assertTrue(failed['validSubmission'])
+        self.assertFalse(failed['actualSuccess'])
+        self.assertEqual(failed['action'], 'retry')
+        self.assertEqual(failed['error'], 'EXECUTION_FAILED')
+        deadline = self.store.snapshot()['cycles'][0]['deadline']
+        correction = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, correction['temporary'], ignore_errors=True)
+        self.assertFalse(correction['recovery'])
+        self.assertEqual(self.store.snapshot()['cycles'][0]['deadline'], deadline)
+        records = read_usage_records(self.root / 'logs/usage.jsonl')[0]
+        self.assertEqual(records[0]['status'], 'failed')
+        self.assertEqual(records[0]['usage']['total_tokens'], 14)
+
+    def test_voluntary_failed_result_with_normal_exit_is_a_legal_close(self):
+        self.assert_voluntary_result_closes('failed')
+
+    def test_voluntary_blocked_result_with_normal_exit_is_a_legal_close(self):
+        self.assert_voluntary_result_closes('blocked')
+
+    def assert_voluntary_result_closes(self, outcome):
+        manifest, metadata = self.stopped_material(result=outcome)
+        result = runner.finish_attempt(self.store, self.root, manifest['context']['attemptId'], metadata,
+            {'cleanupFailed': False, 'supervisorOwner': 'owned-tree'})
+        self.assertTrue(result['validSubmission'])
+        self.assertTrue(result['actualSuccess'])
+        self.assertEqual(result['action'], 'close')
+        self.assertEqual(result['outcome'], outcome)
+        self.assertEqual(runner.close_cycle(self.store, self.root, self.cycle_id, True)['outcome'], outcome)
+
     def test_crash_after_dispatch_intent_does_not_relaunch_uncertain_writer(self):
         manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
         self.addCleanup(shutil.rmtree, manifest["temporary"], ignore_errors=True)
@@ -706,6 +770,176 @@ class RunnerTests(unittest.TestCase):
                 runner.validate_recovery_submission(attempt, modified, lambda _: content)
 
 
+@unittest.skipUnless(sys.platform == 'linux', 'Live pre-dispatch ownership uses real Linux processes')
+class PreDispatchTests(unittest.TestCase):
+    setUp = RunnerTests.setUp
+
+    def prepared(self, recovery=False):
+        if recovery:
+            self.store.begin_recovery(self.cycle_id, 'fixture-recovery', budget_seconds=60, reason='Owned fixture recovery')
+        self.environment = dict(os.environ, AUTONOMOUS_COMPANY_LOCK_PID=str(os.getpid()))
+        with patch.dict(os.environ, self.environment):
+            manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, manifest['temporary'], ignore_errors=True)
+        self.bridge = subprocess.Popen([sys.executable, str(ROOT / 'scripts/core/company_harness_bridge.py'),
+            '--root', str(self.root), '--manifest', str(runner.host_path(self.root, manifest['context']['attemptId'] + '.json'))],
+            env=self.environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.stop_bridge)
+        deadline = time.monotonic() + 5
+        while not Path(manifest['ready']).exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(Path(manifest['ready']).exists())
+        return manifest
+
+    def stop_bridge(self):
+        if self.bridge.poll() is None:
+            self.bridge.terminate()
+        self.bridge.wait(timeout=5)
+        for stream in (self.bridge.stdout, self.bridge.stderr):
+            if stream and not stream.closed:
+                stream.close()
+
+    def expired(self):
+        with self.store._transaction() as tx:
+            cycle = self.store._cycle(tx, self.cycle_id)
+            timer = cycle['recoveries'][0]['timer'] if cycle['recoveries'] else cycle['budgetTimer']
+            timer['consumedSeconds'] = timer['limitSeconds']
+            self.store._save_cycle(tx, cycle)
+
+    def control(self, action, manifest, *, injected_crash=False):
+        args = ['--root', str(self.root), action, '--attempt', manifest['context']['attemptId'], '--bridge-pid', str(self.bridge.pid)]
+        if injected_crash:
+            code = "import sys;sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[1:];import company_harness_runner as r;r.complete_unstarted=lambda *a:(_ for _ in ()).throw(OSError('crash after proof'));r.main()"
+            command = [sys.executable, '-c', code, str(ROOT / 'scripts/core'), *args]
+        else:
+            command = [sys.executable, str(ROOT / 'scripts/core/company_harness_runner.py'), *args]
+        return subprocess.run(command, env=self.environment, capture_output=True, text=True)
+
+    def test_live_unstarted_settlement_has_real_log_known_empty_calls_and_idempotent_receipt(self):
+        manifest = self.prepared()
+        self.expired()
+        self.stop_bridge()
+        result = self.control('unstarted', manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'retry')
+        snapshot = self.store.snapshot()
+        attempt = snapshot['cycles'][0]['attempts'][0]
+        self.assertTrue(attempt['writersStopped'])
+        self.assertEqual(attempt['actualResult']['outcome'], 'not_started')
+        self.assertEqual(attempt['calls'], [])
+        self.assertEqual(attempt['usage']['totalTokens'], 0)
+        self.assertTrue(attempt['usage']['totalTokensComplete'])
+        self.assertTrue(attempt['usage']['costComplete'])
+        self.assertFalse((self.root / 'logs/usage.jsonl.pending').exists())
+        records = read_usage_records(self.root / 'logs/usage.jsonl')[0]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['cost_usd'], 0)
+        self.assertFalse(records[0]['provider_invoked'])
+        log = self.root / 'logs' / (attempt['attemptId'] + '.log')
+        self.assertIn('providerInvoked=false', log.read_text())
+        self.assertEqual(self.control('unstarted', manifest).returncode, 0)
+        self.assertEqual(self.store.snapshot()['snapshotRevision'], snapshot['snapshotRevision'])
+        self.assertEqual(len(read_usage_records(self.root / 'logs/usage.jsonl')[0]), 1)
+
+    def test_old_prepared_or_dispatch_intent_does_not_infer_no_writer_or_zero_usage(self):
+        manifest = self.prepared()
+        marked = self.control('dispatch', manifest)
+        self.assertEqual(marked.returncode, 0, marked.stderr)
+        self.expired()
+        self.stop_bridge()
+        refused = self.control('unstarted', manifest)
+        self.assertIn('DISPATCH_UNCONFIRMED', refused.stderr)
+        with self.assertRaisesRegex(HarnessError, 'UNFINISHED_HARNESS'):
+            runner.recover_stopped_cycles(self.store, self.root)
+        attempt = self.store.snapshot()['cycles'][0]['attempts'][0]
+        self.assertFalse(attempt['writersStopped'])
+        self.assertIsNone(attempt['usage']['totalTokens'])
+        self.assertFalse(attempt['usage']['totalTokensComplete'])
+        self.assertTrue((self.root / 'logs/usage.jsonl.pending').exists())
+        self.assertEqual(read_usage_records(self.root / 'logs/usage.jsonl')[0], [])
+
+    def test_dispatch_gate_returns_current_seconds_and_persists_that_timeout(self):
+        manifest = self.prepared()
+        with self.store._transaction() as tx:
+            cycle = self.store._cycle(tx, self.cycle_id)
+            cycle['budgetTimer'].update(consumedSeconds=120, anchor=time.monotonic())
+            self.store._save_cycle(tx, cycle)
+        marked = self.control('dispatch', manifest)
+        self.assertEqual(marked.returncode, 0, marked.stderr)
+        seconds = int(marked.stdout.strip())
+        self.assertTrue(355 <= seconds <= 360, seconds)
+        self.assertLess(seconds, manifest['timeoutSeconds'])
+        launch = runner.read_fact(runner.host_path(self.root, manifest['context']['attemptId'] + '.launch.json'))
+        self.assertEqual(launch['phase'], 'provider_dispatch_intent')
+        self.assertEqual(launch['timeoutSeconds'], seconds)
+
+    def test_dispatch_gate_fractional_exhaustion_leaves_prepared_for_live_settlement(self):
+        manifest = self.prepared()
+        with self.store._transaction() as tx:
+            cycle = self.store._cycle(tx, self.cycle_id)
+            cycle['budgetTimer'].update(consumedSeconds=479.5, anchor=time.monotonic())
+            self.store._save_cycle(tx, cycle)
+        refused = self.control('dispatch', manifest)
+        self.assertIn('BUDGET_EXHAUSTED', refused.stderr)
+        launch = runner.read_fact(runner.host_path(self.root, manifest['context']['attemptId'] + '.launch.json'))
+        self.assertEqual(launch['phase'], 'prepared')
+        self.stop_bridge()
+        settled = self.control('unstarted', manifest)
+        self.assertEqual(settled.returncode, 0, settled.stderr)
+        self.assertEqual(self.store.snapshot()['cycles'][0]['attempts'][0]['actualResult']['outcome'], 'not_started')
+
+    def test_current_bridge_and_matching_worker_and_stale_generation_refuse_zero_settlement(self):
+        manifest = self.prepared()
+        self.expired()
+        self.assertIn('WRITERS_UNCONFIRMED', self.control('unstarted', manifest).stderr)
+        self.stop_bridge()
+        path = self.root / '.autonomous-company/isolation' / self.identity['identityId'] / 'active-run.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'pid': os.getpid(), 'processStart': runner.process_start(os.getpid()),
+            'cycle': self.cycle_id, 'attemptId': manifest['context']['attemptId']}))
+        self.assertIn('WRITERS_UNCONFIRMED', self.control('unstarted', manifest).stderr)
+        path.unlink()
+        self.store.claim_controller('replacement-controller')
+        self.assertIn('STALE_GENERATION', self.control('unstarted', manifest).stderr)
+        self.assertTrue((self.root / 'logs/usage.jsonl.pending').exists())
+        self.assertEqual(read_usage_records(self.root / 'logs/usage.jsonl')[0], [])
+
+    def test_only_durable_live_cancellation_proof_replays_after_crash_without_dispatch(self):
+        manifest = self.prepared()
+        self.expired()
+        self.stop_bridge()
+        self.assertNotEqual(self.control('unstarted', manifest, injected_crash=True).returncode, 0)
+        launch = runner.read_fact(runner.host_path(self.root, manifest['context']['attemptId'] + '.launch.json'))
+        self.assertEqual(launch['phase'], 'cancelled')
+        self.assertFalse(self.store.snapshot()['cycles'][0]['attempts'][0]['writersStopped'])
+        with self.assertRaisesRegex(HarnessError, 'UNFINISHED_HARNESS'):
+            runner.recover_stopped_cycles(HarnessStore(self.root, create=True), self.root)
+        snapshot = self.store.snapshot()
+        self.assertTrue(snapshot['cycles'][0]['attempts'][0]['writersStopped'])
+        self.assertEqual(snapshot['cycles'][0]['attempts'][0]['usage']['totalTokens'], 0)
+        self.assertEqual(len(snapshot['cycles'][0]['attempts']), 1)
+        with self.assertRaisesRegex(HarnessError, 'UNFINISHED_HARNESS'):
+            runner.recover_stopped_cycles(HarnessStore(self.root, create=True), self.root)
+        self.assertEqual(self.store.snapshot()['snapshotRevision'], snapshot['snapshotRevision'])
+        self.assertEqual(len(read_usage_records(self.root / 'logs/usage.jsonl')[0]), 1)
+
+    def test_expired_recovery_preparation_does_not_allocate_another_recovery_budget(self):
+        manifest = self.prepared(recovery=True)
+        self.expired()
+        self.stop_bridge()
+        result = self.control('unstarted', manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with patch.dict(os.environ, self.environment), self.assertRaisesRegex(HarnessError, 'BUDGET_EXHAUSTED'):
+            runner.begin_attempt(self.store, self.root, self.cycle_id)
+        cycle = self.store.snapshot()['cycles'][0]
+        self.assertEqual(len(cycle['recoveries']), 1)
+        self.assertEqual(len(cycle['attempts']), 1)
+        self.assertEqual(cycle['recoveries'][0]['budgetSeconds'], 60)
+        closed = runner.close_cycle(self.store, self.root, self.cycle_id, True)
+        self.assertEqual(closed['outcome'], 'failed')
+        self.assertFalse(closed['continuationAllowed'])
+
+
 @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AUTONOMOUS_COMPANY_BWRAP") and shutil.which("cc"),
                      "Requires official bubblewrap and native compiler; no boundary double")
 class KernelLoopTests(unittest.TestCase):
@@ -786,7 +1020,19 @@ assert request('submit','completed-with-new-p1',{'result':'completed','unfinishe
     def test_budget_only_pause_resumes_real_loop_without_extra_governance_pause(self):
         self.run_owned_loop(False, budget_resume=True)
 
-    def run_owned_loop(self, recovery, budget_resume=False):
+    def test_accepted_nonzero_exit_uses_correction_and_keeps_actual_failed_charge(self):
+        self.run_owned_loop(False, accepted_failure=True)
+
+    def test_accepted_nonzero_exit_uses_bounded_recovery_and_keeps_actual_failed_charge(self):
+        self.run_owned_loop(True, accepted_failure=True)
+
+    def test_live_bridge_preparation_expiry_settles_unstarted_then_uses_readonly_recovery(self):
+        self.run_owned_loop(True, pre_dispatch_expiry='before_prompt')
+
+    def test_live_dispatch_gate_expiry_settles_unstarted_then_uses_readonly_recovery(self):
+        self.run_owned_loop(True, pre_dispatch_expiry='before_dispatch')
+
+    def run_owned_loop(self, recovery, budget_resume=False, accepted_failure=False, pre_dispatch_expiry=False):
         from isolation_workspace import TEMPLATES
         with tempfile.TemporaryDirectory(prefix="harness-kernel-") as temporary:
             root = Path(temporary)
@@ -796,6 +1042,33 @@ assert request('submit','completed-with-new-p1',{'result':'completed','unfinishe
                 shutil.copy2(ROOT / name, target)
             shutil.copytree(ROOT / "scripts/core", root / "scripts/core", dirs_exist_ok=True)
             shutil.copytree(ROOT / "memories", root / "memories")
+            if pre_dispatch_expiry:
+                loop = root / 'scripts/core/company_harness_loop.sh'
+                injection = '''        if [ "$recovery" = 0 ] && [ ! -f "$PROJECT_DIR/.predispatch-injected" ]; then
+            python3 - "$PROJECT_DIR" "$CURRENT_PRODUCT_CYCLE_ID" <<'PY'
+import pathlib,sys,time
+sys.path.insert(0,str(pathlib.Path(sys.argv[1])/'scripts/core'))
+from company_harness import HarnessStore
+from product_identity import read_state
+s=HarnessStore(sys.argv[1],create=True)
+root=pathlib.Path(sys.argv[1]);owner=read_state(root)['cycles'][sys.argv[2]]['identityId']
+scoped=root/'.autonomous-company/isolation'/owner
+(scoped/'docs').mkdir(parents=True,exist_ok=True)
+(scoped/'docs/correction-marker').write_text('pre-dispatch fixture artifact')
+body=(root/'memories/consensus.md').read_text()
+if '## Next Action' not in body:body+=chr(10)+'## Next Action'+chr(10)+'Continue the one bounded task'+chr(10)
+if '## Company State' not in body:body+=chr(10)+'## Company State'+chr(10)+'Deterministic isolation fixture only'+chr(10)
+(scoped/'consensus.md').write_text(body)
+with s._transaction() as tx:
+    c=s._cycle(tx,sys.argv[2]);c['budgetTimer']['consumedSeconds']=478.5;c['budgetTimer']['anchor']=time.monotonic();s._save_cycle(tx,c)
+PY
+            touch "$PROJECT_DIR/.predispatch-injected"
+            sleep 2
+        fi
+'''
+                needle = '        harness_prompt=' if pre_dispatch_expiry == 'before_prompt' else '        if ! CYCLE_TIMEOUT_SECONDS='
+                self.assertEqual(loop.read_text().count(needle), 1)
+                loop.write_text(loop.read_text().replace(needle, injection + needle))
             fake_source, fake = root / "fake.c", root / "fake-codex"
             program = '''import json,os,pathlib,sys
 sys.path.insert(0,'/workspace/scripts/core')
@@ -874,6 +1147,17 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tok
 '''
             if budget_resume:
                 program = program.replace("if not marker.exists():", "if False:")
+            if accepted_failure:
+                program = program.replace("marker.write_text('first attempt had no submission')", """marker.write_text('first accepted attempt later failed')
+    primary,_=material(marker)
+    assert request('submit','accepted-before-failure',{'result':'completed','unfinishedItems':[],'evidenceRefs':[primary]})['status']=='accepted'
+    print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tokens':4}}),flush=True)
+    raise SystemExit(17)""")
+                program = program.replace("('Selected bounded research question','first attempt had no submission')",
+                    "('Selected bounded research question','first attempt had no submission','first accepted attempt later failed')")
+            if pre_dispatch_expiry:
+                program = program.replace("('Selected bounded research question','first attempt had no submission')",
+                    "('Selected bounded research question','first attempt had no submission','pre-dispatch fixture artifact')")
             fake_source.write_text('#include <unistd.h>\n#include <string.h>\n#include <stdio.h>\nint main(int argc,char**argv){if(argc>1 && !strcmp(argv[1],"--version")){puts("deterministic-fake");return 0;} int configured=0;for(int i=1;i<argc;i++){if(!strcmp(argv[i],"sandbox_mode=\\\"danger-full-access\\\""))configured=1;}if(!configured)return 9; char *args[]={"/usr/bin/python3","-c",' + json.dumps(program) + ',0}; execv(args[0],args); return 1;}\n')
             subprocess.run(["cc", str(fake_source), "-o", str(fake)], check=True, capture_output=True)
             env = dict(os.environ, COMPANY_HARNESS_ENABLED="1", ENGINE="codex", CODEX_BIN=str(fake), MODEL="gpt-6.1-sol",
@@ -905,7 +1189,8 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tok
                     self.assertTrue((root / ".auto-loop-paused").exists(), output.read_text() +
                         ((root / "logs/auto-loop.log").read_text()[-5000:] if (root / "logs/auto-loop.log").exists() else ""))
                     snapshot = HarnessStore(root).snapshot()
-                    self.assertEqual(len(snapshot["cycles"]), 2, output.read_text())
+                    self.assertEqual(len(snapshot["cycles"]), 2, output.read_text() + (root / 'logs/auto-loop.log').read_text()[-5000:] +
+                        str([runner.read_fact(path) for path in (root / '.autonomous-company/harness').glob('*.finish.json')]))
                     self.assertEqual([len(c["attempts"]) for c in snapshot["cycles"]], [1, 1] if budget_resume else [2, 1])
                     self.assertEqual([c["sequenceNumber"] for c in snapshot["cycles"]], [1, 2])
                     self.assertEqual(snapshot["cycles"][0]["outcome"], "partial" if recovery else "completed")
@@ -923,10 +1208,31 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tok
                     records, errors = read_usage_records(root / "logs/usage.jsonl")
                     self.assertEqual(errors, [])
                     self.assertEqual(len(records), 2 if budget_resume else 3)
-                    self.assertEqual(sum(r["usage"]["total_tokens"] for r in records), 28 if budget_resume else 42)
+                    self.assertEqual(sum(r["usage"]["total_tokens"] for r in records), 28 if budget_resume or pre_dispatch_expiry else 42)
                     self.assertTrue(all(r["record_role"] == "harness_attempt" for r in records))
-                    self.assertEqual(sum(c["usage"]["totalTokens"] for c in snapshot["cycles"]), 28 if budget_resume else 42)
+                    self.assertEqual(sum(c["usage"]["totalTokens"] for c in snapshot["cycles"]), 28 if budget_resume or pre_dispatch_expiry else 42)
                     self.assertTrue(all(not c["usage"]["totalTokensComplete"] for c in snapshot["cycles"]))
+                    if accepted_failure:
+                        first = snapshot['cycles'][0]['attempts'][0]
+                        self.assertEqual(first['actualResult']['exitCode'], 17)
+                        self.assertEqual(first['actualResult']['outcome'], 'failed')
+                        self.assertEqual(records[0]['cycle_id'], first['attemptId'])
+                        self.assertEqual(records[0]['status'], 'failed')
+                        self.assertEqual(records[0]['usage']['total_tokens'], 14)
+                        result = runner.read_fact(runner.host_path(root, first['attemptId'] + '.finish.json'))
+                        self.assertTrue(result['validSubmission'])
+                        self.assertFalse(result['actualSuccess'])
+                        self.assertEqual(result['action'], 'retry')
+                        self.assertIn('EXECUTION_FAILED', result['error'])
+                    if pre_dispatch_expiry:
+                        first = snapshot['cycles'][0]['attempts'][0]
+                        self.assertEqual(first['actualResult']['outcome'], 'not_started')
+                        self.assertFalse(first['actualResult']['providerInvoked'])
+                        self.assertEqual(first['calls'], [])
+                        self.assertEqual(first['usage']['totalTokens'], 0)
+                        self.assertTrue(first['usage']['totalTokensComplete'])
+                        self.assertIn('providerInvoked=false', (root / 'logs' / (first['attemptId'] + '.log')).read_text())
+                        self.assertEqual(records[0]['source']['type'], 'host_pre_dispatch_cancel')
                 finally:
                     (root / ".auto-loop-stop").touch()
                     if process.poll() is None:

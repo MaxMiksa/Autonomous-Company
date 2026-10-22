@@ -4,6 +4,7 @@ No provider is launched here. Dispatch, stops, governance and OS supervision
 remain owned by auto-loop. Durable usage intents replay accounting, never work.
 """
 import argparse
+from contextlib import contextmanager
 from datetime import datetime
 import hashlib
 import importlib.util
@@ -23,7 +24,7 @@ import time
 from company_harness import HarnessError, HarnessStore
 from company_harness_inputs import load_inputs, write_inputs
 from company_harness_client import PROTOCOL_LIMIT, PROTOCOL_ROOT, protocol_handoff_path, validate_protocol_handoff
-from product_identity import atomic_write, cycle_projection, safe_path, update_cycle
+from product_identity import atomic_write, cycle_projection, read_state, safe_path, update_cycle
 from usage_lib import append_cycle_record, begin_cycle, build_cycle_record, check_budget, load_budget_config
 
 
@@ -139,7 +140,7 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     normal_count = sum(a["recoveryId"] is None for a in cycle["attempts"])
     if not recovery:
         remaining, reliable = store._elapsed(cycle["budgetTimer"])
-        if normal_count >= 1 + limits["CORRECTIONS"] or reliable != "reliable" or remaining >= cycle["budgetTimer"]["limitSeconds"]:
+        if normal_count >= 1 + limits["CORRECTIONS"] or reliable != "reliable" or math.floor(cycle["budgetTimer"]["limitSeconds"] - remaining) < 1:
             if limits["RECOVERY_ATTEMPTS"] == 0:
                 raise HarnessError("RECOVERY_EXHAUSTED")
             recovery = store.begin_recovery(cycle_id, "recovery-" + cycle_id, budget_seconds=limits["RECOVERY_SECONDS"], reason="Protocol correction budget exhausted")
@@ -164,6 +165,7 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
         "collectRelative": ".autonomous-company/harness/" + attempt_id + ".collect.json",
         "timeoutSeconds": seconds, "recovery": bool(recovery), "inputsDirectory": str(inputs)}
     write_fact(host_path(root, attempt_id + ".json"), manifest)
+    write_fact(host_path(root, attempt_id + '.launch.json'), {'context': attempt['context'], 'phase': 'prepared'})
     record = build_cycle_record(cycle_id=attempt_id, cycle_number=cycle["contract"]["runCycleNumber"],
         started_at=attempt["startedAt"], ended_at=attempt["startedAt"], status="interrupted", exit_code=130,
         engine="codex", model=os.environ.get("MODEL_LABEL", os.environ.get("MODEL", "config-default")), metadata_raw="{}")
@@ -261,12 +263,150 @@ def capture_evidence(store, root, cycle, attempt, receipt, submission):
 
 
 def settle_usage_intent(store, root, record):
+    if (record.get('source') or {}).get('type') == 'host_pre_dispatch_cancel':
+        launch = read_fact(host_path(root, record['attempt_id'] + '.launch.json'))
+        if launch.get('phase') != 'cancelled' or launch['fact']['record'] != record:
+            raise HarnessError('ID_CONFLICT', 'unstartedUsage')
+        fact = launch['fact']
+        store.finish_attempt(launch['context'], fact['actualResult'], writers_stopped=True, observation=fact['proof'])
+        store.confirm_usage(record['logical_cycle_id'], record['attempt_id'], [], source='host_pre_dispatch_cancel', observation=fact['proof'])
+        append_cycle_record(root / 'logs/usage.jsonl', record, budget_config=load_budget_config(os.environ),
+                            pause_path=root / '.auto-loop-budget-paused', reconcile_budget=True)
+        return
     append_cycle_record(root / "logs/usage.jsonl", record, budget_config=load_budget_config(os.environ),
                         pause_path=root / ".auto-loop-budget-paused", reconcile_budget=True)
     store.record_usage(record["logical_cycle_id"], record["attempt_id"], {
         "callId": record["attempt_id"] + "-provider", "coverage": "unknown",
         "cost": record["cost_usd"], "inputTokens": record["usage"]["input_tokens"], "outputTokens": record["usage"]["output_tokens"],
         "source": {"type": "usage_ledger_mirror", "ledgerId": record["attempt_id"], "providerCoverage": "unknown"}})
+
+
+def process_start(pid):
+    try:
+        fields = Path('/proc/' + str(pid) + '/stat').read_text().rsplit(')', 1)[1].split()
+        return fields[19] if fields[0] != 'Z' else None
+    except FileNotFoundError:
+        return None
+
+
+def live_launch_owner(manifest):
+    owner = manifest['context']['ownership']
+    pid = owner.get('loopPid')
+    if (pid != os.getppid() or str(pid) != os.environ.get('AUTONOMOUS_COMPANY_LOCK_PID', str(os.getppid())) or
+            process_start(pid) != owner.get('loopProcessStart')):
+        raise HarnessError('OWNER_MISMATCH', 'livePreDispatch')
+
+
+@contextmanager
+def launch_lock(root, attempt_id):
+    import fcntl
+    with host_path(root, attempt_id + '.launch.lock').open('a+b') as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        yield
+
+
+def mark_dispatch(store, root, attempt_id):
+    with launch_lock(root, attempt_id):
+        return mark_live_dispatch(store, root, attempt_id)
+
+
+def mark_live_dispatch(store, root, attempt_id):
+    host_admission(root, starting=True)
+    manifest = read_fact(host_path(root, attempt_id + '.json'))
+    live_launch_owner(manifest)
+    with store._transaction() as tx:
+        cycle, attempt = store._context(tx, manifest['context'])
+    launch_path = host_path(root, attempt_id + '.launch.json')
+    launch = read_fact(launch_path)
+    if launch.get('context') != manifest['context'] or launch.get('phase') != 'prepared':
+        raise HarnessError('DISPATCH_UNCONFIRMED')
+    timer = next(r['timer'] for r in cycle['recoveries'] if r['recoveryId'] == attempt['recoveryId']) if attempt['recoveryId'] else cycle['budgetTimer']
+    consumed, reliable = store._elapsed(timer)
+    if reliable != 'reliable':
+        raise HarnessError('TIME_UNCONFIRMED', 'bootId')
+    seconds = math.floor(timer['limitSeconds'] - consumed)
+    if seconds < 1:
+        raise HarnessError('BUDGET_EXHAUSTED', 'time')
+    write_fact(launch_path, {**launch, 'phase': 'provider_dispatch_intent', 'recordedAt': now(), 'timeoutSeconds': seconds})
+    return seconds
+
+
+def complete_unstarted(store, root, launch):
+    fact, context = launch['fact'], launch['context']
+    attempt_id = context['attemptId']
+    log = safe_path(root, 'logs/' + attempt_id + '.log')
+    diagnostic = 'Host: providerInvoked=false; dispatch was not attempted because its pre-dispatch deadline expired.\n'
+    if log.exists() and log.read_text() != diagnostic:
+        raise HarnessError('ID_CONFLICT', 'unstartedLog')
+    log.write_text(diagnostic)
+    write_fact(safe_path(root, 'logs/' + attempt_id + '.json'), fact['metadata'])
+    intent = host_path(root, attempt_id + '.usage.json')
+    if intent.exists() and read_fact(intent) != fact['record']:
+        raise HarnessError('ID_CONFLICT', 'unstartedUsage')
+    write_fact(intent, fact['record'])
+    settle_usage_intent(store, root, fact['record'])
+    write_fact(host_path(root, attempt_id + '.finish.json'), fact['result'])
+    publish_cycle_result(store, root, fact['result'])
+    directory = Path(read_fact(host_path(root, attempt_id + '.json'))['temporary'])
+    if directory.resolve().parent == Path(tempfile.gettempdir()).resolve() and directory.name.startswith('ac-harness-'):
+        shutil.rmtree(directory, ignore_errors=True)
+    return fact['result']
+
+
+def settle_unstarted(store, root, attempt_id, bridge_pid):
+    """Only the same live controller may prove it never attempted dispatch."""
+    with launch_lock(root, attempt_id):
+        return settle_live_unstarted(store, root, attempt_id, bridge_pid)
+
+
+def settle_live_unstarted(store, root, attempt_id, bridge_pid):
+    host_admission(root)
+    manifest = read_fact(host_path(root, attempt_id + '.json'))
+    live_launch_owner(manifest)
+    launch_path = host_path(root, attempt_id + '.launch.json')
+    launch = read_fact(launch_path)
+    if launch.get('context') != manifest['context']:
+        raise HarnessError('OWNER_MISMATCH', 'launch')
+    if launch.get('phase') == 'cancelled':
+        if launch['fact']['proof']['bridgePid'] != bridge_pid:
+            raise HarnessError('OWNER_MISMATCH', 'bridge')
+        return complete_unstarted(store, root, launch)
+    if launch.get('phase') != 'prepared':
+        raise HarnessError('DISPATCH_UNCONFIRMED')
+    with store._transaction() as tx:
+        cycle, attempt = store._context(tx, manifest['context'], business=False)
+    timer = next(r['timer'] for r in cycle['recoveries'] if r['recoveryId'] == attempt['recoveryId']) if attempt['recoveryId'] else cycle['budgetTimer']
+    consumed, reliable = store._elapsed(timer)
+    if reliable != 'reliable' or math.floor(timer['limitSeconds'] - consumed) >= 1 or attempt['calls'] or attempt['acceptedSubmissionId']:
+        raise HarnessError('UNSTARTED_UNCONFIRMED')
+    ready = read_fact(Path(manifest['ready']))
+    if (ready.get('pid') != bridge_pid or ready.get('attemptId') != attempt_id or
+            ready.get('loopPid') != manifest['context']['ownership']['loopPid'] or not ready.get('processStart') or process_start(bridge_pid)):
+        raise HarnessError('WRITERS_UNCONFIRMED', 'bridge')
+    identity = read_state(root)['cycles'][cycle['cycleId']]['identityId']
+    active = safe_path(root, '.autonomous-company/isolation/' + identity + '/active-run.json')
+    if active.exists():
+        worker = read_fact(active)
+        if (type(worker.get('pid')) is not int or not worker.get('processStart') or not worker.get('attemptId') or
+                worker.get('attemptId') == attempt_id or process_start(worker['pid'])):
+            raise HarnessError('WRITERS_UNCONFIRMED', 'worker')
+    checked = now()
+    proof = {'type': 'live_pre_dispatch_cancel', 'loopPid': os.getppid(), 'loopProcessStart': process_start(os.getppid()),
+             'bridgePid': bridge_pid, 'bridgeProcessStart': ready['processStart'], 'providerDispatchAttempted': False, 'observedAt': checked}
+    metadata = {'status': 'not_started', 'exit_code': None, 'providerInvoked': False,
+                'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'cost_usd': 0, 'source': 'host_pre_dispatch_cancel'}
+    record = build_cycle_record(cycle_id=attempt_id, cycle_number=cycle['contract']['runCycleNumber'],
+        started_at=attempt['startedAt'], ended_at=checked, status='not_started', exit_code=None,
+        engine='codex', model=os.environ.get('MODEL_LABEL', os.environ.get('MODEL', 'config-default')), metadata_raw=json.dumps(metadata))
+    record.update(record_role='harness_attempt', logical_cycle_id=cycle['cycleId'], attempt_id=attempt_id,
+                  provider_invoked=False, source={'type': 'host_pre_dispatch_cancel'})
+    result = {'cycleId': cycle['cycleId'], 'attemptId': attempt_id, 'submissionId': None, 'validSubmission': False,
+              'actualSuccess': False, 'providerInvoked': False, 'collected': False, 'collectionStatus': 'not_applicable',
+              'evidenceRefs': [], 'error': 'PREDISPATCH_BUDGET_EXHAUSTED', 'outcome': 'not_started', 'action': 'retry'}
+    launch.update(phase='cancelled', fact={'proof': proof, 'actualResult': {'outcome': 'not_started', 'providerInvoked': False},
+        'metadata': metadata, 'record': record, 'result': result})
+    write_fact(launch_path, launch)
+    return complete_unstarted(store, root, launch)
 
 
 def sync_identity(root, cycle):
@@ -425,11 +565,13 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
                     pending_cycle=stopped_cycle, pending_quality=quality)
         except HarnessError as caught:
             valid, error = False, str(caught)
+    if not success:
+        error = 'EXECUTION_FAILED' + (': ' + error if error else '')
     result = {"cycleId": cycle["cycleId"], "attemptId": attempt_id, "collected": bool(collected),
         "submissionId": submission["submissionId"] if submission else None, "validSubmission": valid,
         "evidenceRefs": refs, "error": error, "actualSuccess": success, "eventsHealth": events_health,
         "outcome": submission["payload"]["result"] if valid and success else "failed",
-        "action": "close" if valid or not collected else "retry"}
+        "action": "close" if valid and success else "retry"}
     if not collected:
         result.update(action="human", error="COLLECTION_UNCONFIRMED")
     write_fact(previous_finish, result)
@@ -552,6 +694,10 @@ def recover_stopped_cycles(store, root):
         close_deadline = time.monotonic() + policy()["CLOSE_SECONDS"]
         last = cycle["attempts"][-1]
         attempt_id = last["attemptId"]
+        launch_path = host_path(root, attempt_id + '.launch.json')
+        if launch_path.exists() and read_fact(launch_path).get('phase') == 'cancelled':
+            complete_unstarted(store, root, read_fact(launch_path))
+            raise HarnessError('UNFINISHED_HARNESS', detail='Known unstarted settlement replayed; restart never infers permission to dispatch')
         required = {suffix: host_path(root, attempt_id + suffix) for suffix in (".json", ".proof.json", ".usage.json", ".collect.json")}
         metadata_path = safe_path(root, "logs/" + attempt_id + ".json")
         if not metadata_path.exists() or any(not path.exists() for path in required.values()):
@@ -577,9 +723,10 @@ def recover_stopped_cycles(store, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("action", choices=("startup", "recover-usage", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close"))
+    parser.add_argument("action", choices=("startup", "recover-usage", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close", "dispatch", "unstarted"))
     parser.add_argument("--cycle")
     parser.add_argument("--attempt")
+    parser.add_argument('--bridge-pid', type=int)
     parser.add_argument("--metadata", type=Path)
     parser.add_argument("--supervisor-owner")
     parser.add_argument("--cleanup-failed", type=int, default=1)
@@ -617,6 +764,10 @@ def main():
     elif args.action == "attempt":
         manifest = begin_attempt(store, root, args.cycle)
         print(manifest["context"]["attemptId"], manifest["timeoutSeconds"], int(manifest["recovery"]))
+    elif args.action == 'dispatch':
+        print(mark_dispatch(store, root, args.attempt))
+    elif args.action == 'unstarted':
+        print(settle_unstarted(store, root, args.attempt, args.bridge_pid)['action'])
     elif args.action == "prompt":
         print(read_fact(host_path(root, args.attempt + ".prompt.json"))["prompt"])
     elif args.action == "remaining":

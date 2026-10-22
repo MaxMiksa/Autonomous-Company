@@ -6,11 +6,13 @@ CURRENT_HARNESS_ATTEMPT=""
 HARNESS_FINAL_ACTION=""
 HARNESS_CLOSED=""
 HARNESS_GOVERNANCE_BLOCKED=0
+HARNESS_STOPPED_BRIDGE_PID=""
 
 harness_bridge_stop() {
     if [ -n "$HARNESS_BRIDGE_PID" ]; then
         kill -TERM "$HARNESS_BRIDGE_PID" 2>/dev/null || true
         wait "$HARNESS_BRIDGE_PID" 2>/dev/null || true
+        HARNESS_STOPPED_BRIDGE_PID="$HARNESS_BRIDGE_PID"
         HARNESS_BRIDGE_PID=""
     fi
 }
@@ -66,10 +68,16 @@ harness_run_cycle() {
             loop_sleep 0.05
         done
         cycle_log="$LOG_DIR/$CURRENT_HARNESS_ATTEMPT.log"
-        CYCLE_TIMEOUT_SECONDS=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" remaining --attempt "$CURRENT_HARNESS_ATTEMPT") || cleanup 1 harness_budget_exhausted
         CODEX_SANDBOX_MODE="$original_sandbox"
         export CODEX_SANDBOX_MODE
         harness_prompt=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" prompt --attempt "$CURRENT_HARNESS_ATTEMPT")
+        if ! CYCLE_TIMEOUT_SECONDS=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" dispatch --attempt "$CURRENT_HARNESS_ATTEMPT"); then
+            harness_bridge_stop || cleanup 1 harness_writer_unconfirmed
+            python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" unstarted --attempt "$CURRENT_HARNESS_ATTEMPT" \
+                --bridge-pid "$HARNESS_STOPPED_BRIDGE_PID" >/dev/null || cleanup 1 harness_predispatch_unconfirmed
+            HARNESS_FINAL_ACTION=retry
+            continue
+        fi
         engine_adapter_run "$base_prompt
 $harness_prompt"
         harness_bridge_stop
