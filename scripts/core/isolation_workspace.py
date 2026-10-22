@@ -197,6 +197,24 @@ def sanitize_git(project):
     (metadata / "config").write_text("[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n\thooksPath = /dev/null\n\tfsmonitor = false\n", encoding="utf-8")
 
 
+def protocol_version(workspace, attempt):
+    from company_harness_client import PROTOCOL_ROOT, PROTOCOL_LIMIT, validate_protocol_handoff
+    base = safe_path(workspace, PROTOCOL_ROOT)
+    expected = {attempt + "/handoff.json"}
+    if not base.exists():
+        return None
+    for path in base.rglob("*"):
+        relative = path.relative_to(base).as_posix()
+        if path.is_dir() and relative == attempt:
+            continue
+        if relative not in expected or not path.is_file():
+            raise ValueError("PROTOCOL_SCOPE")
+        if path.stat().st_size > PROTOCOL_LIMIT:
+            raise ValueError("PROTOCOL_MATERIAL_TOO_LARGE")
+        validate_protocol_handoff(regular_bytes(path, PROTOCOL_LIMIT + 1))
+    return fingerprint(base)
+
+
 class CompanyView:
     def __init__(self, root, project, cycle):
         self.root = Path(root).resolve()
@@ -207,6 +225,10 @@ class CompanyView:
         if cycle and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", cycle):
             raise IsolationError("Invalid cycle")
         self.project, self.cycle = project, cycle
+        self.attempt = os.environ.get("AUTONOMOUS_COMPANY_ATTEMPT_ID", "") if os.environ.get("COMPANY_HARNESS_ENABLED") == "1" else ""
+        if self.attempt and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", self.attempt):
+            raise IsolationError("Invalid Harness attempt")
+        self.event_id = self.attempt or cycle
         self.state = read_state(root)
         identity = self.state["paths"].get(project) if project else self.state.get("explorationId")
         self.scope = identity or hashlib.sha256(project.encode()).hexdigest()[:32]
@@ -241,7 +263,7 @@ class CompanyView:
     def prepare(self):
         start = Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19] if sys.platform == "linux" else "unknown"
         durable_json(self.active_record, {"pid": os.getpid(), "processStart": start, "cycle": self.cycle,
-                                         "view": str(self.folder), "project": self.project})
+                                         "view": str(self.folder), "project": self.project, "attemptId": self.attempt or None})
         for name in TEMPLATES:
             source, target = self.root / name, self.workspace / name
             if source.is_file():
@@ -254,6 +276,9 @@ class CompanyView:
         # Role prompts are public framework resources, not user plugin config.
         for name in ("projects", "memories", "docs", "logs", ".autonomous-company"):
             (self.workspace / name).mkdir(exist_ok=True)
+        if getattr(self, "harness", None) and self.harness["recovery"]:
+            from company_harness_client import PROTOCOL_ROOT
+            (self.workspace / PROTOCOL_ROOT / self.attempt).mkdir(parents=True)
         registry = self.root / "projects/registry.tsv"
         lines = regular_bytes(registry).decode().splitlines() if registry.exists() else ["name\tpath\tlifecycle\tcreated_at_utc"]
         rows = [lines[0]] + [line for line in lines[1:] if self.project and line.split("\t")[1:2] == [self.project]]
@@ -335,6 +360,11 @@ class CompanyView:
         checked_tree(self.workspace)
         expected_roots = {Path(name).parts[0] for name in TEMPLATES} | {
             "projects", "memories", "docs", "logs", ".autonomous-company", ".autonomous-company.local", ".git", ".gitignore", "prompt.txt"}
+        recovery = getattr(self, "harness", None) and self.harness["recovery"]
+        if recovery:
+            from company_harness_client import PROTOCOL_ROOT
+            protocol_version(self.workspace, self.attempt)
+            expected_roots.add(PROTOCOL_ROOT)
         uncollected = sorted(path.name for path in self.workspace.iterdir() if path.name not in expected_roots)
         self.retain_view = bool(uncollected)
         rejected_reports = []
@@ -385,6 +415,11 @@ class CompanyView:
                 if (original_git / "hooks").is_dir():
                     copy_tree(original_git / "hooks", collected_git / "hooks")
         replacements = [(ready / Path(project).name, self.root / project) for project in projects]
+        if recovery:
+            candidate = self.workspace / PROTOCOL_ROOT / self.attempt / "handoff.json"
+            if candidate.exists():
+                (ready / "protocol.json").write_bytes(regular_bytes(candidate, 16 * 1024))
+                replacements.append((ready / "protocol.json", self.store / "protocol" / self.attempt / "handoff.json"))
         state = json.loads(json.dumps(self.state))
         for identity, item in additions.items():
             state["identities"][identity] = item
@@ -419,8 +454,8 @@ class CompanyView:
             for name in files:
                 source = Path(folder) / name
                 relative = source.relative_to(self.workspace)
-                work_report = bool(self.cycle) and source.parent == self.workspace / "logs" and name == self.cycle + ".work.json"
-                permitted = ((source.parent == self.workspace / "logs" and name == self.cycle + ".events.jsonl")
+                work_report = not self.attempt and bool(self.cycle) and source.parent == self.workspace / "logs" and name == self.cycle + ".work.json"
+                permitted = ((source.parent == self.workspace / "logs" and name == self.event_id + ".events.jsonl")
                              or work_report
                              or (source.parent == self.workspace / "logs/artifacts" and re.fullmatch(r"[0-9a-f]{32}\.json", name)))
                 if not permitted:
@@ -474,7 +509,7 @@ class CompanyView:
                 staged.parent.mkdir(parents=True, exist_ok=True)
                 staged.write_bytes(data)
                 replacements.append((staged, target))
-        session_target = self.store / ("sessions-" + (self.cycle or self.folder.name))
+        session_target = self.store / ("sessions-" + (self.event_id or self.folder.name))
         if (self.home / ".codex/sessions").is_dir():
             copy_tree(self.home / ".codex/sessions", ready / "sessions")
             replacements.append((ready / "sessions", session_target))
@@ -507,7 +542,16 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
     if engine not in ("codex", "claude", "cursor", "openai-compatible"):
         raise IsolationError("Unsupported engine")
     cycle = os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID", "")
+    harness = None
+    if os.environ.get("COMPANY_HARNESS_ENABLED") == "1":
+        if engine != "codex" or interactive:
+            raise IsolationError("Harness v1 supports only headless Codex")
+        harness = json.loads(regular_bytes(Path(os.environ["COMPANY_HARNESS_MANIFEST"])))
+        if (harness["context"]["cycleId"] != cycle or harness["context"]["attemptId"] != os.environ.get("AUTONOMOUS_COMPANY_ATTEMPT_ID")
+                or Path(harness["root"]).resolve() != Path(root).resolve()):
+            raise IsolationError("Harness execution context mismatch")
     view = CompanyView(root, project, cycle)
+    view.harness = harness
     try:
         view.prepare()
         view.authentication(engine)
@@ -521,6 +565,10 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
                 "AUTONOMOUS_COMPANY_STABLE_PRODUCT_ID", "AUTONOMOUS_COMPANY_PRODUCT_CYCLE_NUMBER")}
         env.update(AUTONOMOUS_COMPANY_ROOT="/workspace", ACTIVE_PROJECT=project,
                    ACTIVE_PROJECT_PATH="/workspace/" + project if project else "")
+        if harness:
+            env.update(COMPANY_HARNESS_ENABLED="1", COMPANY_HARNESS_SOCKET="/run/autonomous-company/harness.sock",
+                       COMPANY_HARNESS_TOKEN=harness["token"], AUTONOMOUS_COMPANY_ATTEMPT_ID=view.attempt,
+                       COMPANY_HARNESS_RECOVERY="1" if harness["recovery"] else "0")
         if language is not None:
             env["AUTONOMOUS_COMPANY_LANGUAGE"] = language
         native = binary
@@ -541,7 +589,7 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
                 if os.environ.get(key):
                     env[key] = os.environ[key]
             if cycle:
-                command = ["/usr/bin/python3", "/workspace/scripts/core/runtime_events.py", "--root", "/workspace", "--cycle", cycle, "--", *command]
+                command = ["/usr/bin/python3", "/workspace/scripts/core/runtime_events.py", "--root", "/workspace", "--cycle", getattr(view, "event_id", cycle), "--", *command]
         elif engine == "claude":
             command = ["/opt/engine/agent"] + ([] if interactive else ["-p", "--output-format", "json"])
             if model:
@@ -565,6 +613,13 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
                 if key.startswith("OPENAI_COMPATIBLE_"):
                     env[key] = value
         readonly = [(view.workspace / name, "/workspace/" + name) for name in ("scripts", ".claude", "i18n", "Makefile", ".autonomous-company.local") if (view.workspace / name).exists()]
+        if harness:
+            readonly.append((harness["socket"], "/run/autonomous-company/harness.sock"))
+            readonly.append((harness["inputsDirectory"], "/run/autonomous-company/harness-inputs"))
+            if harness["recovery"]:
+                # Recovery can reconcile protocol/evidence, not continue normal
+                # product development through the separate recovery budget.
+                readonly += [(view.workspace / name, "/workspace/" + name) for name in ("projects", "docs", "memories")]
         dependencies = Path(root) / "scripts/media/node_modules"
         if dependencies.is_dir():
             (view.workspace / "scripts/media/node_modules").mkdir(parents=True, exist_ok=True)
@@ -583,6 +638,15 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
             print(json.dumps({"type": "item.completed", "item": {"id": "autonomous-company-last-message",
                   "type": "agent_message", "text": message}}, ensure_ascii=False), flush=True)
         view.collect()
+        if harness:
+            versions = {name: fingerprint(view.workspace / name) for name in ("projects", "docs", "memories")}
+            if harness["recovery"]:
+                versions["protocol"] = protocol_version(view.workspace, view.attempt)
+            durable_json(safe_path(root, harness["collectRelative"]), {
+                "cycleId": cycle, "attemptId": view.attempt, "generation": harness["context"]["generation"],
+                "collected": True, "docsRoot": str(view.store / "docs"), "project": project,
+                "protocolRoot": str(view.store / "protocol" / view.attempt) if harness["recovery"] else None,
+                "versions": versions})
         return code
     finally:
         if view.collected:

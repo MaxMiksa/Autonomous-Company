@@ -62,6 +62,18 @@ class HarnessTests(unittest.TestCase):
         with self.assertRaisesRegex(HarnessError, "READ_ONLY"):
             reader.claim_controller("new")
 
+    def test_late_old_cycle_usage_preserves_creation_order_and_current_cycle(self):
+        context = self.start()
+        self.finish(context, outcome="failed")
+        self.close(outcome="failed", submission=None)
+        self.store.create_cycle({**self.contract, "cycleId": "cycle-2", "sequenceNumber": 18})
+        self.store.record_usage(self.contract["cycleId"], context["attemptId"], {
+            "callId": "late-provider", "coverage": "unknown", "cost": None,
+            "inputTokens": 5, "outputTokens": 2, "source": {"type": "late-provider"}})
+        snapshot = self.store.snapshot()
+        self.assertEqual([c["cycleId"] for c in snapshot["cycles"]], [self.contract["cycleId"], "cycle-2"])
+        self.assertEqual(snapshot["currentCycleId"], "cycle-2")
+
     def test_submit_ack_loss_replay_survives_restart_without_revision_change(self):
         context, refs = self.start(), [self.evidence()]
         first = self.submit(context, refs=refs)

@@ -10,12 +10,12 @@ The current consensus is preloaded at the end of this prompt. If it is not there
 
 ### 2. Decide
 
-- There is a clear Next Action → Execute it
-- There is a project in progress → Keep it moving (check the outputs under `docs/*/`)
-- It is Day 0 with no direction → The CEO calls a strategy meeting
-- You are stuck → Try another angle, narrow the scope, or just ship
+- A runtime work contract exists → Complete its single main outcome without expanding this cycle's objective
+- There is a Next Action or active project → Check existing evidence and authority, then propose the next reviewable outcome
+- There is no direction → Make research or candidate comparison this cycle's outcome; do not produce the entire product in one cycle
+- You are stuck → State the unknown and evidence gap, then choose a small validation, revision or lawful handoff
 
-Priority: **Ship > Plan > Discuss**
+Prefer real demand, distinct value and lightweight delivery. Research, definition, design, implementation and validation serve the current problem; there is no fixed cycle count or permission to skip necessary prerequisites to write code sooner.
 
 Frontend selection and delivery must first pass the visual and functional gates below. Shipping quickly never justifies lowering visual quality.
 
@@ -29,7 +29,7 @@ Frontend selection and delivery must first pass the visual and functional gates 
 
 ### 3. Assemble a Team and Execute
 
-Read `.claude/skills/team/SKILL.md` and follow its process to assemble a team and execute the task. Select the 3-5 most relevant agents each cycle; do not bring everyone in.
+Read `.claude/skills/team/SKILL.md` and select only the members this outcome needs, without a fixed headcount or full team every cycle. Independent review of a critical outcome or transition may be a separate subsequent cycle.
 
 If this cycle will produce a landing page, dashboard, marketing site, product Web UI, application interface, frontend component, or any user-facing frontend deliverable, you must first read and use `.claude/skills/frontend-design.md` before designing the interface or implementing code. The coordinator must name a frontend design owner among this cycle's existing members. Both the owner and implementer read this skill, establish the user task, information hierarchy and specific visual direction, then implement and inspect real screens. Refine an existing product around its identity and flow; give a new product a direction grounded in its content and use context. No universal palette or framework is prescribed.
 
@@ -87,16 +87,19 @@ Before finishing, you **must** update `memories/consensus.md` in this format:
 - [Question to consider]
 ```
 
-## Convergence Rules (Mandatory)
+## Autonomous Continuation and Outcome Prerequisites (Mandatory)
 
-Cycle 1/2/3 below describe convergence for a **new exploration task**, not a business reset on every process launch. Continue an existing product or recorded exploration from its actual consensus. Program-provided product cycle numbers count accumulated work records; they are not business phases and do not prescribe a number of cycles before delivery. Stopping, restarting or changing models must not restart idea selection merely because a run-local counter is 1.
+1. One cycle has one reviewable main outcome: research comparison, definition draft, independent review, revision, implementation or validation. Direction research, product definition, experience planning, visual exploration, complete prototype, feature development and acceptance refinement can each recur. Numbers are not phases; restarts do not reset business progress.
+2. Prefer real user needs, existing workarounds and unmet value. New opportunities and underserved users/scenarios in mature markets are valid; a clone differentiated only by prettier or more convenient UI is not a direction. Make weakly supported assumptions explicit and validate cheaply; never invent demand or promised users.
+3. Before formal interface design, define positioning, users, scenarios, features, every in-scope user journey and key branches. Designers must not guess critical behavior. Complete does not mean eliminating all uncertainty: address fundamental feasibility risks first, using small technical experiments only to inform feasibility.
+4. Compare 2–3 actual rendered visual directions for key screens using the same real task and content. Complete all in-scope pages, key states and clickable journeys for the selected direction before formal feature development. Deliver a small complete user task without automatically adding accounts, payments or every possible error combination.
+5. A draft may close and hand off to independent review. Draft closure, a model-reported review phase and process exit zero are not quality approval. Bind critical conclusions to reviewed content versions; the program detects version changes while the team judges impact and rechecks affected parts.
+6. Further validation should change a decision or noticeably improve frontend experience or visual finish. If work only repeats previous claims, change the method or proceed to permitted downstream validation. Repeating a handoff twice does not force a new direction or rushed delivery. Refuting an assumption, finding nothing new or partial handoff can be honest outcomes.
+7. Review objections must identify a concrete issue, evidence and user-task impact. Resolve factual disputes with small discriminating checks; the coordinator/CEO adjudicates tradeoffs within authority. Human-owned permissions, goal conflicts and genuine blockers remain with the human; ordinary taste differences do not automatically go to the founder.
 
-1. **Cycle 1**: Brainstorm. Each agent proposes one idea; rank the top 3 before finishing
-2. **Cycle 2**: Pick #1. Have critic-munger run a Pre-Mortem, research-thompson validate the market, and cfo-campbell work out the numbers. Give a GO / NO-GO decision
-3. **Cycle 3+**: GO → Create a repo and start writing code; further discussion is prohibited. NO-GO → Try #2; if none work, force a choice and build it
-4. **Every cycle after Cycle 2 must produce a tangible artifact** (a file, repo, or deployment); discussion-only cycles are prohibited
-5. **The same Next Action appears for 2 consecutive cycles** → You are stuck; change direction or narrow the scope and ship
-6. **Any frontend deliverable** (page, interface, component, dashboard, marketing site) → You must use `frontend-design.md` first to ensure visual and interaction quality; shipping a generic default style is not allowed
+## Harness Runtime Contract
+
+When Harness is enabled, follow the injected work contract, remaining time and tool receipts. Target 3–5 minutes for regular outcomes; development may take longer. If unfinished, use request_extension to explain the reason before continuing, within the original hard limit of 8 minutes for regular work or 12 minutes for development. Never change time class, reset the budget or use recovery to continue development. Publish progress, save real checkpoints and call submit as required; consensus, delivery files and natural-language completion cannot replace submission. After accepted, stop business writes and exit without waiting for closed; the runtime verifies final closure and subsequent dispatch. Correct rejected fields or evidence only within the remaining budget and permitted scope; never fabricate historical cycles.
 
 ## Product pages and identity assets
 

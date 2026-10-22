@@ -87,8 +87,8 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 **Mandatory frontend quality:** choose excellent frontend design with complete core functionality. Visual quality and functional completeness are separate required gates. Reject ugly or rough candidates even when they are readable, familiar or cheaper to implement; improve or remake them if none qualifies. Among qualified directions, prefer stronger frontend design before implementation convenience. Respect a user's selected direction. Record decisions from actual rendered screens and independently review the implemented result; neither a functional pass nor a combined score can replace visual acceptance. Apply the detailed selection and delivery rules in `PROMPT.md` before shipping.
 
-1. **Ship > Plan > Discuss** - if you can ship, do not over-discuss.
-2. **Act at 70% information** - waiting for 90% is usually too slow.
+1. **Advance with evidence** - complete the current primary outcome and its required product, experience and visual prerequisites before downstream work; repeat research, review or revision when it can change an important decision.
+2. **Make uncertainty explicit** - proceed when current decisions are sufficiently supported and remaining assumptions can be tested more effectively downstream; do not wait for certainty or bypass required evidence.
 3. **Customer-first** - build for real demand, not internal hype.
 4. **Prefer simplicity** - do not split what one person can finish; delete what is unnecessary.
 5. **Ramen profitability first** - revenue before vanity growth.
@@ -97,7 +97,7 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 ## Collaboration Workflows
 
-Team composition rules: `.claude/skills/team/SKILL.md`.
+Team composition rules: `.claude/skills/team/SKILL.md`. The routes below are reference collaboration patterns, not fixed cycle sequences; select only the roles needed for the current primary outcome.
 
 1. **New Product Evaluation**: `research-thompson` -> `ceo-bezos` -> `critic-munger` -> `product-norman` -> `cto-vogels` -> `cfo-campbell`
 2. **Feature Development**: `interaction-cooper` -> `ui-duarte` -> `fullstack-dhh` -> `qa-bach` -> `devops-hightower`

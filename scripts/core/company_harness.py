@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
 import json
 import math
@@ -63,7 +64,10 @@ class _Transaction:
         payload = _json(value)
         old = self.connection.execute("SELECT payload FROM records WHERE kind=? AND id=?", (kind, key)).fetchone()
         if not old or old[0] != payload:
-            self.connection.execute("INSERT OR REPLACE INTO records VALUES(?,?,?)", (kind, key, payload))
+            if old:
+                self.connection.execute("UPDATE records SET payload=? WHERE kind=? AND id=?", (payload, kind, key))
+            else:
+                self.connection.execute("INSERT INTO records VALUES(?,?,?)", (kind, key, payload))
             self.changed = True
 
 
@@ -356,12 +360,18 @@ class HarnessStore:
     def bind_evidence(self, cycle_id, evidence_id, content, *, media_type="text/plain", source=None):
         """Host collector supplies readable immutable key material, never a path hash."""
         _id(evidence_id, "evidenceId")
-        if not isinstance(content, str) or len(content.encode("utf-8")) > 1048576:
+        if not isinstance(content, (str, bytes)):
+            raise HarnessError("INVALID_FIELD", "content")
+        data = content.encode("utf-8") if isinstance(content, str) else content
+        if len(data) > 1048576:
             raise HarnessError("INVALID_FIELD", "content")
         with self._transaction() as tx:
             self._open(self._cycle(tx, cycle_id))
-            evidence = {"evidenceId": evidence_id, "cycleId": cycle_id, "content": content,
-                "sha256": hashlib.sha256(content.encode()).hexdigest(), "mediaType": media_type, "source": source}
+            evidence = {"evidenceId": evidence_id, "cycleId": cycle_id,
+                "content": content if isinstance(content, str) else base64.b64encode(content).decode("ascii"),
+                "sha256": hashlib.sha256(data).hexdigest(), "mediaType": media_type, "source": source}
+            if isinstance(content, bytes):
+                evidence["contentEncoding"] = "base64"
             previous = tx.get("evidence", evidence_id)
             if previous and previous != evidence:
                 raise HarnessError("ID_CONFLICT", "evidenceId")
@@ -629,7 +639,7 @@ class HarnessStore:
                 if any(ref not in verification.get("evidenceRefs", []) for ref in required):
                     raise HarnessError("EVIDENCE_UNCONFIRMED", "evidenceRefs")
             decision = continuation_decision or {"allowed": False, "reason": "not_evaluated"}
-            if decision.get("allowed") and (outcome != "completed" or not decision.get("basis") or not decision.get("checkedAt")):
+            if decision.get("allowed") and (outcome not in {"completed", "partial"} or not decision.get("basis") or not decision.get("checkedAt")):
                 raise HarnessError("CONTINUATION_UNCONFIRMED", "continuationDecision")
             cycle.update(protocolState="closed", outcome=outcome, endedAt=self.utc_now(),
                          qualityApplicability=quality_applicability or [], continuationDecision=decision)
@@ -646,6 +656,29 @@ class HarnessStore:
             self._save_cycle(tx, cycle)
             return receipt
 
+    def set_continuation_decision(self, cycle_id, decision):
+        """Host control-path recheck; preserve the immutable closing decision."""
+        if not isinstance(decision, dict) or type(decision.get("allowed")) is not bool:
+            raise HarnessError("INVALID_FIELD", "continuationDecision")
+        _id(decision.get("reason"), "reason")
+        if not decision.get("checkedAt"):
+            raise HarnessError("CONTINUATION_UNCONFIRMED", "checkedAt")
+        with self._transaction() as tx:
+            cycle = self._cycle(tx, cycle_id)
+            if cycle["protocolState"] != "closed" or not cycle["closeReceipt"]:
+                raise HarnessError("CYCLE_NOT_CLOSED")
+            if cycle["activeAttemptId"] or any(not a["writersStopped"] for a in cycle["attempts"]):
+                raise HarnessError("WRITERS_UNCONFIRMED")
+            if decision["allowed"] and (cycle["outcome"] not in {"completed", "partial"} or
+                    cycle["closeReceipt"]["source"] != "runtime" or not decision.get("basis")):
+                raise HarnessError("CONTINUATION_UNCONFIRMED")
+            previous = tx.get("continuation", cycle_id)
+            if previous and previous["decision"] == decision:
+                return previous
+            value = {"decision": decision, "revision": (previous["revision"] if previous else 0) + 1}
+            tx.put("continuation", cycle_id, value)
+            return value
+
     def snapshot(self):
         if not self.path.exists():
             return {"projectionVersion": 2, "projectionEpoch": None, "snapshotRevision": 0,
@@ -656,9 +689,13 @@ class HarnessStore:
             tx = _Transaction(connection)
             meta = tx.get("meta", "state")
             cycles = [json.loads(row[0]) for row in connection.execute("SELECT payload FROM records WHERE kind='cycle' ORDER BY rowid")]
+            decisions = {row[0]: json.loads(row[1]) for row in connection.execute("SELECT id,payload FROM records WHERE kind='continuation'")}
         finally:
             connection.close()
         for cycle in cycles:
+            if cycle["cycleId"] in decisions:
+                decision = decisions[cycle["cycleId"]]
+                cycle.update(continuationDecision=decision["decision"], continuationDecisionRevision=decision["revision"])
             execution, reliability = self._elapsed(cycle["executionTimer"])
             recovery_seconds = 0
             for recovery in cycle["recoveries"]:

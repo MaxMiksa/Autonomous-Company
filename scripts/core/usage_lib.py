@@ -538,9 +538,11 @@ def append_cycle_record(
     *,
     budget_config: dict[str, Any],
     pause_path: Path,
+    reconcile_budget: bool = False,
 ) -> dict[str, Any]:
     with _ledger_lock(path):
-        result = _append_cycle_record_locked(path, record, budget_config=budget_config, pause_path=pause_path)
+        result = _append_cycle_record_locked(path, record, budget_config=budget_config, pause_path=pause_path,
+                                             reconcile_budget=reconcile_budget)
         pending_path = path.with_name(path.name + ".pending")
         pending = read_pause_state(pending_path)
         if pending is not None and pending.get("cycle_id") == record["cycle_id"]:
@@ -554,6 +556,7 @@ def _append_cycle_record_locked(
     *,
     budget_config: dict[str, Any],
     pause_path: Path,
+    reconcile_budget: bool = False,
 ) -> dict[str, Any]:
     existing, errors = read_usage_records(path)
     if errors:
@@ -590,7 +593,13 @@ def _append_cycle_record_locked(
                 "observed timestamps and usage were preserved",
                 record["cycle_id"], record["clock_anomaly"]["wall_clock_delta_seconds"],
             )
-    if record["budget"]["state"] in {"hard_limit", "unverifiable"}:
+    if reconcile_budget:
+        # Harness intents can replay after resume or in a later budget period.
+        # Reconstruct a missing current pause from the actual ledger, retaining
+        # a valid one-use acknowledgement until a real provider dispatch.
+        _check_budget_records_locked(path, existing if duplicates else existing + [record],
+            budget_config=budget_config, pause_path=pause_path, target_date=datetime.now().date(), consume_resume=False)
+    elif record["budget"]["state"] in {"hard_limit", "unverifiable"}:
         _write_pause_marker(pause_path, record, path)
     return record
 
@@ -632,6 +641,9 @@ def _recover_pending_locked(path: Path, budget_config: dict[str, Any], pause_pat
         except (KeyError, TypeError, AttributeError) as exc:
             raise UsageError("unfinished usage identity is invalid") from exc
         interrupted["source"] = {"type": "cycle_recovery", "adapter": "unknown_usage"}
+        for key in ("record_role", "logical_cycle_id", "attempt_id"):
+            if key in pending:
+                interrupted[key] = pending[key]
         _append_cycle_record_locked(path, interrupted, budget_config=budget_config, pause_path=pause_path)
     pending_path.unlink()
 
@@ -643,6 +655,7 @@ def recover_pending_cycle(path: Path, *, budget_config: dict[str, Any], pause_pa
 
 def check_budget(
     path: Path, *, budget_config: dict[str, Any], pause_path: Path, target_date: str | date,
+    consume_resume: bool = True,
 ) -> dict[str, Any]:
     """Check persisted history before spending; consume at most one resume."""
     with _ledger_lock(path):
@@ -650,26 +663,31 @@ def check_budget(
         records, errors = read_usage_records(path)
         if errors:
             raise UsageError("usage ledger contains invalid records; repair it before starting a cycle")
-        summary = summarize_records(records, period=budget_config["period"], target_date=target_date)
-        budget = evaluate_budget(summary, budget_config)
-        resume_path = pause_path.with_name(pause_path.name + ".resume")
-        acknowledgement = read_pause_state(resume_path)
-        if acknowledgement is not None:
-            resume_path.unlink(missing_ok=True)
-        acknowledged = (
-            isinstance(acknowledgement, dict)
-            and acknowledgement.get("ledger_fingerprint") == _ledger_fingerprint(path)
-            and isinstance(acknowledgement.get("budget"), dict)
-            and acknowledgement["budget"].get("limits") == budget["limits"]
-            and acknowledgement["budget"].get("period") == budget["period"]
-        )
-        if budget["state"] in {"hard_limit", "unverifiable"} and not acknowledged and not pause_path.exists():
-            _write_pause_marker(pause_path, {
-                "ended_at": datetime.now().astimezone().isoformat(),
-                "cycle_id": records[-1]["cycle_id"] if records else "startup",
-                "budget": budget,
-            }, path)
-        return budget
+        return _check_budget_records_locked(path, records, budget_config=budget_config, pause_path=pause_path,
+                                           target_date=target_date, consume_resume=consume_resume)
+
+
+def _check_budget_records_locked(path, records, *, budget_config, pause_path, target_date, consume_resume):
+    summary = summarize_records(records, period=budget_config["period"], target_date=target_date)
+    budget = evaluate_budget(summary, budget_config)
+    resume_path = pause_path.with_name(pause_path.name + ".resume")
+    acknowledgement = read_pause_state(resume_path)
+    if acknowledgement is not None and consume_resume:
+        resume_path.unlink(missing_ok=True)
+    acknowledged = (
+        isinstance(acknowledgement, dict)
+        and acknowledgement.get("ledger_fingerprint") == _ledger_fingerprint(path)
+        and isinstance(acknowledgement.get("budget"), dict)
+        and acknowledgement["budget"].get("limits") == budget["limits"]
+        and acknowledgement["budget"].get("period") == budget["period"]
+    )
+    if budget["state"] in {"hard_limit", "unverifiable"} and not acknowledged and not pause_path.exists():
+        _write_pause_marker(pause_path, {
+            "ended_at": datetime.now().astimezone().isoformat(),
+            "cycle_id": records[-1]["cycle_id"] if records else "startup",
+            "budget": budget,
+        }, path)
+    return budget
 
 
 def read_pause_state(path: Path) -> dict[str, Any] | None:

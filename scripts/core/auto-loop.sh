@@ -79,12 +79,15 @@ BUDGET_PAUSE_FILE="$PROJECT_DIR/.auto-loop-budget-paused"
 LOOP_SLEEP_PID=""
 CURRENT_PRODUCT_CYCLE_ID=""
 MEDIA_FINALIZER_PID=""
+COMPANY_HARNESS_ENABLED="${COMPANY_HARNESS_ENABLED:-0}"
+export COMPANY_HARNESS_ENABLED
 
 # Loop settings (all overridable via env vars)
 ENGINE="${ENGINE:-claude}"
 ENGINE="$(echo "$ENGINE" | tr '[:upper:]' '[:lower:]')"
 MODEL="${MODEL:-}"
 MODEL_LABEL="${MODEL:-config-default}"
+export MODEL MODEL_LABEL
 CLAUDE_BIN="${CLAUDE_BIN:-}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-bypassPermissions}"
 CODEX_BIN="${CODEX_BIN:-}"
@@ -102,6 +105,16 @@ BUDGET_PAUSE_POLL_SECONDS="${BUDGET_PAUSE_POLL_SECONDS:-10}"
 RESOLVED_ENGINE_BIN=""
 
 source "$SCRIPT_DIR/engine-adapters.sh"
+source "$SCRIPT_DIR/company_harness_loop.sh"
+case "$COMPANY_HARNESS_ENABLED:$ENGINE" in
+    0:*) ;;
+    1:codex) ;;
+    *) echo "Company Harness v1 requires explicit COMPANY_HARNESS_ENABLED=1 and ENGINE=codex" >&2; exit 78 ;;
+esac
+if [ "$COMPANY_HARNESS_ENABLED" = 1 ] && [ "$CODEX_SANDBOX_MODE" != danger-full-access ]; then
+    echo "Company Harness: UNSUPPORTED_INNER_SANDBOX; explicit stricter Codex modes are preserved, not upgraded" >&2
+    exit 78
+fi
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is required for process ownership and structured usage accounting."
     ui_message python.required
@@ -243,6 +256,10 @@ wait_for_budget_resume() {
 
 record_cycle_usage() {
     local budget_state cycle_id
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+        python3 "$USAGE_TOOL" check --ledger "$USAGE_FILE" --pause-file "$BUDGET_PAUSE_FILE" --result-format state --preserve-resume
+        return
+    fi
     cycle_id=$(basename "$cycle_log" .log)
 
     if budget_state=$(python3 "$USAGE_TOOL" record \
@@ -300,6 +317,7 @@ cleanup() {
         LOOP_SLEEP_PID=""
     fi
     cancel_media_finalizer
+    harness_bridge_stop
     if ! cycle_supervisor_cleanup; then
         requested_exit=1
         final_state="process_cleanup_failed"
@@ -325,7 +343,13 @@ cleanup() {
             cycle_ended_at=$(date '+%Y-%m-%dT%H:%M:%S%z')
             CYCLE_LEDGER_STATUS=interrupted
             EXIT_CODE=130
-            record_cycle_usage >/dev/null
+            if [ "$COMPANY_HARNESS_ENABLED" = 1 ] && [ -n "$CURRENT_HARNESS_ATTEMPT" ]; then
+                python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" finish --attempt "$CURRENT_HARNESS_ATTEMPT" \
+                    --metadata "$cycle_record" --cleanup-failed "$CYCLE_SUPERVISOR_CLEANUP_FAILED" \
+                    --supervisor-owner "$CYCLE_SUPERVISOR_LAST_PGID" >/dev/null || log "Harness stop settlement retained for explicit recovery"
+            else
+                record_cycle_usage >/dev/null
+            fi
             rm -f "$ADAPTER_OUTPUT_FILE"
             ADAPTER_OUTPUT_FILE=""
             if [ -n "${ADAPTER_OUTPUT_DIRECTORY:-}" ]; then
@@ -336,8 +360,11 @@ cleanup() {
         # The engine must be stopped before restoring its interrupted governance baseline.
         "$CONSENSUS_GUARD" recover || true
     fi
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+        python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" recover-usage || log "Harness usage intents retained for restart"
+    fi
     python3 "$USAGE_TOOL" recover --ledger "$USAGE_FILE" --pause-file "$BUDGET_PAUSE_FILE" || log "Interrupted usage recovery failed; pending identity retained for restart"
-    if [ "$CYCLE_SUPERVISOR_CLEANUP_FAILED" -eq 0 ]; then
+    if [ "$CYCLE_SUPERVISOR_CLEANUP_FAILED" -eq 0 ] && [ "$COMPANY_HARNESS_ENABLED" != 1 ]; then
         python3 "$PRODUCT_IDENTITY_TOOL" --root "$PROJECT_DIR" recover >/dev/null || log "Product cycle recovery failed; reservation retained for restart"
     fi
     log "=== Auto Loop Shutting Down (PID $$) ==="
@@ -468,6 +495,10 @@ backup_consensus() {
 }
 
 restore_consensus() {
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ] && [ "$HARNESS_GOVERNANCE_BLOCKED" -eq 1 ]; then
+        log "Harness governance admission blocked; preserving verified unresolved P1 and human baseline"
+        return
+    fi
     if [ -f "$CONSENSUS_FILE.bak" ]; then
         cp "$CONSENSUS_FILE.bak" "$CONSENSUS_FILE"
         log "Consensus restored from backup after failed cycle"
@@ -524,7 +555,11 @@ run_engine_cycle() {
         --cycle "$AUTONOMOUS_COMPANY_CYCLE_ID" --state dispatching >/dev/null; then
         cleanup 1 product_cycle_state_error
     fi
-    engine_adapter_run "$prompt"
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+        harness_run_cycle "$prompt"
+    else
+        engine_adapter_run "$prompt"
+    fi
     # Observation cleanup does not classify the cycle or replace supervision.
     if [ "$CYCLE_SUPERVISOR_CLEANUP_FAILED" -eq 0 ]; then
         python3 "$SCRIPT_DIR/runtime_artifacts.py" --root "$PROJECT_DIR" finalize \
@@ -562,6 +597,11 @@ mkdir -p "$LOG_DIR" "$PROJECT_DIR/memories"
 if [ ! -x "$CONSENSUS_GUARD" ]; then
     echo "Error: Consensus guard is missing or not executable: $CONSENSUS_GUARD"
     exit 1
+fi
+
+# Refuse uncertain dispatch before touching any interrupted governance baseline.
+if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+    python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" startup || exit 78
 fi
 
 # Clean up stale stop file from previous run
@@ -607,7 +647,11 @@ fi
 
 # Reject invalid policy before invoking a provider and reconstruct a missing
 # hard-budget pause from the durable ledger after restart.
-if ! python3 "$USAGE_TOOL" check --ledger "$USAGE_FILE" --pause-file "$BUDGET_PAUSE_FILE" --result-format state >/dev/null; then
+budget_preflight_options=()
+if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+    budget_preflight_options=(--preserve-resume)
+fi
+if ! python3 "$USAGE_TOOL" check --ledger "$USAGE_FILE" --pause-file "$BUDGET_PAUSE_FILE" --result-format state "${budget_preflight_options[@]}" >/dev/null; then
     echo "Error: usage budget preflight failed; no cycle was started."
     ui_message budget.invalid
     exit 78
@@ -712,6 +756,14 @@ while true; do
     fi
     export AUTONOMOUS_COMPANY_LANGUAGE
 
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ] &&
+       ! python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" next --product "$ACTIVE_PROJECT" >/dev/null; then
+        if [ ! -e "$PAUSE_FLAG" ] && [ ! -L "$PAUSE_FLAG" ]; then
+            printf 'PAUSE_REASON=harness_continuation_required\n' > "$PAUSE_FLAG"
+        fi
+        wait_while_paused
+        continue
+    fi
     loop_count=$next_cycle
     cycle_started_at=$(date '+%Y-%m-%dT%H:%M:%S%z')
 
@@ -782,7 +834,7 @@ The stable runtime identity is $PRODUCT_ID. Process restarts and model changes d
 Resume the work and phase in the current consensus. First-exploration rules apply only when this is exploration cycle #1 and no earlier decision is recorded. Act decisively."
 
     # Run selected engine in headless mode with per-cycle timeout
-    if ! python3 "$USAGE_TOOL" begin --ledger "$USAGE_FILE" \
+    if [ "$COMPANY_HARNESS_ENABLED" != 1 ] && ! python3 "$USAGE_TOOL" begin --ledger "$USAGE_FILE" \
         --cycle-id "$(basename "$cycle_log" .log)" --cycle-number "$loop_count" \
         --started-at "$cycle_started_at" --engine "$ENGINE" --model "$MODEL_LABEL"; then
         log_cycle "$loop_count" "USAGE" "Could not reserve durable usage identity; refusing to invoke the provider"
@@ -904,6 +956,27 @@ Resume the work and phase in the current consensus. First-exploration rules appl
     fi
 
     budget_state=$(record_cycle_usage)
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+        harness_governance_ok=0
+        if [ "$consensus_guard_status" -eq 0 ] && [ -z "$cycle_failed_reason" ]; then
+            harness_governance_ok=1
+        fi
+        if ! harness_close_cycle "$harness_governance_ok"; then
+            cleanup 1 harness_close_failed
+        fi
+        read -r harness_outcome harness_continue harness_reason <<< "$HARNESS_CLOSED"
+        if [ "$harness_outcome" = partial ] || [ "$harness_outcome" = interrupted ]; then
+            CYCLE_LEDGER_STATUS=interrupted
+        elif [ "$harness_outcome" != completed ]; then
+            CYCLE_LEDGER_STATUS=failed
+        fi
+        if [ "$harness_continue" -ne 1 ] && [ "$harness_reason" != budget_paused ]; then
+            if [ ! -e "$PAUSE_FLAG" ] && [ ! -L "$PAUSE_FLAG" ]; then
+                printf 'PAUSE_REASON=%s\n' "${harness_reason:-harness_continuation_required}" > "$PAUSE_FLAG"
+            fi
+            governance_pause_required=1
+        fi
+    fi
     if ! python3 "$PRODUCT_IDENTITY_TOOL" --root "$PROJECT_DIR" update \
         --cycle "$CURRENT_PRODUCT_CYCLE_ID" --state "$CYCLE_LEDGER_STATUS" --reason "$cycle_failed_reason" >/dev/null; then
         log_cycle "$loop_count" "FAIL" "Cannot close the durable product cycle; refusing another cycle"
