@@ -74,6 +74,25 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual([c["cycleId"] for c in snapshot["cycles"]], [self.contract["cycleId"], "cycle-2"])
         self.assertEqual(snapshot["currentCycleId"], "cycle-2")
 
+    def test_compact_and_catalog_reads_preserve_metadata_without_event_or_call_history(self):
+        context = self.start()
+        self.store.publish_progress(context, 'report', self.report())
+        self.store.record_event(context, 1, {'kind': 'report', 'text': 'x' * 3000})
+        self.store.record_usage(self.contract['cycleId'], context['attemptId'], {
+            'callId': 'known', 'coverage': 'unknown', 'cost': 1, 'inputTokens': 3, 'outputTokens': 2})
+        original = self.store.snapshot()
+        compact = self.store.snapshot(compact=True)
+        catalog = self.store.snapshot(catalog=True)
+        attempt = compact['cycles'][0]['attempts'][0]
+        self.assertNotIn('events', attempt)
+        self.assertNotIn('calls', attempt)
+        self.assertEqual(compact['cycles'][0]['report'], original['cycles'][0]['report'])
+        self.assertEqual(compact['cycles'][0]['usage']['totalTokens'], 5)
+        self.assertNotIn('usage', catalog['cycles'][0])
+        self.assertNotIn('report', catalog['cycles'][0]['attempts'][0])
+        self.assertEqual(self.store.snapshot(cycle_ids=[])['cycles'], [])
+        self.assertEqual(original['snapshotRevision'], self.store.snapshot()['snapshotRevision'])
+
     def test_submit_ack_loss_replay_survives_restart_without_revision_change(self):
         context, refs = self.start(), [self.evidence()]
         first = self.submit(context, refs=refs)

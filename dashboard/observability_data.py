@@ -278,7 +278,7 @@ def _artifact_entry(source, selected, record, preview_probe, scope):
     return entry
 
 
-def artifact_projection(source, selected=None):
+def artifact_projection(source, selected=None, *, kinds=None):
     selected = (source.project()["id"] or "") if selected is None else selected
     if not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", selected):
         return {"items": [], "status": "unavailable", "selectedProject": None,
@@ -338,6 +338,8 @@ def artifact_projection(source, selected=None):
             record = json.loads(raw)
             if not isinstance(record, dict):
                 invalid += 1
+                continue
+            if kinds is not None and record.get('kind') not in kinds:
                 continue
             record_project = record.get("project")
             if not isinstance(record_project, str) or not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", record_project):

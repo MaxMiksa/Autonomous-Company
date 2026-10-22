@@ -168,6 +168,7 @@ test('local motion settles safely on resize, reduced motion and backgrounding', 
 test('detail return starts promptly on both the header and page timelines', async ({ page, center }) => {
   await openCenter(page, center);
   await page.locator('.product-link').first().click();
+  await expect(page.locator('#journalBackLink')).toBeVisible();
   await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
   const result = await page.evaluate(async () => {
     const navigation = document.querySelector('.topbar > .navline');
@@ -1098,6 +1099,8 @@ test.describe('long product history', () => {
   test.use({ centerCycles: 36 });
   test('limited older rows load their recorded detail and keep scoped logs', async ({ page, center }) => {
     await page.goto(`${center.url}/products/${center.entryId}`);
+    await expect(page.locator('#historyList [data-disclosure]')).toHaveCount(19);
+    await page.locator('.history-more').click();
     await expect(page.locator('#historyList [data-disclosure]')).toHaveCount(35);
     const oldest = page.locator('#historyList [data-disclosure]').last();
     await oldest.locator('.disclosure-trigger').click();

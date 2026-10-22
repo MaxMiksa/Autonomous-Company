@@ -13,12 +13,36 @@ import time
 # Fixed reader code; imported roots are data, never executable status scripts.
 PROC_READER = """
 import json, os, pathlib, sys
+def isolated_run(root):
+    def read(path, limit):
+        if path.is_symlink() or path.stat().st_size > limit:
+            raise ValueError('unsafe observation')
+        return json.loads(path.read_text())
+    try:
+        pending = read(root / 'logs/usage.jsonl.pending', 32768)
+        if pending.get('record_role') != 'harness_attempt':
+            return None
+        state = read(root / '.autonomous-company/product-state.json', 4194304)
+        cycle = state['cycles'][pending['logical_cycle_id']]
+        owner = cycle['identityId']
+        if not isinstance(owner, str) or any(ch not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for ch in owner):
+            return None
+        record = read(root / '.autonomous-company/isolation' / owner / 'active-run.json', 32768)
+        if record.get('cycle') != pending['logical_cycle_id'] or record.get('attemptId') != pending['attempt_id'] or type(record.get('pid')) is not int:
+            return None
+        fields = (pathlib.Path('/proc') / str(record['pid']) / 'stat').read_text().rsplit(')', 1)[1].split()
+        if fields[0] == 'Z' or fields[19] != record.get('processStart'):
+            return None
+        return {'cycleId': record['cycle'], 'attemptId': record['attemptId'], 'pid': record['pid'], 'processStart': fields[19]}
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return None
 def observe(root, pid):
     root = pathlib.Path(root).resolve()
     try:
         expected = root / 'scripts/core/auto-loop.sh'
         folders = [pathlib.Path('/proc') / str(pid)] if pid else [p for p in pathlib.Path('/proc').iterdir() if p.name.isdigit()]
         alive = False
+        started = None
         for folder in folders:
             try:
                 if not pid and folder.stat().st_uid != os.getuid():
@@ -33,9 +57,10 @@ def observe(root, pid):
                         path = (folder / 'cwd').resolve() / path
                     if stat[0] != 'Z' and path.resolve() == expected:
                         alive = True
+                        started = stat[19]
             except FileNotFoundError:
                 continue
-        return {'available': True, 'alive': alive}
+        return {'available': True, 'alive': alive, **({'processStart': started, 'harnessRun': isolated_run(root)} if alive else {})}
     except FileNotFoundError:
         return {'available': True, 'alive': False}
     except (OSError, ValueError, IndexError):
@@ -172,7 +197,8 @@ class ReadOnlyObserver:
                             phase = 'unavailable'
                         value = {'ok': phase != 'unavailable', 'timestamp': datetime.now(timezone.utc).isoformat(),
                                  'source': 'source_process', 'executionDomain': observed['executionDomain'],
-                                 'stateFile': state, 'parsed': {'loop': {'state': phase,
+                                 'stateFile': state, 'processStart': observed.get('processStart'), 'harnessRun': observed.get('harnessRun'),
+                                 'parsed': {'loop': {'state': phase,
                                      'processState': 'running' if observed['alive'] else 'stopped',
                                      'pid': pid if observed['alive'] else None}}}
                 except (OSError, ValueError):

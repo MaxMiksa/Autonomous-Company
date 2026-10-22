@@ -1118,7 +1118,7 @@ def effective_settings(root, marker=None, observation=None):
     from localization import read_settings
     _, settings = read_settings(root)
     allowed = {"ENGINE", "MODEL", "CODEX_MODEL", "CODEX_EFFORT", "CODEX_REASONING_EFFORT", "LANGUAGE", "AUTONOMOUS_COMPANY_LANGUAGE",
-               "ACTIVE_PROJECT", "CLAUDE_MODEL", "CURSOR_MODEL", "OPENAI_COMPATIBLE_MODEL"}
+               "ACTIVE_PROJECT", "CLAUDE_MODEL", "CURSOR_MODEL", "OPENAI_COMPATIBLE_MODEL", "COMPANY_HARNESS_ENABLED", "CODEX_SANDBOX_MODE"}
     value = {key: data for key, data in settings.items() if key in allowed}
     owner = (observation or {}).get("owner") or {}
     if marker and owner and owner.get("manifest") and all(owner.get(key) == marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId")):
@@ -1150,6 +1150,23 @@ def readonly_probe(marker):
         if not existing_lock_free(domain / "slot.lock") or legacy and (legacy.get("state") != "terminal" or not legacy.get("cleanupConfirmed")):
             result.update(slotFree=False, legacyConflict=True)
     return result
+
+
+def harness_run_observation(root):
+    from product_identity import read_state
+    try:
+        pending = read_json(control_path(root, 'logs/usage.jsonl.pending'))
+        if pending.get('record_role') != 'harness_attempt':
+            return None
+        cycle = read_state(root)['cycles'][pending['logical_cycle_id']]
+        record = read_json(control_path(root, '.autonomous-company/isolation/' + cycle['identityId'] + '/active-run.json'))
+        process = identity(record['pid'])
+        if (not process or record.get('cycle') != pending['logical_cycle_id'] or record.get('attemptId') != pending['attempt_id'] or
+                str(process['start']) != record.get('processStart')):
+            return None
+        return {'cycleId': record['cycle'], 'attemptId': record['attemptId'], 'pid': record['pid'], 'processStart': record['processStart']}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def source_query(root, query="status", center_id=None, relative_path=None, offset=0, limit=262144, expected_product_id=None):
@@ -1185,6 +1202,8 @@ def source_query(root, query="status", center_id=None, relative_path=None, offse
         pending = control_path(root, "logs/usage.jsonl.pending")
         result["usagePendingMtimeNs"] = pending.stat().st_mtime_ns if pending.exists() else None
         result["parsed"]["loop"]["pid"] = int(result["pid"]) if (result["pid"] or "").isdigit() else None
+        process = identity(result['parsed']['loop']['pid']) if running and result['parsed']['loop']['pid'] else None
+        result.update(processStart=str(process['start']) if process else None, harnessRun=harness_run_observation(root) if running else None)
         if query == "recovery":
             result.update(recoverable=pause_reason == "interrupted_cycle",
                           pendingRecovery=control_path(root, "memories/.consensus-cycle-pending").exists(),
@@ -1202,12 +1221,23 @@ def source_query(root, query="status", center_id=None, relative_path=None, offse
     allowed = relative_path in {".auto-loop-state", ".auto-loop.pid", ".auto-loop-paused",
                                 ".autonomous-company/product-state.json", "logs/usage.jsonl", "logs/usage.jsonl.pending"}
     log_allowed = re.fullmatch(r"logs/(?:auto-loop\.log|cycle-[A-Za-z0-9_-]+\.(?:log|json))", relative_path)
+    harness_attempt = re.fullmatch(r"logs/(attempt-[A-Za-z0-9_-]+)\.(?:log|json)", relative_path)
+    if harness_attempt:
+        from company_harness import HarnessStore
+        from product_identity import read_state
+        state = read_state(root)
+        cycles = HarnessStore(root).snapshot(compact=True)['cycles']
+        cycle = next((cycle for cycle in cycles if any(attempt['attemptId'] == harness_attempt[1] for attempt in cycle['attempts'])), None)
+        identity = state['cycles'].get(cycle['cycleId']) if cycle else None
+        if not identity or expected_product_id and expected_product_id not in {identity['identityId'], *identity.get('createdProductIds', [])}:
+            raise ValueError('attempt_not_recorded')
+        log_allowed = True
     if not log_allowed and (query == "log" or not allowed):
         raise ValueError("invalid_read_path")
     path = control_path(root, relative_path)
     if not path.is_file():
         raise ValueError("source_file_missing")
-    if query == "log" and relative_path != "logs/auto-loop.log":
+    if query == "log" and relative_path != "logs/auto-loop.log" and not harness_attempt:
         # Require a real durable companion record; caller cannot select an
         # arbitrary file by presenting a path that merely resembles a cycle.
         record = path.with_suffix(".json")

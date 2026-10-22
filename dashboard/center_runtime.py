@@ -47,6 +47,16 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def harness_capability(root, engine):
+    if engine != 'codex':
+        return {'supported': False, 'enabled': False, 'reason': 'unsupported_adapter'}
+    if os.environ.get('CODEX_SANDBOX_MODE', 'danger-full-access') != 'danger-full-access':
+        return {'supported': False, 'enabled': False, 'reason': 'unsupported_inner_sandbox'}
+    supported = all((Path(root) / 'scripts/core' / name).is_file() for name in
+                    ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py', 'company_harness_client.py'))
+    return {'supported': supported, 'enabled': supported, 'reason': None if supported else 'unsupported_framework'}
+
+
 def recently_confirmed(request):
     try:
         return 0 <= (datetime.now(timezone.utc) - datetime.fromisoformat(request["liveConfirmedAt"])).total_seconds() <= 15
@@ -1369,7 +1379,9 @@ class CenterRuntime:
                     if actual != revision or not (prepared / "scripts/core/center_runner.py").is_file():
                         raise CenterError("RUNTIME_INCOMPATIBLE", "Prepared framework identity differs", 409)
                     configuration = operation["input"]["config"]
-                    (prepared / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=" + configuration["productLanguage"] + "\n", encoding="utf-8")
+                    harness = harness_capability(prepared, configuration['engine'])['supported']
+                    (prepared / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=" + configuration["productLanguage"] +
+                        "\nCOMPANY_HARNESS_ENABLED=" + ('1' if harness else '0') + "\n", encoding="utf-8")
                     if operation["input"]["direction"]:
                         consensus = prepared / "memories/consensus.md"
                         if not consensus.exists():
@@ -1395,7 +1407,8 @@ class CenterRuntime:
                 source = {"sourceId": reserved["sourceId"], "entryId": reserved["entryId"], "runtimeId": reserved["runtimeId"], "root": str(target),
                           "project": None, "productId": None, "explorationId": None, "kind": "exploration", "availability": "available",
                           "sourceRevision": 1, "revision": 1, "fingerprint": None, "identityFingerprint": None,
-                          "capabilities": {"readJournal": True, "readMedia": True, "execute": True, "preview": False, "capture": False}}
+                          "capabilities": {"readJournal": True, "readMedia": True, "execute": True, "preview": False, "capture": False,
+                                           "harness": harness_capability(target, operation['input']['config']['engine'])}}
                 runtime = {"runtimeId": reserved["runtimeId"], "root": str(target), "entryId": reserved["entryId"], "sourceId": reserved["sourceId"],
                            "centerId": self.store.center_id, "protocolVersion": 2, "managed": True, "executionDomain": self.domain, "frameworkRevision": revision, **attempt_identity}
                 with self.store.transaction() as tx:
@@ -1729,6 +1742,8 @@ class CenterRuntime:
             control_dir = self._control(request)
             configuration = request["config"]
             environment = {"ENGINE": configuration["engine"], "MODEL": configuration["model"], "AUTONOMOUS_COMPANY_LANGUAGE": configuration["productLanguage"]}
+            if configuration['engine'] != 'codex':
+                environment['COMPANY_HARNESS_ENABLED'] = '0'
             if configuration["engine"] == "codex":
                 environment["CODEX_REASONING_EFFORT"] = configuration["effort"]
             manifest = {key: request[key] for key in ("requestId", "dispatchId", "nonce", "runtimeId", "entryId", "sourceId")}

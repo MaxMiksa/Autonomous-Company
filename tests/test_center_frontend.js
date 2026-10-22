@@ -23,7 +23,7 @@ function helpers() {
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.lastIndexOf("\n  applyLanguage(); wire(); renderPage(); refresh();");
   assert.ok(binding > 0, "Center event wiring must follow helper declarations");
-  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write, wire, submitProbe, renderEntries, renderQueue, setRenderPage: callback => { renderPage = callback; } };\n});", context);
+  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestRoundState, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write, wire, submitProbe, renderEntries, renderQueue, setRenderPage: callback => { renderPage = callback; } };\n});", context);
   context.center.state.language = "en";
   return { ...context.center, messages: context.window.CENTER_MESSAGES, context };
 }
@@ -34,6 +34,7 @@ function journalHelpers() {
     document: { documentElement: { lang: "en" } }, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
   });
   vm.runInContext(fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(dashboard, "projection.js"), "utf8"), context);
   context.window.DashboardNavigation = { register(_kind, mount) { mount({ document: context.document, ui: (context.window.DashboardUI ||= {}), active: true, url: 'http://127.0.0.1:8843/products/entry-a', listen() {}, request: () => ({ valid: () => true, done() {} }) }); } };
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
@@ -41,6 +42,7 @@ function journalHelpers() {
   assert.ok(binding > 0, "Journal event wiring must follow helper declarations");
   vm.runInContext(journalApp.slice(0, binding) + "\n globalThis.journal = { state, scope, freshCenterRequest, centerRequestDisplayState, scopedCenterRuntimeState, scopedRecordedRuntimeState, runtimeStateValue, runtimeStatusLabel, runtimeLabel, requestContextLabel, centerRuntimeContextValue, historyGroups, fetchFullScopedJournal, journalPageMatches, safePreviewURL };\n});", context);
   context.journal.state.language = "en";
+  context.journal.state.controlFailed = false;
   return { ...context.journal, context };
 }
 
@@ -60,6 +62,18 @@ test("queue badge counts requests without treating read-only unknown products as
   state.summary = { currentRequest: null, queuedCount: 0, attentionCount: 0 };
   renderCounts();
   assert.equal(elements.queueNavCount.hidden, true);
+});
+
+test("center Harness execution needs actual confirmation while validation and closing remain visible", () => {
+  const { latestRoundState } = helpers();
+  for (const status of ['running', 'correcting', 'recovering']) {
+    const entry = { cycleNumber: 1, latestHarnessVersion: 2, latestCycleStatus: status, latestProtocolState: 'executing' };
+    assert.equal(latestRoundState(entry), 'unknown');
+    assert.equal(latestRoundState({ ...entry, latestCycleActiveConfirmed: true }), status);
+  }
+  for (const status of ['validating', 'closing', 'handoff', 'completed']) {
+    assert.equal(latestRoundState({ cycleNumber: 1, latestHarnessVersion: 2, latestCycleStatus: status, latestCycleActiveConfirmed: false }), status);
+  }
 });
 
 test("center fixed labels are complete and bilingual", () => {
@@ -443,7 +457,8 @@ test("product detail routes are entry scoped with no standalone API fallback", (
   assert.match(journalApp, /fetchScopedText\(id === 'runtime' \? state\.data\.runtimeLogUrl : cycle\?\.logUrl/);
   assert.match(journalApp, /fetchCenter\(scopedJournalPath\('\/media\/capture'\), options/);
   assert.doesNotMatch(journalApp, /['"]\/api\/(?:journal|language|action|product-media|log-tail)(?:[/'"?])/);
-  assert.ok(journalApp.includes("await Promise.all([fetchFullScopedJournal(), fetchCenter('/summary')])"));
+  assert.ok(journalApp.includes("const data = await fetchFullScopedJournal()"));
+  assert.ok(journalApp.includes("refreshScopedUsage(); refreshMedia();"));
   assert.match(journalApp, /fetchAllCenterEntries\(\)/);
   assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| 'unknown'/);
   assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| 'unknown'/);
@@ -453,7 +468,7 @@ test("product detail routes are entry scoped with no standalone API fallback", (
 test("blank exploration direction stays a string and preparations survive refresh", () => {
   assert.match(app, /direction: text\(group\.querySelector/);
   assert.doesNotMatch(app, /direction: text\([^\n]+\|\| null/);
-  assert.match(app, /state\.operations = operations\.items/);
+  assert.match(app, /state\[kind\] = data\.items/);
   assert.match(app, /groups\.operationAttention/);
   assert.match(app, /preparationAttentionSection/);
 });
@@ -704,7 +719,7 @@ test('reconcile retains errors in status and blocks duplicate action across queu
   assert.match(h.nodes.actionError.children.map(item => item.textContent).join(''), /Connection lost/); assert.equal(buttonFor().disabled, false);
 });
 
-test('refresh publishes metadata only with a complete validated snapshot, including delayed failed responses', async () => {
+test('center business partitions update despite a control failure without publishing mixed control metadata', async () => {
   const h = harness();
   h.context.fetch = async url => refreshResponse(url);
   await h.refresh();
@@ -717,7 +732,7 @@ test('refresh publishes metadata only with a complete validated snapshot, includ
   };
   await h.refresh();
   assert.equal(h.state.stale, true);
-  assert.equal(h.state.summary, original.summary); assert.equal(h.state.entries, original.entries);
+  assert.equal(h.state.summary.changed, true); assert.notEqual(h.state.entries, original.entries);
   assert.equal(h.state.revision, original.revision); assert.equal(h.state.observedAt, original.observedAt);
   // A later complete refresh can succeed before the rejected batch's final reply.
   h.context.fetch = async url => envelope(url.includes('/summary') ? { language: 'en', recovered: true } : url.includes('/preferences') ? {} : { items: [], total: 0 }, 3, '2026-09-30T12:00:00Z');
@@ -745,6 +760,25 @@ test('invalid refresh data and failed later entry pages retain rendered metadata
     await h.refresh();
     assert.equal(h.state.stale, true); assert.equal(h.state.revision, 1); assert.equal(h.state.observedAt, original);
   }
+});
+
+test('slow controls and preferences do not freeze new catalog rows or enable unconfirmed actions', async () => {
+  const h = harness(), summary = deferred(), preferences = deferred();
+  let round = 1;
+  h.context.fetch = async url => {
+    if (url.includes('/summary')) return summary.promise;
+    if (url.includes('/preferences')) return preferences.promise;
+    return envelope({ items: url.includes('/entries') ? [{ entryId: `entry-${round}` }] : [], total: url.includes('/entries') ? 1 : 0 }, round);
+  };
+  await h.refresh();
+  assert.equal(h.state.entries[0].entryId, 'entry-1'); assert.equal(h.state.stale, true);
+  round = 2; await h.refresh();
+  assert.equal(h.state.entries[0].entryId, 'entry-2'); assert.equal(h.state.stale, true);
+  summary.reject(new Error('control unavailable')); preferences.reject(new Error('preferences unavailable'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.state.entries[0].entryId, 'entry-2'); assert.equal(h.state.stale, true);
+  h.context.fetch = async url => envelope(url.includes('/summary') ? { language: 'en' } : url.includes('/preferences') ? {} : { items: [], total: 0 }, 3); await h.refresh();
+  assert.equal(h.state.stale, false);
 });
 
 test('probe then commit retains the latest API revision without advancing the rendered snapshot', async () => {

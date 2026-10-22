@@ -74,15 +74,21 @@ def protocol_cycle(cycle, recorded=None):
     outcome = cycle.get('outcome')
     timing = deepcopy(cycle.get('time') or {})
     attempts = deepcopy(cycle.get('attempts') or [])
+    for attempt in attempts:
+        attempt.pop('context', None)
+        attempt.pop('ownership', None)
     active = next((attempt for attempt in attempts
                    if attempt.get('attemptId') == cycle.get('activeAttemptId')), None)
     status = OUTCOMES.get(outcome, 'unknown') if state == 'closed' else STATES.get(state, 'unknown')
     result.update(id=identity, cycleId=identity, harnessVersion=2,
                   protocolState=state, outcome=outcome, status=status,
                   objective=cycle.get('objective'), workKind=cycle.get('workKind'),
+                  contract=deepcopy(cycle.get('contract') or {}),
                   timeClass=cycle.get('timeClass'), time=timing,
                   activeAttemptId=cycle.get('activeAttemptId'), attempts=attempts,
                   recoveries=deepcopy(cycle.get('recoveries') or []),
+                  evidenceRefs=deepcopy(((cycle.get('closeReceipt') or {}).get('input') or {}).get('verification', {}).get('evidenceRefs', [])),
+                  primaryEvidenceId=cycle.get('primaryEvidenceId'),
                   qualityApplicability=deepcopy(cycle.get('qualityApplicability') or []),
                   continuationDecision=deepcopy(cycle.get('continuationDecision') or {
                       'allowed': False, 'reason': 'not_evaluated'}))
@@ -107,6 +113,12 @@ def protocol_cycle(cycle, recorded=None):
     result['costStatus'] = ('reported' if usage.get('costComplete') is True else
                             'partial' if usage.get('cost') is not None else 'unavailable')
     result['harnessReport'] = deepcopy(cycle.get('report') or {'status': 'missing'})
+    if result.get('primaryEvidenceId') is None:
+        submission_id = ((cycle.get('closeReceipt') or {}).get('input') or {}).get('submissionId')
+        submission = next((row for row in cycle.get('submissions', []) if row['submissionId'] == submission_id), None)
+        if submission:
+            refs = submission['payload'].get('evidenceRefs', [])
+            result['primaryEvidenceId'] = submission['payload'].get('primaryEvidenceId') or (refs[0]['evidenceId'] if len(refs) == 1 else None)
     report = result['harnessReport']
     # The legacy report field is text. New structured content stays in its own field.
     value = report if isinstance(report, dict) else {}
@@ -117,16 +129,24 @@ def protocol_cycle(cycle, recorded=None):
     if usable:
         result['workReport'] = {key: value[key] for key in ('title', 'summary', 'blocker') if key in value}
         result['workReport']['phase'] = value.get('reportedPhase')
-        result['workReportStatus'] = 'recorded'
+        result['workReport'].update(recorded_at=value.get('reportedAt'), final=False,
+            source='model_report', reportSource='publish_progress', reporterAttemptId=value.get('reporterAttemptId'),
+            reportRevision=value.get('reportRevision'))
+        result['workReportStatus'] = 'valid'
         result['report'] = result['summary'] = value.get('summary', '')
     selected = active or (attempts[-1] if attempts else None)
+    for attempt in attempts:
+        attempt['eventsHealth'] = deepcopy((attempt.get('actualResult') or {}).get('eventsHealth') or {
+            'status': 'missing', 'truncated': False, 'gaps': [], 'asOf': None})
+    result['eventsHealth'] = deepcopy(selected['eventsHealth']) if selected else {
+        'status': 'missing', 'truncated': False, 'gaps': [], 'asOf': None}
     result['events'] = []
     for event in selected.get('events', []) if selected else []:
         value = deepcopy(event.get('event', event))
         value.update(sequence=event.get('sequence'), observedAt=event.get('observedAt'),
                      attemptId=selected['attemptId'], cycleId=identity)
         result['events'].append(value)
-    result['eventStatus'] = 'recorded' if selected else 'missing'
+    result['eventStatus'] = 'partial' if result['eventsHealth'].get('status') == 'partial' else 'recorded' if result['events'] else 'missing'
     return result
 
 

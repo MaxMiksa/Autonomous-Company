@@ -21,6 +21,7 @@ window.DashboardNavigation.register('center', (view) => {
     autoRefresh: true,
     otherExpanded: false,
     sort: "activity", sortDirection: "desc", roundFilter: "all", previewMode: "screenshot",
+    readParts: new Map(), pendingParts: new Map(), stagedParts: new Map(),
   };
 
   const VIEW_STATE_KEY = "autonomous-company:center:view:v1";
@@ -55,7 +56,7 @@ window.DashboardNavigation.register('center', (view) => {
       if (CATALOG_FILTERS.includes(saved.filter)) state.filter = saved.filter;
       if (["activity", "name", "work", "status", "round"].includes(saved.sort)) state.sort = saved.sort;
       if (["asc", "desc"].includes(saved.sortDirection)) state.sortDirection = saved.sortDirection;
-      if (["all", "completed", "running", "failed", "pending", "interrupted", "completed_with_timeout", "paused", "unknown", "not_started", "startup_unconfirmed", "no_rounds"].includes(saved.roundFilter)) state.roundFilter = saved.roundFilter;
+      if (["all", "completed", "running", "correcting", "validating", "closing", "recovering", "handoff", "failed", "pending", "interrupted", "completed_with_timeout", "paused", "unknown", "not_started", "startup_unconfirmed", "no_rounds"].includes(saved.roundFilter)) state.roundFilter = saved.roundFilter;
       if (Number.isFinite(saved.scroll) && saved.scroll >= 0) state.restoreScroll = saved.scroll;
       $("productSearch").value = state.query;
     } catch (_) {}
@@ -395,7 +396,7 @@ window.DashboardNavigation.register('center', (view) => {
       for (const direction of ["asc", "desc"]) sortGroup.append(new Option(message(field === "round" ? direction === "asc" ? "roundAscending" : "roundDescending" : direction === "asc" ? "statusRunningFirst" : "statusUnknownFirst"), `sort:${direction}`));
       select.append(sortGroup);
       const filterGroup = element("optgroup"); filterGroup.label = message("filterProducts");
-      const values = field === "status" ? ["running", "queued", "attention", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping", "archived", "reference", "exploration"] : ["completed", "running", "failed", "pending", "not_started", "startup_unconfirmed", "interrupted", "completed_with_timeout", "paused", "unknown", "no_rounds"];
+      const values = field === "status" ? ["running", "queued", "attention", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping", "archived", "reference", "exploration"] : ["completed", "running", "correcting", "validating", "closing", "recovering", "handoff", "failed", "pending", "not_started", "startup_unconfirmed", "interrupted", "completed_with_timeout", "paused", "unknown", "no_rounds"];
       for (const value of values) filterGroup.append(new Option(field === "status" ? filterLabel(value) : roundLabel(value), `filter:${value}`));
       select.append(filterGroup);
       const current = field === "status" ? state.filter : state.roundFilter;
@@ -422,6 +423,10 @@ window.DashboardNavigation.register('center', (view) => {
   function latestRoundState(entry) {
     if (!knownNumber(entry.cycleNumber) && ["", "unknown"].includes(text(entry.latestCycleStatus))) return "no_rounds";
     const recorded = text(entry.latestCycleStatus) || "unknown";
+    if (entry.latestHarnessVersion === 2) {
+      if (["running", "correcting", "recovering"].includes(recorded) && entry.latestCycleActiveConfirmed !== true) return "unknown";
+      return recorded;
+    }
     return readonlyObservationState(entry) === "ended" && ["running", "startup_unconfirmed", "pending"].includes(recorded) ? "interrupted" : recorded;
   }
 
@@ -662,6 +667,7 @@ window.DashboardNavigation.register('center', (view) => {
   }
 
   function refreshRuntimeProjection(currentTime = Date.now()) {
+    if (state.readParts.size) updateReadHealth();
     const signature = runtimeProjectionSignature(currentTime);
     if (signature === state.projectionSignature) return;
     const focused = rememberFocus();
@@ -852,6 +858,63 @@ window.DashboardNavigation.register('center', (view) => {
     $("stopAllReason").textContent = $("stopAllButton").disabled ? message(state.stale ? "staleActionsDisabled" : "noActiveWork") : "";
   }
 
+  function updateReadHealth() {
+    const required = ['entries', 'summary', 'requests', 'operations'].map(kind => state.readParts.get(kind));
+    state.stale = required.some(part => !part || part.failed || Date.now() - part.receivedAt > 15000);
+    if (!state.stale && required.every(part => part.round === state.refreshToken)) {
+      const latest = required.reduce((previous, part) => (part.revision ?? -1) > (previous.revision ?? -1) || part.revision === previous.revision && part.observedAt > previous.observedAt ? part : previous);
+      state.revision = latest.revision; state.observedAt = latest.observedAt;
+      state.apiCenterId = state.centerId; state.apiRevision = Math.max(state.apiRevision ?? 0, state.revision ?? 0);
+      state.lastSuccessAt = state.observedAt;
+    }
+    if (state.revision === null) state.stale = true;
+  }
+  function installReadPart(kind, data, metadata, generation) {
+    if (!view.active || generation !== state.writeGeneration) return;
+    if (kind === 'entries') {
+      if (state.centerId !== metadata.centerId) {
+        state.centerId = metadata.centerId; state.readParts.clear(); state.summary = null; state.requests = []; state.operations = []; state.preferences = null;
+        state.revision = null; state.apiRevision = null; state.apiCenterId = metadata.centerId;
+      }
+    } else if (metadata.centerId !== state.centerId) {
+      state.stagedParts.set(kind, { data, metadata, generation }); return;
+    }
+    const previous = state.readParts.get(kind);
+    if (previous && metadata.revision < previous.revision) return;
+    state.readParts.set(kind, { ...metadata, receivedAt: Date.now(), failed: false });
+    if (kind === 'entries') { state.entries = data.items; state.loading = false; }
+    else if (kind === 'summary') state.summary = data;
+    else if (kind === 'requests' || kind === 'operations') state[kind] = data.items;
+    else state.preferences = data;
+    const language = state.summary?.language || state.preferences?.language;
+    if (['en', 'zh-CN'].includes(language)) state.language = language;
+    updateReadHealth(); renderPage();
+    if (kind === 'entries') {
+      for (const [part, staged] of state.stagedParts) {
+        state.stagedParts.delete(part);
+        if (staged.metadata.centerId === state.centerId) installReadPart(part, staged.data, staged.metadata, staged.generation);
+      }
+      if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
+    }
+  }
+  function readPart(kind, path) {
+    const generation = state.writeGeneration;
+    const pending = state.pendingParts.get(kind);
+    if (pending?.generation === generation) return pending.promise;
+    const metadata = { centerId: state.centerId, revision: null, observedAt: null, round: state.refreshToken };
+    const promise = (async () => { try {
+      const data = kind === 'entries' ? await allEntries(metadata) : await api(path, {}, 15000, metadata);
+      if (kind !== 'summary' && kind !== 'preferences' && !Array.isArray(data?.items) || !data || !metadata.centerId) throw new APIError({ code: 'INVALID_RESPONSE' }, 200);
+      installReadPart(kind, data, metadata, generation);
+    } catch (error) {
+      if (error.name !== 'AbortError' && view.active && generation === state.writeGeneration) {
+        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true });
+        if (kind === 'entries') state.loading = false;
+        updateReadHealth(); renderPage();
+      }
+    } finally { if (state.pendingParts.get(kind)?.promise === promise) state.pendingParts.delete(kind); } })();
+    state.pendingParts.set(kind, { promise, generation }); return promise;
+  }
   async function refresh() {
     if (!view.active) return;
     if (state.refreshing) {
@@ -861,28 +924,13 @@ window.DashboardNavigation.register('center', (view) => {
       return;
     }
     const generation = state.writeGeneration; state.refreshGeneration = generation;
-    const token = ++state.refreshToken;
+    ++state.refreshToken;
     const promise = (async () => {
       try {
-        const snapshot = { centerId: state.centerId, revision: state.revision, observedAt: state.observedAt };
-        const read = (path) => api(path, {}, 30000, snapshot);
-        const [summary, entries, requests, operations, preferences] = await Promise.all([
-          read("/summary"), allEntries(snapshot), read("/requests?limit=100"), read("/operations"), read("/preferences"),
-        ]);
-        if (token !== state.refreshToken || generation !== state.writeGeneration) return;
-        if (!summary || !Array.isArray(entries?.items) || !Array.isArray(requests?.items) || !Array.isArray(operations?.items)) throw new APIError({ code: "INVALID_RESPONSE" }, 200);
-        state.centerId = snapshot.centerId; state.revision = snapshot.revision; state.observedAt = snapshot.observedAt;
-        if (state.apiCenterId !== snapshot.centerId) { state.apiCenterId = snapshot.centerId; state.apiRevision = snapshot.revision; }
-        else state.apiRevision = Math.max(state.apiRevision ?? 0, snapshot.revision ?? 0);
-        state.summary = summary; state.entries = entries.items; state.requests = requests.items; state.operations = operations.items; state.preferences = preferences; state.loading = false; state.stale = false;
-        state.lastSuccessAt = state.observedAt || new Date().toISOString();
-        const language = summary.language || state.preferences?.language;
-        if (["en", "zh-CN"].includes(language)) state.language = language;
-        renderPage();
-        if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
-      } catch (_) {
-        if (token !== state.refreshToken || generation !== state.writeGeneration) return;
-        state.loading = false; state.stale = true; renderPage();
+        const entries = readPart('entries', '/entries');
+        readPart('summary', '/summary'); readPart('requests', '/requests?limit=100');
+        readPart('operations', '/operations'); readPart('preferences', '/preferences');
+        await entries;
       } finally {
         state.refreshing = null; clearTimeout(state.timer); if (view.active && state.autoRefresh) state.timer = setTimeout(refresh, state.stale ? 15000 : 5000);
       }

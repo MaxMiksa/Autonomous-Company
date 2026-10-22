@@ -13,7 +13,8 @@ from test_center_catalog import CenterCatalogTests
 from test_center_runtime import FakeAdapter
 from center_runtime import CenterRuntime
 from center_server import CenterServer
-from runtime_artifacts import base_record, save
+from runtime_artifacts import base_record, fingerprint, save
+from runtime_events import Recorder
 from cycle_reports import write_report
 import center_profiles
 
@@ -33,9 +34,14 @@ class BrowserAdapter(FakeAdapter):
 parser = argparse.ArgumentParser()
 parser.add_argument('--cycles', type=int, choices=(6, 36), default=6)
 parser.add_argument('--exploration-cycles', type=int, choices=(0, 3), default=0)
+parser.add_argument('--legacy-interrupted', action='store_true')
 args = parser.parse_args()
 case = CenterCatalogTests()
 case.setUp()
+# HTTP mock envelopes in this suite use the same deterministic disposable center.
+# Persist it as well as updating the in-memory identity; never mix test centers.
+case.store._connection.execute("UPDATE metadata SET value='fixture' WHERE key='centerId'")
+case.store.center_id = 'fixture'
 server = None
 try:
     for number in range(1, args.exploration_cycles + 1):
@@ -47,11 +53,20 @@ try:
         cycle = case.cycle(attempt='browser-' + str(number), tokens=10)
         write_report(case.root, cycle['cycleId'], {'title': f'Fixture round {number}',
                      'summary': f'Recorded fixture detail {number}', 'phase': 'review', 'blocker': '', 'final': True}, 'projects/one')
+    if args.legacy_interrupted:
+        (case.root / 'logs' / (cycle['cycleId'] + '.work.json')).unlink()
+        Recorder(case.root, cycle['cycleId']).emit('report', text='Actual interrupted legacy report', source='agent_report')
+        document = case.write('projects/one/DELIVERY.md', 'Bound legacy delivery evidence')
+        artifact = base_record('projects/one', 'document', case.root)
+        artifact.update(cycleId=cycle['cycleId'], path='projects/one/DELIVERY.md', sha256=fingerprint(document))
+        save(case.root, artifact)
     ledger = case.root / 'logs/usage.jsonl'
     rows = [json.loads(line) for line in ledger.read_text().splitlines()]
     for number, row in enumerate(rows, 1):
         row.update(started_at=f'2026-09-26T01:{number:02d}:00+00:00',
                    ended_at=f'2026-09-26T01:{number:02d}:30+00:00')
+    if args.legacy_interrupted:
+        rows[-1]['status'] = 'interrupted'
     ledger.write_text(''.join(json.dumps(row) + '\n' for row in rows))
     case.write('.autonomous-company.local', 'ACTIVE_PROJECT=projects/one\nAUTONOMOUS_COMPANY_LANGUAGE=en\n')
     entry = next(row for row in case.import_root() if case.catalog.get_entry(row['entryId'])['kind'] == 'product')

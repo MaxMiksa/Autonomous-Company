@@ -16,7 +16,7 @@ class CenterError(Exception):
 
 class _Transaction:
     def __init__(self, connection):
-        self.connection, self.changed = connection, False
+        self.connection, self.changed, self.control_changed = connection, False, False
 
     def get(self, kind, identity):
         row = self.connection.execute('SELECT body FROM records WHERE kind=? AND id=?', (kind, identity)).fetchone()
@@ -31,9 +31,12 @@ class _Transaction:
         if not current or current[0] != body:
             self.connection.execute('INSERT OR REPLACE INTO records VALUES (?,?,?)', (kind, identity, body))
             self.changed = True
+            self.control_changed |= kind not in {'projection_bindings', 'projection_versions', 'projection_current', 'projection_media', 'projection_observations'}
 
     def delete(self, kind, identity):
-        self.changed |= self.connection.execute('DELETE FROM records WHERE kind=? AND id=?', (kind, identity)).rowcount > 0
+        changed = self.connection.execute('DELETE FROM records WHERE kind=? AND id=?', (kind, identity)).rowcount > 0
+        self.changed |= changed
+        self.control_changed |= changed and kind not in {'projection_bindings', 'projection_versions', 'projection_current', 'projection_media', 'projection_observations'}
 
 
 class CenterStore:
@@ -98,7 +101,7 @@ class CenterStore:
                 self._connection.execute('BEGIN IMMEDIATE')
                 transaction = _Transaction(self._connection)
                 yield transaction
-                if transaction.changed:
+                if transaction.control_changed:
                     self._connection.execute("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'")
                 self._connection.execute('COMMIT')
             except BaseException:

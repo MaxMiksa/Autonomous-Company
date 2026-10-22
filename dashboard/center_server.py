@@ -47,6 +47,7 @@ STATIC = {
     "/center.css": ("center.css", "text/css; charset=utf-8"),
     "/center-i18n.js": ("center-i18n.js", "application/javascript; charset=utf-8"),
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
+    "/projection.js": ("projection.js", "application/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/i18n.js": ("i18n.js", "application/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
@@ -101,14 +102,14 @@ class CenterHandler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(15)
 
-    def respond(self, body, mime, status=200):
+    def respond(self, body, mime, status=200, *, sandbox=False):
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" if sandbox else "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -254,13 +255,13 @@ class CenterHandler(BaseHTTPRequestHandler):
                     result["entry"] = runtime.decorate_entry(result["entry"])
                 self.result(result)
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/records/({IDENTIFIER})", route):
-            self.result(catalog.record(match[1], match[2], query.get("sourceId")))
+            self.result(catalog.record(match[1], match[2], query.get("sourceId"), query=query))
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/resources/({RESOURCE_IDENTIFIER})", route):
-            content, mime = catalog.resource(match[1], match[2], query.get("sourceId"))
+            content, mime = catalog.resource(match[1], match[2], query.get("sourceId"), query=query)
             # Business HTML must never execute under the control application's origin.
-            if mime.split(";", 1)[0].lower() not in {"text/plain", "application/json", "image/png", "image/svg+xml"}:
+            if mime.split(";", 1)[0].lower() not in {"text/plain", "application/json", "image/png", "image/svg+xml", "image/jpeg", "image/gif", "image/webp"}:
                 mime = "text/plain; charset=utf-8"
-            self.respond(content, mime)
+            self.respond(content, mime, sandbox=True)
         else:
             self.error("NOT_FOUND", "Resource not found.", 404)
 

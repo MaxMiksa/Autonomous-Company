@@ -25,7 +25,8 @@ class ReadOnlyObservationTests(unittest.TestCase):
             def observe(root):
                 return json.loads(subprocess.check_output([sys.executable, '-c', PROC_READER, str(root), '0']))
             try:
-                self.assertEqual(observe(source), {'available': True, 'alive': True})
+                started = (Path('/proc') / str(child.pid) / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+                self.assertEqual(observe(source), {'available': True, 'alive': True, 'processStart': started, 'harnessRun': None})
                 self.assertEqual(observe(source / 'other'), {'available': True, 'alive': False})
             finally:
                 child.terminate()
@@ -106,7 +107,8 @@ class ReadOnlyObservationTests(unittest.TestCase):
             child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)', command])
             try:
                 result = json.loads(subprocess.check_output([sys.executable, '-c', PROC_READER, '--batch', json.dumps([(root, 0) for root in roots])]))
-                self.assertEqual(result, [{'available': True, 'alive': True}, {'available': True, 'alive': False}])
+                started = (Path('/proc') / str(child.pid) / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+                self.assertEqual(result, [{'available': True, 'alive': True, 'processStart': started, 'harnessRun': None}, {'available': True, 'alive': False}])
             finally:
                 child.terminate()
                 child.wait()

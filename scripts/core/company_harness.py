@@ -157,6 +157,33 @@ class HarnessStore:
         for recovery in cycle["recoveries"]:
             self._settle(recovery["timer"])
         tx.put("cycle", cycle["cycleId"], cycle)
+        compact = json.loads(_json(cycle))
+        for attempt in compact["attempts"]:
+            attempt["usage"] = self._usage(attempt)
+            attempt["report"] = attempt["reports"][-1] if attempt["reports"] else {"status": "missing"}
+            attempt.pop("reports", None)
+            attempt.pop("calls", None)
+            attempt.pop("events", None)
+            attempt.pop("context", None)
+            attempt.pop("ownership", None)
+            attempt.pop("checkpoints", None)
+            attempt.pop("extensions", None)
+        compact["usage"] = self._cycle_usage(compact)
+        submission_id = ((cycle.get("closeReceipt") or {}).get("input") or {}).get("submissionId")
+        submission = next((row for row in cycle["submissions"] if row["submissionId"] == submission_id), None)
+        if submission:
+            refs = submission["payload"].get("evidenceRefs", [])
+            compact["primaryEvidenceId"] = submission["payload"].get("primaryEvidenceId") or (refs[0]["evidenceId"] if len(refs) == 1 else None)
+        compact.pop("submissions", None)
+        compact.pop("checkpoints", None)
+        tx.put("cycle_index", cycle["cycleId"], compact)
+        catalog = {key: value for key, value in compact.items() if key not in
+                   {"attempts", "usage", "contract", "closeReceipt", "primaryEvidenceId"}}
+        catalog["contract"] = {key: compact["contract"].get(key) for key in ("project", "capabilities", "runCycleNumber")}
+        catalog["attempts"] = [{key: attempt.get(key) for key in
+            ("attemptId", "status", "recoveryId", "writersStopped", "startedAt", "endedAt")}
+            for attempt in compact["attempts"]]
+        tx.put("cycle_catalog", cycle["cycleId"], catalog)
 
     def _budget(self, cycle, recovery=None):
         timer = recovery["timer"] if recovery else cycle["budgetTimer"]
@@ -278,7 +305,7 @@ class HarnessStore:
                 "extensions": [], "acceptedSubmissionId": None}
             cycle["attempts"].append(attempt)
             cycle.update(activeAttemptId=attempt_id, protocolState="recovering" if recovery else "executing")
-            tx.put("attempt", attempt_id, {"cycleId": cycle_id})
+            tx.put("attempt", attempt_id, {"cycleId": cycle_id, "generation": generation, "ownership": ownership})
             self._save_cycle(tx, cycle)
             return attempt
 
@@ -679,7 +706,7 @@ class HarnessStore:
             tx.put("continuation", cycle_id, value)
             return value
 
-    def snapshot(self):
+    def snapshot(self, cycle_ids=None, *, compact=False, catalog=False):
         if not self.path.exists():
             return {"projectionVersion": 2, "projectionEpoch": None, "snapshotRevision": 0,
                     "generation": None, "currentCycleId": None, "cycles": []}
@@ -688,7 +715,16 @@ class HarnessStore:
             connection.execute("BEGIN")
             tx = _Transaction(connection)
             meta = tx.get("meta", "state")
-            cycles = [json.loads(row[0]) for row in connection.execute("SELECT payload FROM records WHERE kind='cycle' ORDER BY rowid")]
+            kind = "cycle_catalog" if catalog else "cycle_index" if compact else "cycle"
+            if (compact or catalog) and connection.execute("SELECT COUNT(*) FROM records WHERE kind='cycle'").fetchone()[0] != connection.execute("SELECT COUNT(*) FROM records WHERE kind=?", (kind,)).fetchone()[0]:
+                raise HarnessError("INDEX_UNAVAILABLE")
+            if cycle_ids is None:
+                rows = connection.execute("SELECT payload FROM records WHERE kind=? ORDER BY rowid", (kind,))
+            else:
+                ids = list(dict.fromkeys(cycle_ids))
+                rows = connection.execute("SELECT payload FROM records WHERE kind=? AND id IN (" +
+                    ",".join("?" for _ in ids) + ") ORDER BY rowid", [kind, *ids]) if ids else []
+            cycles = [json.loads(row[0]) for row in rows]
             decisions = {row[0]: json.loads(row[1]) for row in connection.execute("SELECT id,payload FROM records WHERE kind='continuation'")}
         finally:
             connection.close()
@@ -712,11 +748,15 @@ class HarnessStore:
                 "hardLimitSeconds": cycle["executionTimer"]["limitSeconds"]}
             active = next((a for a in cycle["attempts"] if a["attemptId"] == cycle["activeAttemptId"]), None)
             selected = active or (cycle["attempts"][-1] if cycle["attempts"] else None)
-            cycle["report"] = selected["reports"][-1] if selected and selected["reports"] else {"status": "missing", "reporterAttemptId": selected["attemptId"] if selected else None}
+            cycle["report"] = (selected.get("report", {"status": "missing"}) if (compact or catalog) and selected else
+                selected["reports"][-1] if selected and selected["reports"] else
+                {"status": "missing", "reporterAttemptId": selected["attemptId"] if selected else None})
             for attempt in cycle["attempts"]:
-                attempt["usage"] = self._usage(attempt)
-                attempt["report"] = attempt["reports"][-1] if attempt["reports"] else {"status": "missing"}
-            cycle["usage"] = self._cycle_usage(cycle)
+                if not compact and not catalog:
+                    attempt["usage"] = self._usage(attempt)
+                    attempt["report"] = attempt["reports"][-1] if attempt["reports"] else {"status": "missing"}
+            if not compact and not catalog:
+                cycle["usage"] = self._cycle_usage(cycle)
         return {"projectionVersion": 2, **meta, "cycles": cycles}
 
     def read_evidence(self, evidence_id):
@@ -725,6 +765,25 @@ class HarnessStore:
         connection = self._connect()
         try:
             return _Transaction(connection).get("evidence", evidence_id)
+        finally:
+            connection.close()
+
+    def read_attempt_ownership(self, attempt_id):
+        """Trusted read-side process join; callers must not expose capabilities."""
+        if not self.path.exists():
+            return None
+        connection = self._connect()
+        try:
+            return _Transaction(connection).get('attempt', attempt_id)
+        finally:
+            connection.close()
+
+    def read_metadata(self):
+        if not self.path.exists():
+            return {'projectionEpoch': None, 'snapshotRevision': 0}
+        connection = self._connect()
+        try:
+            return _Transaction(connection).get('meta', 'state')
         finally:
             connection.close()
 

@@ -12,6 +12,7 @@ const app = fs.readFileSync(path.join(dashboard, "app.js"), "utf8");
 const i18n = fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8");
 
 function registerJournal(context) {
+  vm.runInContext(fs.readFileSync(path.join(dashboard, "projection.js"), "utf8"), context);
   context.URL = URL;
   context.location ||= { pathname: '/products/entry-a' };
   context.location.origin = 'http://127.0.0.1:8843';
@@ -29,6 +30,7 @@ function helpers() {
     getElementById: (id) => { assert.ok(fields.has(id), `Unexpected DOM dependency: ${id}`); return fields.get(id); },
   } });
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(dashboard, "projection.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   registerJournal(context);
   vm.runInContext(i18n, context);
@@ -37,7 +39,7 @@ function helpers() {
   // copied application logic, network request or production testing hook.
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
   assert.ok(binding > 0, "Journal event wiring must follow its helper declarations");
-  vm.runInContext(app.slice(0, binding) + "\n globalThis.journal = { state, message, aggregate, usageGroups, duration, cycleTitle, statusLabel, formatTime, fullTime, filterUsage, reportRows, liveDuration, checkCounts, checkPresentation, progressState, latestCycle, historyGroups, paddedCycleNumber, unavailableArtifact, mediaURL, mediaRetryError, iconPublicationWarning, publishedRefinement, readableLog };\n});", context);
+  vm.runInContext(app.slice(0, binding) + "\n globalThis.journal = { state, message, aggregate, usageGroups, duration, cycleTitle, statusLabel, formatTime, fullTime, filterUsage, reportRows, liveDuration, checkCounts, checkPresentation, progressState, latestCycle, presentCycle, historyGroups, paddedCycleNumber, unavailableArtifact, mediaURL, mediaRetryError, iconPublicationWarning, publishedRefinement, readableLog, installCycleComponents, projection };\n});", context);
   context.journal.state.language = "en";
   return { ...context.journal, messages: context.window.JOURNAL_MESSAGES, vocabulary: context.window.DashboardStatus, fields };
 }
@@ -66,12 +68,48 @@ test('usage separates different engines and unknown model identities', () => {
   assert.match(fullTime('2020-01-01T12:00:00Z'), /^2020-01-01 \d{2}:\d{2}$/);
 });
 
+test('rejected optional report facts preserve only the same attempt cache', () => {
+  const { installCycleComponents } = helpers();
+  const cycle = attempt => ({ id: 'cycle', activeAttemptId: attempt, workReport: { title: 'Rejected observation' },
+    partitions: { report: { status: 'unavailable', revision: null, errorCode: 'STALE_OBSERVATION' } } });
+  const previous = { cycles: [{ id: 'cycle', activeAttemptId: 'first', workReport: { title: 'Known report' },
+    partitions: { report: { revision: 3, asOf: '2026-10-22T01:00:00Z' } } }] };
+  const same = { cycles: [cycle('first')] }; installCycleComponents(same, previous);
+  assert.equal(same.cycles[0].workReport.title, 'Known report');
+  assert.equal(same.cycles[0].partitions.report.freshness, 'stale');
+  const changed = { cycles: [cycle('second')] }; installCycleComponents(changed, previous);
+  assert.equal(changed.cycles[0].workReport, undefined);
+  assert.equal(changed.cycles[0].partitions.report.freshness, 'unknown');
+});
+
+test('check updates do not change the facts of the independently versioned documents', () => {
+  const { installCycleComponents, projection } = helpers();
+  const snapshot = (status, revision) => ({ projectionVersion: 2, centerId: 'center', entryId: 'entry', sourceId: 'source',
+    sourceBindingVersion: 1, projectionEpoch: 'epoch', snapshotRevision: 1, currentCycleId: 'cycle',
+    cycles: [{ id: 'cycle', activeAttemptId: 'attempt', artifacts: [{ kind: 'document', id: 'doc' }, { kind: 'check', status }],
+      checks: [{ kind: 'check', status }], partitions: {
+        documents: { status: 'available', revision: 1 }, checks: { status: 'available', revision },
+        report: { errorCode: 'NOT_REQUESTED' }, events: { errorCode: 'NOT_REQUESTED' } } }] });
+  const first = snapshot('running', 1); projection.core(first); installCycleComponents(first);
+  const second = snapshot('completed', 2); projection.core(second); installCycleComponents(second, first);
+  assert.equal(second.cycles[0].partitions.documents.status, 'available');
+  assert.equal(second.cycles[0].partitions.documents.revision, 1);
+  assert.equal(second.cycles[0].artifacts.length, 1);
+  assert.equal(second.cycles[0].checks[0].status, 'completed');
+});
+
 test("media links must belong to the selected center entry", () => {
   const { state, mediaURL } = helpers();
   state.data = { sourceId: 'source-a' };
   const url = `/api/center/v1/entries/entry-a/resources/media-${'b'.repeat(64)}.png?sourceId=source-a`;
   assert.equal(mediaURL(url), url);
   for (const value of [url.replace('entry-a', 'entry-b'), 'https://example.com/image.png', 'javascript:alert(1)', url.replace('/media-', '/../media-')]) assert.equal(mediaURL(value), null);
+  assert.equal(mediaURL(url.replace('source-a', 'source-b')), null);
+  state.data = { projectionVersion: 2, sourceId: 'source-a', sourceBindingVersion: 2, projectionEpoch: 'epoch' };
+  const bound = url + '&projectionVersion=2&sourceBindingVersion=2&projectionEpoch=epoch';
+  assert.equal(mediaURL(bound), bound);
+  assert.equal(mediaURL(bound.replace('sourceBindingVersion=2', 'sourceBindingVersion=1')), null);
+  assert.equal(mediaURL(bound.replace('projectionEpoch=epoch', 'projectionEpoch=old')), null);
 });
 
 test("published refinements require a matching read-only display language", () => {
@@ -91,6 +129,25 @@ test("unconfirmed starts never become completed cycles", () => {
   assert.equal(cycleTitle({status: 'startup_unconfirmed'}), messages.en.startup_unconfirmed);
   assert.equal(progressState('startup_unconfirmed'), 'unknown');
   assert.equal(progressState('not_started'), 'pending');
+});
+
+test('Harness task titles and recovery timing keep report and outcome semantics separate', () => {
+  const { state, cycleTitle, progressState, liveDuration, presentCycle, messages } = helpers();
+  const cycle = { id: 'cycle', harnessVersion: 2, objective: 'Compare demand evidence', status: 'closing', active: false,
+    time: { reliability: 'reliable', executionSeconds: 25, recoverySeconds: 4, totalSeconds: 35 } };
+  assert.equal(cycleTitle(cycle), 'Task: Compare demand evidence');
+  assert.equal(progressState('closing'), 'running');
+  assert.equal(progressState('handoff'), 'paused');
+  state.receivedAt = 0; state.statusFailed = false; state.data = { runtime: { processState: 'stopped', currentCycleId: 'cycle' } };
+  assert.equal(liveDuration(cycle, 10000), 'Execution 25s · Recovery 4s · Total 35s');
+  assert.equal(liveDuration({ ...cycle, time: { reliability: 'unknown' } }, 10000), messages.en.durationUnknown);
+  const executing = { ...cycle, status: 'running', activeAttemptId: 'attempt', protocolState: 'executing' };
+  const unconfirmed = presentCycle(executing);
+  assert.equal(unconfirmed.status, 'unknown'); assert.equal(unconfirmed.protocolState, 'executing');
+  assert.equal(liveDuration(unconfirmed, 10000), messages.en.elapsedUnconfirmed);
+  assert.equal(presentCycle({ ...executing, status: 'validating' }).status, 'validating');
+  state.data.runtime = { active: true, currentCycleId: 'cycle', processState: 'running' };
+  assert.equal(presentCycle(executing).status, 'running');
 });
 
 test("media retry errors expire after a new success or product change", () => {
@@ -323,9 +380,9 @@ function scopedUsageHarness() {
   // Replace only I/O, rendering and the background timer for deterministic races.
   vm.runInContext(app.slice(0, binding) + `
     fetchCenter = globalThis.request;
-    render = renderRuntime = refreshCenterContext = scheduleRefresh = connectionNotice = () => {};
+    render = renderRuntime = renderSidebar = refreshCenterContext = scheduleRefresh = connectionNotice = () => {};
     renderUsage = () => globalThis.recordUsage(state.scopedUsage);
-    globalThis.journal = { state, refresh, refreshScopedUsage };
+    globalThis.journal = { state, refresh, refreshScopedUsage, refreshMedia };
   });`, context);
   const snapshot = { ok: true, entryId: 'entry-a', sourceId: 'source-a', sourceRevision: 1, cycles: [], total: 0, generatedAt: '2026-10-01T00:00:00Z' };
   context.journal.state.data = snapshot;
@@ -338,14 +395,14 @@ for (const outcome of ['failure', 'success']) {
     const h = scopedUsageHarness();
     const old = h.refreshScopedUsage();
     const fresh = h.refresh();
-    assert.equal(h.requests.length, 3);
-    h.requests[1].resolve({ ...h.snapshot, generatedAt: '2026-10-01T00:00:05Z' });
-    h.requests[2].resolve({ language: 'en' });
+    assert.equal(h.requests.length, 2);
+    h.requests[1].resolve({ ...h.snapshot, sourceRevision: 2, generatedAt: '2026-10-01T00:00:05Z' });
     // Wait for the real journal refresh to request its scoped ledger.
-    for (let turn = 0; h.requests.length < 4 && turn < 10; turn++) await Promise.resolve();
-    assert.equal(h.requests.length, 4);
-    h.requests[3].resolve(h.usage);
+    for (let turn = 0; h.requests.length < 3 && turn < 10; turn++) await Promise.resolve();
+    assert.equal(h.requests.length, 3);
+    h.requests[2].resolve({ ...h.usage, sourceRevision: 2 });
     await fresh;
+    await h.refreshScopedUsage();
     assert.equal(h.state.statusFailed, false);
     const installed = h.state.scopedUsage;
     assert.equal(installed.data.usage.totalTokens, 42);
@@ -358,14 +415,39 @@ for (const outcome of ['failure', 'success']) {
   });
 }
 
-test('current usage failure still clears the unavailable scoped ledger', async () => {
+test('current usage failure marks an unavailable scope without borrowing another scope', async () => {
   const h = scopedUsageHarness();
   h.state.scopedUsage = { key: 'previous', data: h.usage };
   const pending = h.refreshScopedUsage();
   h.requests[0].reject(new Error('current request failed'));
   await pending;
-  assert.equal(h.state.scopedUsage, null);
+  assert.equal(h.state.scopedUsage.data, null);
+  assert.equal(h.state.scopedUsage.stale, true);
   assert.equal(h.renders.length, 1);
+});
+
+test('v2 core advances while usage and media are pending or fail', async () => {
+  const h = scopedUsageHarness();
+  const data = { ...h.snapshot, projectionVersion: 2, centerId: 'center', sourceBindingVersion: 'binding',
+    productId: 'product', explorationId: null, projectionEpoch: 'epoch', snapshotRevision: 1,
+    currentCycleId: 'new-cycle', cycles: [{ id: 'new-cycle', protocolState: 'closed', outcome: 'completed', status: 'completed', attempts: [] }],
+    partitions: Object.fromEntries(['report', 'checks', 'events', 'media', 'usage', 'history', 'runtime'].map(kind => [kind, { revision: 1, status: 'available' }])) };
+  const first = h.refresh(); h.requests[0].resolve(data); await first;
+  assert.equal(h.state.data.currentCycleId, 'new-cycle');
+  assert.equal(h.state.statusFailed, false);
+  assert.equal(h.requests.length, 3);
+  const usage = h.refreshScopedUsage(), media = h.refreshMedia();
+  const next = h.refresh(); h.requests[3].resolve({ ...data, sourceRevision: 2, snapshotRevision: 2, currentCycleId: 'newer-cycle', cycles: [{ ...data.cycles[0], id: 'newer-cycle' }] });
+  await next;
+  assert.equal(h.state.data.currentCycleId, 'newer-cycle');
+  h.requests[1].reject(new Error('usage offline')); h.requests[2].reject(new Error('media offline'));
+  await Promise.all([usage, media]);
+  // media uses its existing in-flight read; let its finally handler settle.
+  await Promise.resolve();
+  assert.equal(h.state.statusFailed, false);
+  assert.equal(h.state.data.currentCycleId, 'newer-cycle');
+  assert.equal(h.state.scopedUsage.stale, true);
+  assert.equal(h.state.data.partitions.media.status, 'unavailable');
 });
 
 for (const change of ['new request', 'selection']) {

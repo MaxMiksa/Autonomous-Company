@@ -920,6 +920,29 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual((root / "PROMPT.md").read_text(), "Normal workflow fixture\n")
         self.assertIn(body["direction"], (root / "memories/consensus.md").read_text())
 
+    def test_only_new_supported_codex_copies_default_to_harness(self):
+        framework = self.runtime.framework_root
+        for name in ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py', 'company_harness_client.py'):
+            (framework / 'scripts/core' / name).write_text('# preparation capability fixture\n')
+        subprocess.run(['git', '-C', str(framework), 'add', 'scripts/core'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(framework), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-m', 'capability fixture'], check=True, capture_output=True)
+        for engine, mode, expected, reason in (('codex', 'danger-full-access', '1', None),
+                                             ('claude', 'danger-full-access', '0', 'unsupported_adapter'),
+                                             ('codex', 'read-only', '0', 'unsupported_inner_sandbox')):
+            with self.subTest(engine=engine, mode=mode), patch.dict(os.environ, {'CODEX_SANDBOX_MODE': mode}):
+                result = self.runtime.create_exploration({'idempotencyKey': 'prepare-' + engine + '-' + mode,
+                    'executionMode': 'enqueue', 'config': {'engine': engine, 'model': 'fixture', 'effort': 'high', 'productLanguage': 'en'}})
+                operation = self.wait_operation(result['operationId'])
+                self.assertEqual(operation['state'], 'succeeded', operation)
+                with self.store.transaction() as tx:
+                    source = tx.get('sources', operation['reserved']['sourceId'])
+                    request = tx.get('requests', operation['reserved']['requestId'])
+                self.assertIn('COMPANY_HARNESS_ENABLED=' + expected, (Path(source['root']) / '.autonomous-company.local').read_text())
+                self.assertEqual(source['capabilities']['harness']['reason'], reason)
+                self.assertEqual(request['state'], 'queued')
+        self.assertFalse((framework / '.autonomous-company.local').exists())
+
     def test_restart_finishes_postcommit_projection_without_start_authorization(self):
         initial = self.runtime.create_exploration({"idempotencyKey": "prepare-crash-aa"})
         operation = self.wait_operation(initial["operationId"])
