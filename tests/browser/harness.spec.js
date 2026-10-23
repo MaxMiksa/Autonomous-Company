@@ -54,6 +54,24 @@ test('collection failure retains its report and check warning with a scoped huma
   await expect(page.locator('#sidebarRuntimeState')).toHaveText('Paused');
 });
 
+for (const scenario of [{ name: 'truncated success', failed: 0, truncated: true }, { name: 'gapped failure', failed: 1, gaps: [{ after: 2 }] }]) {
+  test(`partial checks retain known counts without hiding ${scenario.name}`, async ({ page, center }) => {
+    await presentCycle(page, center, cycle => {
+      cycle.latestCheck = { id: 'partial-check', state: 'completed', evidenceStatus: 'completed', exitCode: scenario.failed,
+        tests: { tests: 3, failures: scenario.failed, errors: 0, skipped: 0 } };
+      cycle.checks = [cycle.latestCheck]; cycle.checkStatus = 'completed';
+      cycle.partitions.checks = { ...cycle.partitions.checks, revision: 10, status: 'partial', freshness: 'fresh',
+        truncated: scenario.truncated || false, gaps: scenario.gaps || [] };
+    });
+    await page.goto(`${center.url}/products/${center.entryId}`);
+    const summary = page.locator('#currentCycle .record-check');
+    await expect(summary).toContainText(`${3 - scenario.failed} passed`);
+    await expect(summary).toContainText('Check collection is incomplete');
+    await expect(summary).toHaveAttribute('data-status', scenario.failed ? 'failed' : 'unknown');
+    if (scenario.failed) await expect(summary).toContainText('1 failed');
+  });
+}
+
 test('v2 reports keep advancing through independent usage and media failures', async ({ page, center }) => {
   let reports = 0;
   await page.route(`**/api/center/v1/entries/${center.entryId}/usage?*`, route => route.fulfill({ status: 503, json: { code: 'CONTEXT_UNAVAILABLE' } }));

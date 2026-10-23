@@ -3,6 +3,7 @@ window.JOURNAL_MESSAGES = {
   "zh-CN": {
     "contractTask": "任务：{task}", "harnessTiming": "执行 {execution} 秒 · 恢复 {recovery} 秒 · 总计 {total} 秒",
     "checksUnavailable": "检查记录暂时无法读取，结果待确认",
+    "checksIncomplete": "检查记录采集不完整，最新结论待确认",
     "cycleCollectionFailed": "成果收集未完成，本轮未通过最终校验。工作汇报已保留，成果和检查结果尚未确认。",
     "cycleValidationFailed": "本轮未通过运行校验。工作汇报已保留，请查看本轮日志了解原因。",
     "confirmedTime": "记录确认时间：{time}",
@@ -409,6 +410,7 @@ window.JOURNAL_MESSAGES = {
   "en": {
     "contractTask": "Task: {task}", "harnessTiming": "Execution {execution}s · Recovery {recovery}s · Total {total}s",
     "checksUnavailable": "Check records unavailable; result unconfirmed",
+    "checksIncomplete": "Check collection is incomplete; the latest result is unconfirmed",
     "cycleCollectionFailed": "Artifact collection did not complete, so this round did not pass final validation. The report is retained; artifacts and check results remain unconfirmed.",
     "cycleValidationFailed": "This round did not pass runtime validation. The report is retained; see this round’s log for details.",
     "confirmedTime": "Record confirmed at: {time}",

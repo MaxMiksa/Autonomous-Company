@@ -530,16 +530,19 @@ window.DashboardNavigation.register('journal', (view) => {
   function checkPresentation(cycle) {
     const health = cycle.partitions?.checks || state.data?.partitions?.checks;
     if (['unavailable', 'invalid'].includes(health?.status)) return { status: 'unknown', detail: message('checksUnavailable') };
-    if (health?.freshness === 'stale') return { status: 'unknown', detail: message('check_stale') };
+    const incomplete = health?.status === 'partial' || health?.truncated || health?.gaps?.length;
+    const present = (status, detail) => ({ status: incomplete && status !== 'failed' ? 'unknown' : status,
+      detail: [detail, incomplete ? message('checksIncomplete') : ''].filter(Boolean).join(' · ') });
+    if (health?.freshness === 'stale') return present('unknown', message('check_stale'));
     const check = cycle.latestCheck;
-    if (!check && (health?.status === 'partial' || health?.truncated || health?.gaps?.length)) return { status: 'unknown', detail: message('checksUnavailable') };
-    if (!check) return ['invalid', 'stale'].includes(cycle.checkStatus) ? { status: 'unknown', detail: message(`check_${cycle.checkStatus}`) } : null;
+    if (!check && incomplete) return present('unknown', '');
+    if (!check) return ['invalid', 'stale'].includes(cycle.checkStatus) ? present('unknown', message(`check_${cycle.checkStatus}`)) : null;
     const stale = cycle.checkStatus === 'stale' || check.freshness === 'stale' || ['changed', 'missing', 'stale'].includes(check.evidenceStatus);
-    if (stale) return { status: 'unknown', detail: message('check_stale') };
+    if (stale) return present('unknown', message('check_stale'));
     const status = cycle.checkStatus || check.state;
-    if (status === 'running') return { status, detail: message('check_running') };
-    if (status === 'interrupted') return { status, detail: message('check_interrupted') };
-    if (status === 'invalid') return { status: 'unknown', detail: message('check_invalid') };
+    if (status === 'running') return present(status, message('check_running'));
+    if (status === 'interrupted') return present(status, message('check_interrupted'));
+    if (status === 'invalid') return present('unknown', message('check_invalid'));
     const counts = checkCounts(check.tests);
     const valid = Number.isInteger(counts.passed);
     const failed = check.exitCode > 0 || counts.failures > 0 || counts.errors > 0;
@@ -554,7 +557,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (result === 'failed' && !(counts.failures > 0 || counts.errors > 0)) parts.push(message('checkFailedRun'));
     if (!valid) parts.push(message('checkCountsUnknown'));
     else if (!completed || result === 'unknown') parts.push(message('checkUnconfirmed'));
-    return { status: result, detail: parts.join(' · ') };
+    return present(result, parts.join(' · '));
   }
   function cycleRecords(cycle) {
     const section = element('section', 'cycle-records');
@@ -571,7 +574,7 @@ window.DashboardNavigation.register('journal', (view) => {
     for (const earlier of cycle.checks || []) {
       const identity = item => item?.id || item?.url || item?.path;
       if (earlier === check || (identity(earlier) && identity(earlier) === identity(check))) continue;
-      const previous = checkPresentation({ latestCheck: earlier, checkStatus: earlier.evidenceStatus });
+      const previous = checkPresentation({ latestCheck: earlier, checkStatus: earlier.evidenceStatus, partitions: cycle.partitions });
       rows.push({ kind: 'check-history', title: message('earlierCheck'), status: previous.status, detail: previous.detail,
         time: earlier.endedAt || earlier.recordedAt || earlier.startedAt,
         url: earlier.available === true ? safeScopedResource(earlier.url) : null });
