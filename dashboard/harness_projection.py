@@ -92,6 +92,12 @@ def protocol_cycle(cycle, recorded=None):
                   qualityApplicability=deepcopy(cycle.get('qualityApplicability') or []),
                   continuationDecision=deepcopy(cycle.get('continuationDecision') or {
                       'allowed': False, 'reason': 'not_evaluated'}))
+    # These records become authoritative with this close receipt. This is their
+    # confirmation time, not an invented document creation or reviewer time.
+    confirmed = (cycle.get('closeReceipt') or {}).get('closedAt')
+    for record in [*result['qualityApplicability'], *result['evidenceRefs']]:
+        if confirmed:
+            record['confirmedAt'] = confirmed
     # Formal numbering comes from the original identity ledger, never list length.
     if cycle.get('sequenceNumber') is not None:
         result['sequenceNumber'] = cycle['sequenceNumber']

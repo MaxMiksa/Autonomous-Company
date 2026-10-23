@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 import secrets
 import threading
 import time
@@ -14,7 +15,7 @@ from urllib.parse import quote, urlencode
 
 from center_store import CenterError
 from harness_projection import project_cycles, legacy_cycle, _in_scope
-from journal_data import timestamp
+from journal_data import timestamp, CYCLE_ID
 from company_harness import HarnessStore
 from product_identity import list_cycle_projections
 
@@ -30,7 +31,7 @@ def fingerprint(value):
 def core_cycle(row):
     timing = row.get('time') or {}
     return {**{key: row.get(key) for key in ('id', 'sequenceNumber', 'number', 'objective', 'workKind',
-        'protocolState', 'outcome', 'activeAttemptId', 'status', 'active', 'qualityApplicability')},
+        'protocolState', 'outcome', 'activeAttemptId', 'status', 'active', 'qualityApplicability', 'executionIssue')},
         'continuationDecision': {key: value for key, value in (row.get('continuationDecision') or {}).items()
                                  if key not in {'checkedAt', 'observedAt', 'confirmedAt'}},
         'time': {key: timing.get(key) for key in ('startedAt', 'endedAt', 'deadline', 'timeClass', 'hardLimitSeconds', 'reliability')},
@@ -277,6 +278,28 @@ class CenterProjection:
             if item and item.get('name'):
                 item['href'] = base + 'media-' + quote(item['name']) + suffix
 
+    def execution_issues(self, cycles, reader):
+        """Adapt retained host receipts without changing historical authority."""
+        for cycle in cycles:
+            if cycle.get('harnessVersion') != 2 or cycle.get('protocolState') != 'closed' or cycle.get('outcome') != 'failed':
+                continue
+            attempts = cycle.get('attempts') or []
+            attempt = attempts[-1] if attempts else None
+            if not attempt or not attempt.get('writersStopped') or not CYCLE_ID.fullmatch(attempt.get('attemptId', '')):
+                continue
+            try:
+                raw, truncated = reader.read('.autonomous-company/harness/' + attempt['attemptId'] + '.finish.json', 32768)
+                receipt = json.loads(raw)
+                if truncated or receipt.get('cycleId') != cycle['id'] or receipt.get('attemptId') != attempt['attemptId']:
+                    continue
+                code = str(receipt.get('error') or '').split(':', 1)[0]
+                if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', code):
+                    continue
+                cycle['executionIssue'] = {'code': code, 'attemptId': attempt['attemptId'],
+                    'source': 'host_finish', 'recordedAt': cycle.get('endedAt')}
+            except (OSError, ValueError, TypeError, AttributeError):
+                continue
+
     def journal(self, entry_id, query, *, record_id=None):
         entry, source, reader, store, index, scope, binding = self.context(entry_id, query)
         if query.get('component') == 'media':
@@ -308,6 +331,7 @@ class CenterProjection:
             include_events=bool(record_id), include_documents=bool(record_id),
             ledger_records=(legacy, list(warnings)), detail_cycle_id=record_id)
         data['cycles'] = project_cycles(data['cycles'], selected_index, scope)
+        self.execution_issues(data['cycles'], reader)
         usage_observed_at = now()
         for cycle in data['cycles']:
             if cycle.get('harnessVersion'):
@@ -352,10 +376,11 @@ class CenterProjection:
         report = version('report', reports, as_of=report_time, target=component_target) if record_id or all(row.get('harnessVersion') for row in data['cycles']) else self.not_requested()
         check_rows = [check for row in data['cycles'] for check in row.get('checks', [])]
         collection = data.get('artifactCollection') or {}
-        checks_unavailable = collection.get('status') == 'unavailable' and reader.scope.project
+        checks_supported = bool(reader.scope.project or reader.scope.kind == 'exploration')
+        checks_unavailable = collection.get('status') == 'unavailable' and checks_supported
         checks = version('checks', None if checks_unavailable else check_rows,
-            status='unavailable' if collection.get('status') == 'unavailable' and reader.scope.project else
-                   'available' if check_rows else 'missing' if reader.scope.project else 'not_applicable',
+            status='unavailable' if checks_unavailable else 'partial' if collection.get('status') == 'partial' else
+                   'available' if check_rows else 'missing' if checks_supported else 'not_applicable',
             as_of=max((item.get('recordedAt') for item in check_rows if item.get('recordedAt')), default=None),
             truncated=bool(collection.get('truncated')), target=component_target)
         history = version('history', [[row['id'], row.get('status'), row.get('activeAttemptId')] for row in data['cycles']],
@@ -387,7 +412,9 @@ class CenterProjection:
                     error='DOCUMENTS_UNAVAILABLE' if checks_unavailable else None, truncated=bool(collection.get('truncated')),
                     as_of=max((item.get('recordedAt') for item in cycle.get('artifacts', []) if item.get('kind') == 'document' and item.get('recordedAt')), default=None)) if record_id else self.not_requested(),
                 'checks': version('checks', cycle.get('checks', []), target=target,
-                    status='available' if cycle.get('checks') else 'missing') if not checks_unavailable else {
+                    status='unavailable' if (cycle.get('executionIssue') or {}).get('code') == 'COLLECTION_UNCONFIRMED' else
+                           'partial' if collection.get('status') == 'partial' else 'available' if cycle.get('checks') else 'missing',
+                    error='COLLECTION_UNCONFIRMED' if (cycle.get('executionIssue') or {}).get('code') == 'COLLECTION_UNCONFIRMED' else None) if not checks_unavailable else {
                         **self.not_requested(), 'status': 'unavailable', 'errorCode': 'CHECKS_UNAVAILABLE'},
                 'events': version('events', [cycle.get('events', []), health], target=target,
                     status=health.get('status') if health.get('status') in {'available', 'partial', 'missing', 'invalid', 'unavailable'} else 'available' if cycle.get('events') else 'missing',

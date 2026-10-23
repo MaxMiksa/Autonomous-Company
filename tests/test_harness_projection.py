@@ -11,6 +11,19 @@ from company_harness import HarnessStore
 
 
 class HarnessProjectionTests(unittest.TestCase):
+    def test_registered_review_and_evidence_use_close_confirmation_not_authored_time(self):
+        cycle = {'cycleId': 'c', 'protocolState': 'closed', 'outcome': 'completed',
+                 'closeReceipt': {'closedAt': '2026-10-23T07:27:43+08:00', 'input': {
+                     'verification': {'evidenceRefs': [{'evidenceId': 'doc', 'sha256': 'a' * 64}]}}},
+                 'qualityApplicability': [{'verdict': 'passed'}]}
+        value = protocol_cycle(cycle)
+        self.assertEqual(value['evidenceRefs'][0]['confirmedAt'], cycle['closeReceipt']['closedAt'])
+        self.assertEqual(value['qualityApplicability'][0]['confirmedAt'], cycle['closeReceipt']['closedAt'])
+        self.assertNotIn('recordedAt', value['evidenceRefs'][0])
+        self.assertNotIn('confirmedAt', cycle['qualityApplicability'][0])
+        cycle['closeReceipt'].pop('closedAt')
+        self.assertNotIn('confirmedAt', protocol_cycle(cycle)['qualityApplicability'][0])
+
     def test_legacy_mapping_preserves_failure_numbering_and_report_meaning(self):
         row = {'id': 'old-cycle', 'sequenceNumber': 27, 'status': 'failed',
                'workReport': {'phase': 'review', 'final': True}, 'usage': None,

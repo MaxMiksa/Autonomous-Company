@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(os.environ.get('AUTONOMOUS_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
 sys.path[:0] = [str(ROOT / 'dashboard'), str(ROOT / 'scripts/core')]
 from center_readonly import PROC_READER, ReadOnlyObserver, scoped_observation
+from journal_data import ProductScope
 
 
 class ReadOnlyObservationTests(unittest.TestCase):
@@ -188,6 +189,22 @@ class ReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(scoped_observation(reader, self.status('paused'))['state'], 'read_only')
         reader.scope.product_id = 'product-one'
         self.assertEqual(scoped_observation(reader, self.status('paused'))['state'], 'paused')
+
+    def test_paused_exploration_requires_both_identity_and_last_cycle_binding(self):
+        reader = self.reader()
+        reader.active_cycle.return_value = None
+        reader.scope = ProductScope('exploration', exploration_id='exploration-one')
+        reader.scoped_cycle_ids.return_value = {'owned-cycle'}
+        status = self.status('paused')
+        status['stateFile'].update(PRODUCT_ID='exploration-one', PRODUCT_CYCLE_ID='owned-cycle', PAUSE_REASON='human_required')
+        observed = scoped_observation(reader, status)
+        self.assertEqual(observed['state'], 'paused')
+        self.assertEqual(observed['pauseReason'], 'human_required')
+        self.assertTrue(observed['scoped'])
+        for changes in ({'PRODUCT_ID': 'other'}, {'PRODUCT_CYCLE_ID': 'other'}, {'PRODUCT_CYCLE_ID': None}):
+            with self.subTest(changes=changes):
+                wrong = {**status, 'stateFile': {**status['stateFile'], **changes}}
+                self.assertEqual(scoped_observation(reader, wrong)['state'], 'read_only')
 
 
 if __name__ == '__main__':

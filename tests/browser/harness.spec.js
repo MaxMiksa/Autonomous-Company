@@ -1,5 +1,59 @@
 import { test, expect } from './fixtures.js';
 
+async function presentCycle(page, center, change) {
+  const adapt = async route => {
+    if (new URL(route.request().url()).searchParams.has('component')) return route.continue();
+    const response = await route.fetch(), payload = await response.json(), data = payload.data;
+    const current = data.cycles ? data.cycles.find(row => row.id === data.currentCycleId) : data;
+    change(current, data);
+    await route.fulfill({ response, json: payload });
+  };
+  await page.route(`**/api/center/v1/entries/${center.entryId}/journal?*`, adapt);
+  await page.route(`**/api/center/v1/entries/${center.entryId}/records/*?*`, adapt);
+}
+
+test('confirmed record times render without legacy duration uncertainty or an empty check row', async ({ page, center }) => {
+  const confirmed = '2026-10-23T07:27:43+08:00';
+  await presentCycle(page, center, (cycle, data) => {
+    const suffix = `?sourceId=${data.sourceId}&projectionVersion=2&sourceBindingVersion=${data.sourceBindingVersion}&projectionEpoch=${data.projectionEpoch}`;
+    Object.assign(cycle, { harnessVersion: 2, protocolState: 'closed', outcome: 'completed', status: 'completed', active: false,
+      durationReliable: false, time: { reliability: 'reliable', executionSeconds: 255, recoverySeconds: 0, totalSeconds: 258 },
+      latestCheck: null, checks: [], checkStatus: 'unregistered',
+      qualityApplicability: [{ verdict: 'passed', workKinds: ['research'], confirmedAt: confirmed }],
+      evidenceRefs: [{ evidenceId: 'document-proof', label: 'Confirmed document', confirmedAt: confirmed,
+        url: `/api/center/v1/entries/${center.entryId}/resources/document-proof${suffix}` }] });
+    cycle.partitions.checks = { ...cycle.partitions.checks, status: 'missing', freshness: 'unknown' };
+  });
+  await page.goto(`${center.url}/products/${center.entryId}`);
+  await expect(page.locator('#currentCycle .record-quality time')).toHaveAttribute('datetime', confirmed);
+  await expect(page.locator('#currentCycle .record-quality time')).toHaveAttribute('title', /Record confirmed at/);
+  await expect(page.locator('#currentCycle .record-document time').last()).toHaveAttribute('datetime', confirmed);
+  await expect(page.locator('#currentCycle .cycle-meta')).toContainText('Execution 255');
+  await expect(page.locator('#currentCycle .cycle-meta')).not.toContainText('Duration unconfirmed');
+  await expect(page.locator('#currentCycle .record-check')).toHaveCount(0);
+  await expect(page.locator('#currentCycle .cycle-log-link')).toBeVisible();
+});
+
+test('collection failure retains its report and check warning with a scoped human pause', async ({ page, center }) => {
+  await presentCycle(page, center, (cycle, data) => {
+    Object.assign(cycle, { harnessVersion: 2, protocolState: 'closed', outcome: 'failed', status: 'failed', active: false,
+      executionIssue: { code: 'COLLECTION_UNCONFIRMED' }, latestCheck: null, checks: [], checkStatus: 'unregistered' });
+    cycle.partitions.checks = { ...cycle.partitions.checks, status: 'unavailable', errorCode: 'COLLECTION_UNCONFIRMED' };
+    if (data.cycles) {
+      data.runtime = { ...data.runtime, state: 'paused', available: true, pauseReason: 'human_required' };
+      data.entry = { ...data.entry, runtimeId: null, executionSummary: { state: 'read_only' },
+        readonlyObservation: { state: 'paused', scoped: true, readOnly: true, processState: 'running',
+          liveConfirmedAt: new Date().toISOString(), pauseReason: 'human_required' } };
+    }
+  });
+  await page.goto(`${center.url}/products/${center.entryId}`);
+  await expect(page.locator('#currentCycle .report-intro')).not.toBeEmpty();
+  await expect(page.locator('#currentCycle .report-section')).toContainText('Artifact collection did not complete');
+  await expect(page.locator('#currentCycle .record-check')).toContainText('Check records unavailable');
+  await expect(page.locator('#runtimeEvidence')).toContainText('Human attention required');
+  await expect(page.locator('#sidebarRuntimeState')).toHaveText('Paused');
+});
+
 test('v2 reports keep advancing through independent usage and media failures', async ({ page, center }) => {
   let reports = 0;
   await page.route(`**/api/center/v1/entries/${center.entryId}/usage?*`, route => route.fulfill({ status: 503, json: { code: 'CONTEXT_UNAVAILABLE' } }));

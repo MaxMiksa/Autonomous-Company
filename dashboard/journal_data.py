@@ -701,7 +701,10 @@ class JournalSource:
             scoped_active = runtime.get('currentCycleId') in allowed
             scoped_product = (self.scope.product_id and status and status.get('ok') is True
                               and status.get('stateFile', {}).get('PRODUCT_ID') == self.scope.product_id)
-            if not (scoped_active or scoped_product):
+            scoped_exploration = (not self.scope.product_id and self.scope.exploration_id and status and status.get('ok') is True
+                                  and status.get('stateFile', {}).get('PRODUCT_ID') == self.scope.exploration_id
+                                  and status.get('stateFile', {}).get('PRODUCT_CYCLE_ID') in allowed)
+            if not (scoped_active or scoped_product or scoped_exploration):
                 runtime.update(state="unknown", processState="unknown", available=False,
                                engine="unknown", model="unknown", reasoning="unknown")
             elif runtime_config:

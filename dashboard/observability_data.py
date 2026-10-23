@@ -144,7 +144,7 @@ def _counts(value):
     return {key: value[key] for key in keys}
 
 
-def _artifact_owner(source, state, record, historical_paths):
+def _artifact_owner(source, state, record, historical_paths, exploration_id=None):
     """Resolve recorded identity from the ledger, never from file equality."""
     product_id = record.get("productId")
     row = state["cycles"].get(record.get("cycleId"))
@@ -152,6 +152,12 @@ def _artifact_owner(source, state, record, historical_paths):
         if not isinstance(product_id, str) or not ARTIFACT_ID.fullmatch(product_id):
             raise ValueError("Invalid artifact product identity")
         product = state["identities"].get(product_id)
+        if (exploration_id and product_id == exploration_id and product
+                and product["kind"] == "exploration" and product["project"] == ""
+                and state["explorationId"] == product_id and row
+                and row["identityId"] == product_id and row["project"] == ""
+                and record.get("project") == "" and record.get("kind") == "check"):
+            return product_id
         if not product or product["kind"] != "product":
             return None
         if row and product_id not in [row["identityId"], *row.get("createdProductIds", [])]:
@@ -197,7 +203,9 @@ def _artifact_entry(source, selected, record, preview_probe, scope):
             or not ARTIFACT_ID.fullmatch(identity) or not recorded
             or (cycle is not None and (not isinstance(cycle, str) or not CYCLE_ID.fullmatch(cycle)))):
         return None
-    relative = record.get("path")
+    # Exploration checks expose observations only. Empty project must never
+    # turn a runner path into an advertised framework-root resource.
+    relative = record.get("path") if selected else None
     recorded_project = record["project"]
     associated, product_id = scope
     entry = {"id": identity, "kind": kind, "project": selected, "cycleId": cycle,
@@ -280,7 +288,10 @@ def _artifact_entry(source, selected, record, preview_probe, scope):
 
 def artifact_projection(source, selected=None, *, kinds=None):
     selected = (source.project()["id"] or "") if selected is None else selected
-    if not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", selected):
+    scope = getattr(source, "scope", None)
+    exploration_id = (scope.exploration_id if scope and scope.kind == "exploration"
+                      and not scope.product_id and not selected else None)
+    if not exploration_id and not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", selected):
         return {"items": [], "status": "unavailable", "selectedProject": None,
                 "invalidRecords": 0, "truncated": False, "scannedRecords": 0, "returnedRecords": 0}
     try:
@@ -342,10 +353,14 @@ def artifact_projection(source, selected=None, *, kinds=None):
             if kinds is not None and record.get('kind') not in kinds:
                 continue
             record_project = record.get("project")
-            if not isinstance(record_project, str) or not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", record_project):
+            exploration_check = (exploration_id and record_project == "" and record.get("kind") == "check")
+            if not exploration_check and (not isinstance(record_project, str) or not re.fullmatch(r"projects/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", record_project)):
                 invalid += 1
                 continue
-            product_id = _artifact_owner(source, identity_state, record, historical_paths) if identity_state is not None else None
+            product_id = _artifact_owner(source, identity_state, record, historical_paths, exploration_id) if identity_state is not None else None
+            if exploration_id and (not exploration_check or product_id != exploration_id
+                                   or record.get("id") != path.stem):
+                continue
             if product_id and product_id != selected_id:
                 continue
             if not product_id and record_project != selected:

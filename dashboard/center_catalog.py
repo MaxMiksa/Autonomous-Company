@@ -118,7 +118,8 @@ class CenterCatalog:
         else:
             status = self.readonly_observer.status(reader)
         observation = scoped_observation(reader, status)
-        active = status if managed and config is not None or observation and observation.get('currentCycleId') else None
+        active = status if managed and config is not None or observation and (
+            observation.get('currentCycleId') or observation.get('state') == 'paused' and observation.get('scoped')) else None
         data = reader.snapshot(status=active, runtime_config=config, **kwargs)
         if harness:
             from harness_projection import project_cycles

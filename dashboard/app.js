@@ -80,6 +80,10 @@ window.DashboardNavigation.register('journal', (view) => {
   function runtimeLabel() { return runtimeStatusLabel(runtimeStateValue()); }
   function runtimeEvidence() {
     const value = runtimeStateValue();
+    if (value === 'paused') {
+      const reason = state.data?.entry?.readonlyObservation?.pauseReason || state.data?.runtime?.pauseReason;
+      return reason ? message('pauseReason', { reason: pauseLabel(reason) }) : '';
+    }
     if (value === 'read_only') return message('sourceReadOnlyEvidence');
     if (!['unknown', 'unavailable', 'blocked', 'attention'].includes(value)) return '';
     const execution = state.data?.entry?.executionSummary;
@@ -330,7 +334,10 @@ window.DashboardNavigation.register('journal', (view) => {
   function formatTime(value) { return fullTime(value); }
   function fullTime(value) { return window.DashboardDate.format(value, state.language) || message('unknownTime'); }
   function describeTimes(root = document) {
-    root.querySelectorAll('time[datetime]').forEach(node => { node.title = fullTime(node.dateTime); node.setAttribute('aria-label', node.title); });
+    root.querySelectorAll('time[datetime]').forEach(node => {
+      node.title = node.dataset.timeKind === 'confirmation' ? message('confirmedTime', { time: fullTime(node.dateTime) }) : fullTime(node.dateTime);
+      node.setAttribute('aria-label', node.title);
+    });
   }
   function saveJournalView() {
     try { sessionStorage.setItem(`journal:view:${scope.entryId || new URL(view.url).pathname}`, JSON.stringify({ expanded: [...state.expanded], tab: state.tab, selectedLog: state.selectedLog, scroll: window.scrollY })); } catch (_) {}
@@ -414,7 +421,7 @@ window.DashboardNavigation.register('journal', (view) => {
       const live = element('span', 'live-elapsed'); live.dataset.cycleId = cycle.id;
       live.textContent = liveDuration(cycle); row.append(live);
     }
-    if ((!cycle.active && cycle.durationReliable === false) || cycle.status === 'interrupted') { row.title = message('recoveredEnd'); row.append(element('span', '', message('durationUnknown'))); }
+    if (cycle.harnessVersion !== 2 && ((!cycle.active && cycle.durationReliable === false) || cycle.status === 'interrupted')) { row.title = message('recoveredEnd'); row.append(element('span', '', message('durationUnknown'))); }
     return row;
   }
   function bindDisclosure(details, key, defaultOpen = false) {
@@ -519,7 +526,8 @@ window.DashboardNavigation.register('journal', (view) => {
     if (['unavailable', 'invalid'].includes(health?.status)) return { status: 'unknown', detail: message('checksUnavailable') };
     if (health?.freshness === 'stale') return { status: 'unknown', detail: message('check_stale') };
     const check = cycle.latestCheck;
-    if (!check) return { status: 'unknown', detail: message(cycle.checkStatus === 'invalid' ? 'check_invalid' : 'noRegisteredCheck') };
+    if (!check && (health?.status === 'partial' || health?.truncated || health?.gaps?.length)) return { status: 'unknown', detail: message('checksUnavailable') };
+    if (!check) return ['invalid', 'stale'].includes(cycle.checkStatus) ? { status: 'unknown', detail: message(`check_${cycle.checkStatus}`) } : null;
     const stale = cycle.checkStatus === 'stale' || check.freshness === 'stale' || ['changed', 'missing', 'stale'].includes(check.evidenceStatus);
     if (stale) return { status: 'unknown', detail: message('check_stale') };
     const status = cycle.checkStatus || check.state;
@@ -551,7 +559,7 @@ window.DashboardNavigation.register('journal', (view) => {
     const rows = [];
     const check = cycle.latestCheck;
     const presentation = checkPresentation(cycle);
-    rows.push({ kind: 'check', title: message('checkSummary'), status: presentation.status, detail: presentation.detail,
+    if (presentation) rows.push({ kind: 'check', title: message('checkSummary'), status: presentation.status, detail: presentation.detail,
       time: check?.endedAt || check?.recordedAt || check?.startedAt,
       url: check?.available === true ? safeScopedResource(check.url) : null });
     for (const earlier of cycle.checks || []) {
@@ -570,10 +578,11 @@ window.DashboardNavigation.register('journal', (view) => {
     }
     for (const quality of cycle.qualityApplicability || []) rows.push({ kind: 'quality', title: message('qualityReview'),
       detail: `${message(`quality_${quality.verdict}`)} · ${(quality.workKinds || []).map(kind => message(`workKind_${kind}`)).join(' / ')}`,
-      time: quality.recordedAt || quality.reviewedAt, url: safeScopedResource(quality.evidenceRef?.url) });
+      time: quality.recordedAt || quality.reviewedAt || quality.confirmedAt,
+      confirmationTime: !quality.recordedAt && !quality.reviewedAt && Boolean(quality.confirmedAt), url: safeScopedResource(quality.evidenceRef?.url) });
     for (const ref of cycle.evidenceRefs || []) if (safeScopedResource(ref.url)) rows.push({ kind: 'document',
       title: message('documentRecorded'), detail: ref.label || ref.path?.split(/[\\/]/).pop() || message('cycleEvidence'),
-      time: ref.recordedAt, url: safeScopedResource(ref.url) });
+      time: ref.recordedAt || ref.confirmedAt, confirmationTime: !ref.recordedAt && Boolean(ref.confirmedAt), url: safeScopedResource(ref.url) });
     if (cycle.workReport && cycle.workReportStatus === 'valid') rows.push({ kind: 'report', time: cycle.workReport.recorded_at, title: message('workRecorded') });
     // Missing timestamps remain unknown, rather than borrowing a cycle or consensus time.
     rows.sort((a, b) => (Date.parse(a.time) || Infinity) - (Date.parse(b.time) || Infinity));
@@ -582,7 +591,7 @@ window.DashboardNavigation.register('journal', (view) => {
       const row = element(record.kind === 'check' ? 'div' : 'li', `record-row record-${record.kind}`);
       if (record.status) row.dataset.status = record.status;
       const time = element('time', '', record.time ? formatTime(record.time, localDatePart(record.time) !== localDatePart(cycle.startedAt || cycle.reservedAt)) : '—');
-      if (record.time) { time.dateTime = record.time; time.title = formatTime(record.time, true); }
+      if (record.time) { time.dateTime = record.time; if (record.confirmationTime) time.dataset.timeKind = 'confirmation'; }
       const body = element('div', 'record-body');
       const title = element('div', 'record-title', record.title);
       if (record.status) title.append(progressIcon(record.status, record.detail, true));
@@ -648,6 +657,8 @@ window.DashboardNavigation.register('journal', (view) => {
     if (/^[\[{]/.test(intro)) intro = cycleTitle(cycle);
     if (!intro) intro = message(cycle.active ? 'runningNoReport' : 'noReport');
     report.append(heading, element('p', 'report-intro', intro));
+    if (cycle.executionIssue) report.append(element('p', 'sidebar-note status-failed', message(
+      cycle.executionIssue.code === 'COLLECTION_UNCONFIRMED' ? 'cycleCollectionFailed' : 'cycleValidationFailed')));
     const reportHealth = cycle.partitions?.report || state.data?.partitions?.report;
     if (reportHealth?.freshness === 'stale' || ['unavailable', 'invalid'].includes(reportHealth?.status)) report.append(element('p', 'sidebar-note', message('partitionStale')));
     const workDetails = workReportDetails(cycle);

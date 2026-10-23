@@ -223,8 +223,9 @@ def scoped_observation(reader, status):
         result.update(state='running', scoped=True, liveConfirmedAt=status['timestamp'],
                       currentCycleId=active['id'], currentCycleNumber=active['number'],
                       engine=active['engine'], model=active['model'])
-    elif reader.scope and reader.scope.product_id and status['stateFile'].get('PRODUCT_ID') == reader.scope.product_id:
-        # Paused/idle phases describe this product only with a stable identity.
+    elif reader.scope and status['stateFile'].get('PRODUCT_ID') == (reader.scope.product_id or reader.scope.exploration_id) and (
+            reader.scope.product_id or status['stateFile'].get('PRODUCT_CYCLE_ID') in (allowed or set())):
+        # Exploration also needs the recorded last cycle, not just a root PID.
         if state in {'idle', 'paused', 'waiting_limit', 'circuit_break'}:
             result.update(state='idle' if state == 'idle' else 'paused', scoped=True,
                           liveConfirmedAt=status['timestamp'], pauseReason=status['stateFile'].get('PAUSE_REASON') or state)

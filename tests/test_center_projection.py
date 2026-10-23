@@ -139,6 +139,26 @@ class ProjectionTests(unittest.TestCase):
         with self.store.transaction() as tx:
             self.assertEqual(tx.get('projection_current', self.source), before)
 
+    def test_host_collection_receipt_is_scoped_and_does_not_expose_raw_detail(self):
+        cycle_id, attempt = self.cycle(close=False)
+        self.harness.finish_attempt(attempt, {'outcome': 'failed', 'exitCode': 78}, writers_stopped=True, observation='stopped')
+        self.harness.close_cycle(cycle_id, 'close', outcome='failed', verification={
+            'writersStopped': True, 'attemptResults': [attempt['attemptId']], 'evidenceRefs': [], 'checkedAt': '2026-10-23T07:34:14+08:00'})
+        products.update_cycle(self.root, cycle_id, 'failed')
+        folder = self.root / '.autonomous-company/harness'
+        folder.mkdir()
+        path = folder / (attempt['attemptId'] + '.finish.json')
+        receipt = {'cycleId': cycle_id, 'attemptId': attempt['attemptId'], 'error': 'COLLECTION_UNCONFIRMED: private host detail'}
+        path.write_text(json.dumps(receipt))
+        self.register()
+        row = self.read()['cycles'][0]
+        self.assertEqual(row['executionIssue']['code'], 'COLLECTION_UNCONFIRMED')
+        self.assertNotIn('private host detail', json.dumps(row))
+        self.assertEqual(row['partitions']['checks']['status'], 'unavailable')
+        receipt['cycleId'] = 'another-cycle'
+        path.write_text(json.dumps(receipt))
+        self.assertNotIn('executionIssue', self.read()['cycles'][0])
+
     def test_slow_media_is_independent_and_old_component_cannot_replace_newer_facts(self):
         self.cycle()
         self.register()

@@ -16,7 +16,7 @@
         objective: cycle.objective, workKind: cycle.workKind, activeAttemptId: cycle.activeAttemptId,
         attempts: (cycle.attempts || []).map(attempt => ({ attemptId: attempt.attemptId, status: attempt.status,
           writersStopped: attempt.writersStopped, startedAt: attempt.startedAt, endedAt: attempt.endedAt })),
-        qualityApplicability: cycle.qualityApplicability,
+        qualityApplicability: cycle.qualityApplicability, executionIssue: cycle.executionIssue,
         continuationDecision: cycle.continuationDecision && Object.fromEntries(Object.entries(cycle.continuationDecision)
           .filter(([key]) => !['checkedAt', 'observedAt', 'confirmedAt'].includes(key))),
       })),

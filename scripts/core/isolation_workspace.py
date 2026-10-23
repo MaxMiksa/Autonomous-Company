@@ -487,7 +487,19 @@ class CompanyView:
                     data = regular_bytes(source)
                 if source.parent.name == "artifacts":
                     record = json.loads(data)
-                    if record.get("cycleId") != self.cycle or record.get("project") not in projects:
+                    row = self.initial["cycles"].get(self.cycle)
+                    owner = self.initial["identities"].get(row["identityId"]) if row else None
+                    # The check API records exploration identity in productId.
+                    # Its empty project is not permission for root documents or
+                    # previews, nor for records without the reserved owner.
+                    exploration_check = (not self.project and record.get("project") == ""
+                        and record.get("kind") == "check" and record.get("version") == 1
+                        and record.get("source") == "runner" and record.get("id") == source.stem
+                        and row and owner and row["cycleId"] == self.cycle and row["project"] == ""
+                        and owner["kind"] == "exploration" and owner["project"] == ""
+                        and row["identityId"] == owner["id"] == self.scope
+                        == self.initial["explorationId"] == record.get("productId"))
+                    if record.get("cycleId") != self.cycle or (record.get("project") not in projects and not exploration_check):
                         raise IsolationError("Artifact does not belong to this isolated cycle")
                     if record.get("kind") == "preview" and record.get("state") == "running":
                         # Its loopback belongs to the exited network namespace.
