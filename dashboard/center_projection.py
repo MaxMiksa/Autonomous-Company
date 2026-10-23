@@ -331,7 +331,6 @@ class CenterProjection:
             include_events=bool(record_id), include_documents=bool(record_id),
             ledger_records=(legacy, list(warnings)), detail_cycle_id=record_id)
         data['cycles'] = project_cycles(data['cycles'], selected_index, scope)
-        self.execution_issues(data['cycles'], reader)
         usage_observed_at = now()
         for cycle in data['cycles']:
             if cycle.get('harnessVersion'):
@@ -356,6 +355,11 @@ class CenterProjection:
             legacy_core.append(core_cycle(legacy_cycle({**item, 'active': actual,
                 'status': 'running' if actual else item.get('status', 'unknown')})))
         protocol_core = project_cycles([], index, scope)
+        self.execution_issues(protocol_core, reader)
+        issues = {row['id']: row['executionIssue'] for row in protocol_core if row.get('executionIssue')}
+        for row in data['cycles']:
+            if row['id'] in issues:
+                row['executionIssue'] = deepcopy(issues[row['id']])
         for row in protocol_core:
             row['active'] = bool(data['runtime'].get('active') and data['runtime'].get('currentCycleId') == row['id'])
         core_facts = {'currentCycleId': current_id,
@@ -378,9 +382,11 @@ class CenterProjection:
         collection = data.get('artifactCollection') or {}
         checks_supported = bool(reader.scope.project or reader.scope.kind == 'exploration')
         checks_unavailable = collection.get('status') == 'unavailable' and checks_supported
-        checks = version('checks', None if checks_unavailable else check_rows,
-            status='unavailable' if checks_unavailable else 'partial' if collection.get('status') == 'partial' else
+        collection_failures = [row['id'] for row in data['cycles'] if (row.get('executionIssue') or {}).get('code') == 'COLLECTION_UNCONFIRMED']
+        checks = version('checks', None if checks_unavailable else {'items': check_rows, 'collectionFailures': collection_failures},
+            status='unavailable' if checks_unavailable else 'partial' if collection_failures or collection.get('status') == 'partial' else
                    'available' if check_rows else 'missing' if checks_supported else 'not_applicable',
+            error='COLLECTION_UNCONFIRMED' if collection_failures else None,
             as_of=max((item.get('recordedAt') for item in check_rows if item.get('recordedAt')), default=None),
             truncated=bool(collection.get('truncated')), target=component_target)
         history = version('history', [[row['id'], row.get('status'), row.get('activeAttemptId')] for row in data['cycles']],
@@ -411,7 +417,8 @@ class CenterProjection:
                     status='unavailable' if checks_unavailable else 'partial' if collection.get('status') == 'partial' else 'available',
                     error='DOCUMENTS_UNAVAILABLE' if checks_unavailable else None, truncated=bool(collection.get('truncated')),
                     as_of=max((item.get('recordedAt') for item in cycle.get('artifacts', []) if item.get('kind') == 'document' and item.get('recordedAt')), default=None)) if record_id else self.not_requested(),
-                'checks': version('checks', cycle.get('checks', []), target=target,
+                'checks': version('checks', {'items': cycle.get('checks', []),
+                    'collectionStatus': collection.get('status'), 'executionIssue': cycle.get('executionIssue')}, target=target,
                     status='unavailable' if (cycle.get('executionIssue') or {}).get('code') == 'COLLECTION_UNCONFIRMED' else
                            'partial' if collection.get('status') == 'partial' else 'available' if cycle.get('checks') else 'missing',
                     error='COLLECTION_UNCONFIRMED' if (cycle.get('executionIssue') or {}).get('code') == 'COLLECTION_UNCONFIRMED' else None) if not checks_unavailable else {

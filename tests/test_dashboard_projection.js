@@ -13,7 +13,7 @@ function fixture() {
     runtime: { state: 'running', processState: 'running', currentCycleId: 'c2' },
     cycles: [{ id: 'c2', status: 'correcting', protocolState: 'correcting', activeAttemptId: 'a2',
       attempts: [{ attemptId: 'a1', status: 'exited' }, { attemptId: 'a2', status: 'running' }] }] };
-  return { gate: new context.window.DashboardProjection.Gate(), data };
+  return { gate: new context.window.DashboardProjection.Gate(), data, context };
 }
 
 test('same core facts permit elapsed time, freshness and independent component updates', () => {
@@ -66,4 +66,27 @@ test('unknown component ordering never overwrites reliable facts or advances cor
   assert.throws(() => gate.core({ ...data, snapshotRevision: 3 }), /Stale/);
   assert.throws(() => gate.core({ ...data, currentCycleId: 'wrong' }), /Conflicting/);
   assert.equal(gate.revision, 4);
+});
+
+test('a newer unavailable check establishes a floor against delayed empty detail', () => {
+  const { gate, data, context } = fixture();
+  context.projection = gate;
+  const app = fs.readFileSync(path.join(__dirname, '../dashboard/app.js'), 'utf8');
+  vm.runInContext(app.slice(app.indexOf('  function installCycleComponents('), app.indexOf('  function retainHistoricalCycles(')), context);
+  const original = { ...data, cycles: [{ ...data.cycles[0], checks: [], latestCheck: null, checkStatus: 'unregistered',
+    partitions: { checks: { status: 'missing', revision: 1 } } }] };
+  gate.core(original);
+  context.installCycleComponents(original);
+  const current = { ...original, snapshotRevision: 5, cycles: [{ ...original.cycles[0], executionIssue: { code: 'COLLECTION_UNCONFIRMED' },
+    partitions: { checks: { status: 'unavailable', revision: 2, errorCode: 'COLLECTION_UNCONFIRMED' } } }] };
+  gate.core(current);
+  context.installCycleComponents(current, original);
+  const delayed = { ...original, cycles: [{ ...original.cycles[0], partitions: { checks: { status: 'missing', revision: 1 } } }] };
+  context.installCycleComponents(delayed, current);
+  assert.equal(delayed.cycles[0].partitions.checks.status, 'unavailable');
+  assert.equal(gate.component('usage:c2:a2', { total: 12 }, { revision: 3 }, original), true);
+  const recovered = { ...current, cycles: [{ ...current.cycles[0], checks: [], latestCheck: null,
+    partitions: { checks: { status: 'missing', revision: 3 } } }] };
+  context.installCycleComponents(recovered, current);
+  assert.equal(recovered.cycles[0].partitions.checks.status, 'missing');
 });

@@ -287,7 +287,13 @@ window.DashboardNavigation.register('journal', (view) => {
         }
         if (metadata?.status === 'unavailable') {
           const cached = old?.activeAttemptId === cycle.activeAttemptId ? old : null;
+          const value = Object.fromEntries(fields.map(key => [key, cycle[key]]));
+          const accepted = projection.component(`${kind}:${cycle.id}:${cycle.activeAttemptId || ''}`, value, metadata, data);
           for (const field of fields) cycle[field] = cached?.[field];
+          if (!accepted && Number.isSafeInteger(metadata.revision) && cached?.partitions?.[kind]?.revision > metadata.revision) {
+            cycle.partitions = { ...cycle.partitions, [kind]: cached.partitions[kind] };
+            continue;
+          }
           cycle.partitions = { ...cycle.partitions, [kind]: { ...metadata,
             asOf: cached?.partitions?.[kind]?.asOf || metadata.asOf, freshness: cached ? 'stale' : 'unknown' } };
           continue;

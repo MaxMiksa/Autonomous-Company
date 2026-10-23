@@ -149,8 +149,12 @@ class ProjectionTests(unittest.TestCase):
         folder.mkdir()
         path = folder / (attempt['attemptId'] + '.finish.json')
         receipt = {'cycleId': cycle_id, 'attemptId': attempt['attemptId'], 'error': 'COLLECTION_UNCONFIRMED: private host detail'}
-        path.write_text(json.dumps(receipt))
         self.register()
+        before = self.read()
+        path.write_text(json.dumps(receipt))
+        after = self.read()
+        self.assertGreater(after['snapshotRevision'], before['snapshotRevision'])
+        self.assertGreater(after['cycles'][0]['partitions']['checks']['revision'], before['cycles'][0]['partitions']['checks']['revision'])
         row = self.read()['cycles'][0]
         self.assertEqual(row['executionIssue']['code'], 'COLLECTION_UNCONFIRMED')
         self.assertNotIn('private host detail', json.dumps(row))

@@ -647,7 +647,7 @@ test("compact records preserve failures and unknowns while hiding technical deta
   for (const locale of ["en", "zh-CN"]) {
     language = locale;
     await setLanguage(page, journal, locale);
-    await refreshRecords(page);
+    await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     for (const width of [1280, 360]) {
       await page.setViewportSize({ width, height: 900 });
