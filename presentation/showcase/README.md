@@ -36,13 +36,13 @@ Desktop width is 1440 px; height follows actual content through the complete tim
 
 ## Reproduction / 复现
 
-The public images and hashes can be inspected independently. Capturing the same recorded history requires an operator's preserved original run and its unmodified original journal snapshot; those private inputs are not shipped with this repository. A newly created run cannot reproduce these historical IDs. Use Node 20+ and Python 3, from the repository root:
+The public images and hashes can be inspected independently. Capturing the same recorded history requires an operator's preserved original run and its unmodified original journal snapshot; those private inputs are not shipped with this repository. A newly created run cannot reproduce these historical IDs. Use Node 24.11.1 (24.x), pnpm 12.16.1 and Python 3, from the repository root:
 
-公开图片与哈希可独立查看。重捕相同历史需要操作者保留的原运行及未修改的原始工作记录快照，这些私密输入不在公开仓库中；新运行不能复现既有历史 ID。使用 Node 20+、Python 3，在仓库根目录执行：
+公开图片与哈希可独立查看。重捕相同历史需要操作者保留的原运行及未修改的原始工作记录快照，这些私密输入不在公开仓库中；新运行不能复现既有历史 ID。使用 Node 24.11.1（24.x）、pnpm 12.16.1 与 Python 3，在仓库根目录执行：
 
 ```sh
-npm ci --prefix tests/browser
-npm exec --prefix tests/browser -- playwright install chromium
+pnpm --dir tests/browser install --frozen-lockfile
+pnpm --dir tests/browser exec playwright install chromium
 node scripts/media/capture_showcase.cjs --help
 ```
 

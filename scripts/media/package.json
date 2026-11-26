@@ -4,9 +4,11 @@
   "version": "1.0.0",
   "description": "Optional bounded product screenshot runtime",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
   },
   "dependencies": {
     "playwright": "1.63.0"
-  }
+  },
+  "packageManager": "pnpm@12.16.1"
 }

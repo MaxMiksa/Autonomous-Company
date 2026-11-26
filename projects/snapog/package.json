@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "OG image generation API — fast, cached, hosted on Cloudflare Workers",
   "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

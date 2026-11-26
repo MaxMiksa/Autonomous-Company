@@ -27,9 +27,9 @@ use deployment credentials, paid models, or self-hosted machines.
 
 ```sh
 cd tests/browser
-npm ci
-npx playwright install --with-deps chromium
-npm test
+pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
+pnpm test
 ```
 
 The browser opens the actual Dashboard and Python HTTP handler against a fresh

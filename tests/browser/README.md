@@ -1,11 +1,11 @@
 # Dashboard browser smoke
 
-Run from this directory with Node.js 20+ and Python 3.10+:
+Run from this directory with Node.js 24.11.1 (24.x), pnpm 12.16.1 and Python 3.10+:
 
 ```sh
-npm ci
-npx playwright install --with-deps chromium
-npm test
+pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
+pnpm test
 ```
 
 The suite opens the production product center and `/products/:entryId` details

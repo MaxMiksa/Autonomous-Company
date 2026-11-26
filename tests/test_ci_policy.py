@@ -72,7 +72,7 @@ class RoutePolicyTests(unittest.TestCase):
         for example in EXAMPLES.PRODUCT_JOBS:
             job = workflow.split(f"  {example}:\n", 1)[1].split("  snapog:\n", 1)[0]
             self.assertIn(f"if: needs.changes.outputs.{example} == 'true'", job)
-            self.assertIn(f"npm test --prefix examples/{example}", job)
+            self.assertIn(f"pnpm --dir examples/{example} test", job)
             self.assertEqual(GATE.JOBS[example], (example,))
             gate = workflow.split("  ci-gate:\n", 1)[1]
             self.assertIn(f"      - {example}\n", gate)
@@ -107,7 +107,7 @@ class RoutePolicyTests(unittest.TestCase):
         self.assertEqual(self.selected("docs/example.sh"), {"runtime"})
 
     def test_optional_product_media_dependencies_and_tests_select_real_browser_checks(self):
-        for path in ("scripts/media/package.json", "scripts/media/package-lock.json", "tests/test_product_media.py"):
+        for path in ("scripts/media/package.json", "scripts/media/pnpm-lock.yaml", "scripts/media/pnpm-workspace.yaml", "scripts/media/.node-version", "tests/test_product_media.py"):
             with self.subTest(path=path):
                 self.assertEqual(self.selected(path), {"runtime", "browser"})
 

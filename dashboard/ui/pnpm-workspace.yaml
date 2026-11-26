@@ -1,0 +1,12 @@
+# This package is independent; do not include generated examples or products.
+packages:
+  - '.'
+pmOnFail: error
+runtime: false
+engineStrict: true
+# GVS changes TypeScript contextual types for cmdk; keep the verified package-local layout.
+virtualStoreType: project
+# esbuild validates its optional native executable; watcher ships prebuilt binaries.
+allowBuilds:
+  esbuild@0.25.12: true
+  '@parcel/watcher@2.5.1': false

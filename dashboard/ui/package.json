@@ -1,1 +1,37 @@
-{"name":"autonomous-company-dashboard-ui","private":true,"type":"module","scripts":{"build":"node build.mjs","check":"tsc --noEmit"},"dependencies":{"class-variance-authority":"^0.7.1","clsx":"^2.1.1","cmdk":"^1.1.1","lucide-react":"^0.468.0","motion":"14.0.0","radix-ui":"^1.4.3","react":"^19.2.0","react-dom":"^19.2.0","sonner":"^2.0.8","tailwind-merge":"^3.3.1"},"devDependencies":{"@tailwindcss/cli":"^4.1.0","@types/react":"^19.2.0","@types/react-dom":"^19.2.0","esbuild":"^0.25.0","tailwindcss":"^4.1.0","typescript":"^5.9.0"}}
+{
+  "name": "autonomous-company-dashboard-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lucide-react": "^0.468.0",
+    "motion": "14.0.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.3.1",
+    "framer-motion": "14.0.0",
+    "motion-dom": "14.0.0",
+    "motion-utils": "14.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  }
+}

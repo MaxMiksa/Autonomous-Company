@@ -1,0 +1,10 @@
+# This package is independent; do not include generated examples or products.
+packages:
+  - '.'
+pmOnFail: error
+runtime: false
+engineStrict: true
+virtualStoreType: project
+# Media isolation can fall back to tests/browser/node_modules; copy imports keep st_nlink == 1.
+packageImportMethod: copy
+allowBuilds: {}

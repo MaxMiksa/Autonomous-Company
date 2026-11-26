@@ -4,13 +4,13 @@ Normal delivery registration and normal cycle finalization automatically capture
 supported products. A model does not need to invoke a preview or screenshot tool.
 Media failures are diagnostics and do not change checks or AI cycle results.
 
-Node 20+ and Playwright Chromium are optional screenshot dependencies. This runtime
+Node 24.11.1 (24.x), pnpm 12.16.1 and Playwright Chromium are optional screenshot dependencies. This runtime
 and the Dashboard browser checks each pin their own Playwright version and require
 its matching Chromium, without a Python browser package or an image-generation model. Install from the
 framework root in the **same OS/runtime** that runs the product:
 
 ```sh
-npm ci --prefix scripts/media
+pnpm --dir scripts/media install --frozen-lockfile
 node scripts/media/node_modules/playwright/cli.js install chromium
 ```
 
