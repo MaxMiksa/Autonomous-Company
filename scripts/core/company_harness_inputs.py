@@ -5,10 +5,7 @@ import json
 import mimetypes
 
 from company_harness import HarnessError
-
-MAX_INPUTS = 16
-MAX_BYTES = 8 * 1024 * 1024
-
+from company_harness_contract import MAX_INPUTS, MAX_BYTES
 
 def load_inputs(store, contract):
     references = {}

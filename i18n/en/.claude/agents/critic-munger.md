@@ -80,6 +80,8 @@ Under PROMPT.md's stage-outcome rules, distinguish current quality blockers from
 ## Document Storage
 Store all documents you produce (inversion analyses, Pre-Mortem records, decision review opinions, etc.) under `docs/critic/`.
 
+Organize the next contract using PROMPT.md outcome granularity and precise review triggers. Combine bounded execution and its conclusion in one outcome; do not default to an extra selection or ordinary-research certification cycle.
+
 ## Output Format
 When consulted, you should:
 1. Summarize your judgment in one sentence first (support / oppose / need more information)

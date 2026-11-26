@@ -228,6 +228,8 @@
   "scripts/core/consensus-guard.sh",
   "scripts/core/cycle_reports.py",
   "scripts/core/company_harness_client.py",
+  "scripts/core/company_harness_contract.py",
+  "scripts/core/company_harness_handoff.py",
   "scripts/core/engine-adapters.sh",
   "scripts/core/engine-metadata.py",
   "scripts/core/isolation_entry.py",

@@ -183,6 +183,7 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "Evidence is versioned by actual SHA256 bytes. Read receipts; fix rejected requests within the same deadline. "
     prompt += "Choose a single primary result using --primary PATH_OR_EVIDENCE_ID when providing multiple non-handoff materials; the client selects a unique non-handoff result automatically. "
     prompt += "For a review cycle, --payload JSON must include review:{targetRefs:EXACT_CONTRACT_INPUT_REFS,verdict:passed|changes_required|unverifiable,issues:[],qualityApplicability:[WORK_KINDS]}; the host binds actual independent reviewer identity. "
+    prompt += "qualityApplicability names the DOWNSTREAM workKinds this reviewed version is sufficient to enter, not the reviewed artifact kind. For example, a passed direction review enabling definition uses [\"definition\"], not [\"direction\"]. Name only the downstream scopes actually assessed; this does not approve their future outputs or waive other prerequisites. "
     prompt += "After accepted submit, stop ALL business writes and exit immediately; do not wait for closed. Lost ACK: reuse the same submission ID/content or query status. "
     prompt += "Do not invoke cycle_reports.py or create another deliverable/cycle. All teammate/tool work shares this deadline."
     prompt += "\nRegular work targets 3–5 minutes (180–300 seconds); development uses an engineering target of 600 seconds. "
@@ -190,6 +191,15 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "This Codex adapter has no reliable live time reminder (liveTimeReminder=false); query status for remaining time and plan your own submission margin."
     prompt += "\nUse the READ-ONLY immutable input versions listed in /run/autonomous-company/harness-inputs/index.json. "
     prompt += "Each entry maps evidenceId/SHA256/mediaType to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
+    handoff_path = protocol_handoff_path(attempt_id) if recovery else "docs/harness/" + attempt_id + "-handoff.json"
+    prompt += "\nPrefer the deterministic handoff helper instead of hand-copying hashes. Write logs/next-plan.json with "
+    prompt += '{"contract":{"objective":"YOUR NEXT OUTCOME","workKind":"research","timeClass":"regular","scope":["AUTHORIZED SCOPE"],"completionOrHandoff":"USABLE RESULT","reviewRequirement":null},"inputs":[],"prerequisites":[]}. '
+    prompt += 'Choose the actual workKind/scope. Select historical refs as {"input":"EXACT file FROM index.json"}, listed local attachments as {"evidence":"docs/result-data.json"}, or the current primary as {"primary":true}. '
+    prompt += "The primary is automatically the first input. For a current independent review needed by the next stage, explicitly put {\"primary\":true} in prerequisites; host closure still decides applicability. "
+    prompt += "Run: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md (add --evidence PATH for attachments). "
+    prompt += "Use your actual primary path. The helper returns handoffPath=" + handoff_path + "; submit separately with --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + ". "
+    prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.inputRefs exactly; verdict/issues/applicability require actual independent assessment. "
+    prompt += "Serialize generation and submission. After accepted, never rerun the helper; query status or replay the original submit ID/content. The original handwritten handoff remains supported."
     from company_harness_quality import ARTIFACTS, REQUIRED
     prompt += "\nAllowed workKind values: " + ", ".join([*ARTIFACTS, "revision"]) + ". revision also requires revisesKind naming its artifact kind. "
     prompt += "Typed prerequisites (each requires current version inputRefs plus independent-review prerequisiteRefs): " + json.dumps(REQUIRED) + ". "

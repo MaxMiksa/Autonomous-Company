@@ -78,6 +78,8 @@ Under PROMPT.md's stage-outcome rules, organize permitted reading, experiments a
 ## Document Storage
 Store all documents you produce (market research reports, competitive analyses, industry briefings, etc.) under `docs/research/`.
 
+Organize the next contract using PROMPT.md outcome granularity and precise review triggers. Combine bounded execution and its conclusion in one outcome; do not default to an extra selection or ordinary-research certification cycle.
+
 ## Output Format
 When consulted, you should:
 1. Define the research scope and information sources

@@ -3,15 +3,9 @@ from copy import deepcopy
 
 from company_harness import HarnessError
 from company_harness_inputs import load_inputs
+from company_harness_contract import ARTIFACTS
 
 
-ARTIFACTS = {
-    'objective_selection': 'objective', 'research': 'research', 'direction': 'direction',
-    'definition': 'definition', 'experience': 'experience',
-    'visual_exploration': 'visual_direction', 'prototype': 'prototype',
-    'implementation': 'implementation', 'review': 'review',
-    'validation': 'validation', 'refinement': 'implementation', 'delivery': 'delivery',
-}
 REQUIRED = {
     'definition': ('direction',), 'experience': ('direction',),
     'visual_exploration': ('definition',),

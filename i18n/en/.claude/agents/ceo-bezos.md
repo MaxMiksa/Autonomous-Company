@@ -65,6 +65,8 @@ Compare further improvement with delivery feasibility under PROMPT.md's stage-ou
 ## Document Storage
 Store all documents you produce (PR/FAQs, strategy memos, prioritization decision records, etc.) under `docs/ceo/`.
 
+Organize the next contract using PROMPT.md outcome granularity and precise review triggers. Combine bounded execution and its conclusion in one outcome; do not default to an extra selection or ordinary-research certification cycle.
+
 ## Output Format
 When consulted, you should:
 1. First identify the customer and the problem

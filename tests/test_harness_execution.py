@@ -1120,7 +1120,11 @@ elif recovery:
             assert error.errno==errno.EROFS,(folder,error)
     primary,_=material(marker)
     target=pathlib.Path('/workspace')/protocol_handoff_path(os.environ['AUTONOMOUS_COMPANY_ATTEMPT_ID'])
-    target.write_text(json.dumps({'nextContract':{'objective':'Research one concrete customer problem','workKind':'research','scope':['one customer problem'],'inputRefs':[primary],'prerequisiteRefs':[],'completionOrHandoff':'research note'}}))
+    plan=pathlib.Path('/workspace/logs/recovery-plan.json')
+    plan.write_text(json.dumps({'contract':{'objective':'Research one concrete customer problem','workKind':'research','scope':['one customer problem'],'completionOrHandoff':'research note'},'inputs':[],'prerequisites':[]}))
+    import subprocess
+    generated=json.loads(subprocess.check_output(['python3','/workspace/scripts/core/company_harness_handoff.py','--plan','logs/recovery-plan.json','--primary',marker.relative_to('/workspace').as_posix()]))
+    assert target==pathlib.Path('/workspace')/generated['handoffPath']
     handoff,_=material(target)
     payload={'result':'partial','unfinishedItems':['Selected bounded question needs research'],'evidenceRefs':[primary,handoff],'primaryEvidenceId':primary['evidenceId'],'handoffRef':handoff}
     assert request('submit','wrong-purpose',{**payload,'primaryEvidenceId':handoff['evidenceId']})['errorCode']=='PROTOCOL_PURPOSE'
@@ -1140,8 +1144,11 @@ elif status['workKind']=='objective_selection':
     binary=docs/'synthetic-binary.bin'
     binary.write_bytes(bytes([0,255,1,2]))
     binary_ref,_=material(binary)
-    target=docs/'next.json'
-    target.write_text(json.dumps({'nextContract':{'objective':'Research one concrete customer problem','workKind':'research','scope':['one customer problem'],'timeClass':'regular','inputRefs':[primary,binary_ref],'prerequisiteRefs':[],'completionOrHandoff':'research note'}}))
+    plan=pathlib.Path('/workspace/logs/normal-plan.json')
+    plan.write_text(json.dumps({'contract':{'objective':'Research one concrete customer problem','workKind':'research','scope':['one customer problem'],'timeClass':'regular','completionOrHandoff':'research note'},'inputs':[{'evidence':'docs/synthetic-binary.bin'}],'prerequisites':[]}))
+    import subprocess
+    generated=json.loads(subprocess.check_output(['python3','/workspace/scripts/core/company_harness_handoff.py','--plan','logs/normal-plan.json','--primary','docs/selection.txt','--evidence','docs/synthetic-binary.bin']))
+    target=pathlib.Path('/workspace')/generated['handoffPath']
     ref,_=material(target)
     payload={'result':'completed','unfinishedItems':[],'evidenceRefs':[primary,binary_ref,ref],'handoffRef':ref,'primaryEvidenceId':primary['evidenceId']}
     assert request('submit','stable-objective',payload)['status']=='accepted'
@@ -1210,7 +1217,8 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tok
                         ((root / "logs/auto-loop.log").read_text()[-5000:] if (root / "logs/auto-loop.log").exists() else ""))
                     snapshot = HarnessStore(root).snapshot()
                     self.assertEqual(len(snapshot["cycles"]), 2, output.read_text() + (root / 'logs/auto-loop.log').read_text()[-5000:] +
-                        str([runner.read_fact(path) for path in (root / '.autonomous-company/harness').glob('*.finish.json')]))
+                        str([runner.read_fact(path) for path in (root / '.autonomous-company/harness').glob('*.finish.json')]) +
+                        '\n'.join(path.read_text(errors='replace')[-3000:] for path in (root / 'logs').glob('attempt-*.log')))
                     self.assertEqual([len(c["attempts"]) for c in snapshot["cycles"]], [1, 1] if budget_resume else [2, 1])
                     self.assertEqual([c["sequenceNumber"] for c in snapshot["cycles"]], [1, 2])
                     self.assertEqual(snapshot["cycles"][0]["outcome"], "partial" if recovery else "completed")

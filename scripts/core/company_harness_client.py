@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 import sys
+from company_harness_contract import MATERIAL_LIMIT
 
 LIMIT = 64 * 1024
 PROTOCOL_LIMIT = 16 * 1024
@@ -52,7 +53,7 @@ def material(path, checkpoint=False):
         candidate = root / candidate
     relative = candidate.resolve(strict=True).relative_to(root).as_posix()
     data = candidate.read_bytes()
-    if len(data) > 1024 * 1024:
+    if len(data) > MATERIAL_LIMIT:
         raise ValueError("Key material exceeds 1 MiB")
     digest = hashlib.sha256(data).hexdigest()
     ref = {"evidenceId": ("checkpoint-" if checkpoint else "evidence-") + os.environ["AUTONOMOUS_COMPANY_ATTEMPT_ID"] + "-" + digest,

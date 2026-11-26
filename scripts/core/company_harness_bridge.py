@@ -64,6 +64,14 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
                 consumed, reliability = self.store._elapsed(timer)
                 status["remainingSeconds"] = max(0, math.floor(timer["limitSeconds"] - consumed)) if reliability == "reliable" else None
             status["recovery"] = bool(attempt and attempt["recoveryId"])
+            status["attempt"] = {key: attempt.get(key) for key in
+                ("attemptId", "status", "recoveryId", "acceptedSubmissionId")} if attempt else None
+            try:
+                with self.store._transaction() as tx:
+                    self.store._context(tx, self.context)
+                status["writeAllowed"] = True
+            except HarnessError:
+                status["writeAllowed"] = False
             status["cycle"] = {key: cycle.get(key) for key in ("cycleId", "contract", "objective", "workKind", "protocolState", "outcome", "time", "activeAttemptId", "report")} if cycle else None
             return status
         if action == "publish_progress":
