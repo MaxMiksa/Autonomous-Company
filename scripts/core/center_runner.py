@@ -42,7 +42,12 @@ CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "
                  "scripts/core/product_media.py", "scripts/core/product_media_worker.cjs",
                  "scripts/core/project-context.py", "scripts/core/product_identity.py",
                  "scripts/core/consensus-format.py", "scripts/core/consensus-guard.sh",
-                 "scripts/core/localization.py", "scripts/core/namespace_guard.py", "scripts/core/runtime_artifacts.py", "dashboard/server.py", "Makefile",
+                 "scripts/core/localization.py", "scripts/core/namespace_guard.py", "scripts/core/runtime_artifacts.py",
+                 "scripts/core/company_harness.py", "scripts/core/company_harness_bridge.py",
+                 "scripts/core/company_harness_client.py", "scripts/core/company_harness_contract.py",
+                 "scripts/core/company_harness_handoff.py", "scripts/core/company_harness_inputs.py",
+                 "scripts/core/company_harness_loop.sh", "scripts/core/company_harness_quality.py",
+                 "scripts/core/company_harness_runner.py", "dashboard/server.py", "Makefile",
                  "scripts/macos/start-daemon.sh", "scripts/macos/install-daemon.sh", "scripts/wsl/dashboard-wsl.sh",
                  "scripts/wsl/install-wsl-daemon.sh", "scripts/windows/start-win.ps1", "scripts/windows/stop-win.ps1")
 

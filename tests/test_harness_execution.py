@@ -789,6 +789,169 @@ class RunnerTests(unittest.TestCase):
             with self.subTest(expected=expected), self.assertRaisesRegex(HarnessError, expected):
                 runner.validate_recovery_submission(attempt, modified, lambda _: content)
 
+    def test_partial_head_feedback_and_completion_path_unblocks_downstream(self):
+        from company_harness_quality import artifact_state, prepare_contract
+        from company_harness_inputs import load_inputs, write_inputs
+        # Seed a completed definition + passed review so prototype reaches visual_direction check.
+        with self.store._transaction() as tx:
+            c0 = self.store._cycle(tx, self.cycle_id)
+            c0["contract"].update(workKind="definition", artifactKind="definition")
+            c0["workKind"] = "definition"
+            self.store._save_cycle(tx, c0)
+        a0 = self.store.begin_attempt(self.cycle_id, "def-1", {"dispatchId": "owned"})
+        def_ref = self.store.bind_evidence(self.cycle_id, "def-doc", "complete definition", source={"attemptId": "def-1"})
+        def_ev = {"evidenceId": def_ref["evidenceId"], "sha256": def_ref["sha256"]}
+        self.store.submit(a0["context"], "sub-def", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [def_ev], "primaryEvidenceId": def_ev["evidenceId"],
+        })
+        self.store.finish_attempt(a0["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(self.cycle_id, "close-def", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["def-1"], "evidenceRefs": [def_ev], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-def")
+        runner.sync_identity(self.root, runner.row(self.store, self.cycle_id))
+        rev_id = reserve_cycle(self.root, "", "rev-def", 2)["cycleId"]
+        self.store.create_cycle({
+            "cycleId": rev_id, "explorationId": self.identity["explorationId"], "sequenceNumber": 2,
+            "objective": "Review definition", "workKind": "review", "artifactKind": "review",
+            "scope": ["review def"], "completionOrHandoff": "done", "inputRefs": [def_ev], "prerequisiteRefs": [],
+        })
+        ar = self.store.begin_attempt(rev_id, "rev-def-1", {"dispatchId": "owned"})
+        rev_ref = self.store.bind_evidence(rev_id, "rev-def-doc", "passed review", source={"attemptId": "rev-def-1"})
+        rev_ev = {"evidenceId": rev_ref["evidenceId"], "sha256": rev_ref["sha256"]}
+        self.store.submit(ar["context"], "sub-rev-def", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [rev_ev], "primaryEvidenceId": rev_ev["evidenceId"],
+            "review": {"targetRefs": [def_ev], "verdict": "passed", "issues": [], "qualityApplicability": ["visual_exploration", "prototype"]},
+        })
+        self.store.finish_attempt(ar["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(rev_id, "close-rev-def", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["rev-def-1"], "evidenceRefs": [rev_ev], "checkedAt": runner.now()},
+            quality_applicability=[{"artifactKind": "definition", "targetRef": def_ev, "verdict": "passed",
+                                    "workKinds": ["visual_exploration", "prototype"], "reviewEvidenceRefs": [rev_ev]}],
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()},
+            submission_id="sub-rev-def")
+        runner.sync_identity(self.root, runner.row(self.store, rev_id))
+        # Now run visual_exploration closing partial.
+        vis_id = reserve_cycle(self.root, "", "partial-vis", 3)["cycleId"]
+        self.store.create_cycle({
+            "cycleId": vis_id, "explorationId": self.identity["explorationId"], "sequenceNumber": 3,
+            "objective": "Visual exploration", "workKind": "visual_exploration", "artifactKind": "visual_direction",
+            "scope": ["visuals"], "completionOrHandoff": "done", "inputRefs": [def_ev], "prerequisiteRefs": [rev_ev],
+        })
+        attempt = self.store.begin_attempt(vis_id, "partial-vis-1", {"dispatchId": "owned"})
+        ref = self.store.bind_evidence(vis_id, "vis-partial-doc", "partial mockups", source={"attemptId": "partial-vis-1"})
+        ev = {"evidenceId": ref["evidenceId"], "sha256": ref["sha256"]}
+        self.store.submit(attempt["context"], "sub-partial", {
+            "result": "partial", "unfinishedItems": ["mobile layout"], "evidenceRefs": [ev], "primaryEvidenceId": ev["evidenceId"],
+        })
+        self.store.finish_attempt(attempt["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(vis_id, "close-partial-vis", outcome="partial",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["partial-vis-1"], "evidenceRefs": [ev], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-partial")
+        runner.sync_identity(self.root, runner.row(self.store, vis_id))
+        scope = {"productId": None, "explorationId": self.identity["explorationId"]}
+        state = artifact_state(self.store, scope)
+        self.assertNotIn("visual_direction", state["heads"])
+        self.assertEqual(state["incomplete"][0]["artifactKind"], "visual_direction")
+        self.assertEqual(state["incomplete"][0]["requiredProductionWorkKind"], "visual_exploration")
+        with self.assertRaisesRegex(HarnessError, "visual_exploration"):
+            prepare_contract(self.store, {
+                "objective": "Try prototype", "workKind": "prototype", "scope": ["proto"],
+                "completionOrHandoff": "done", "inputRefs": [def_ev, ev], "prerequisiteRefs": [rev_ev],
+            }, scope)
+        with self.assertRaisesRegex(HarnessError, "visual_exploration"):
+            prepare_contract(self.store, {
+                "objective": "Try revision", "workKind": "revision", "revisesKind": "visual_direction",
+                "scope": ["rev"], "completionOrHandoff": "done", "inputRefs": [ev], "prerequisiteRefs": [],
+            }, scope)
+        loaded = load_inputs(self.store, {"inputRefs": [ev], "prerequisiteRefs": []})
+        self.assertEqual(loaded[0]["sourceOutcome"], "partial")
+        self.assertFalse(loaded[0]["isCompletedHead"])
+        inputs_dir = self.root / "probe-inputs"
+        write_inputs(loaded, inputs_dir)
+        idx = json.loads((inputs_dir / "index.json").read_text())
+        self.assertFalse(idx[0]["isCompletedHead"])
+        self.assertEqual(idx[0]["sourceOutcome"], "partial")
+        # Completing via original production workKind establishes the completed head.
+        c2_id = reserve_cycle(self.root, "", "complete-vis", 4)["cycleId"]
+        c2 = self.store.create_cycle({
+            "cycleId": c2_id, "explorationId": self.identity["explorationId"], "sequenceNumber": 4,
+            "objective": "Finish visual exploration", "workKind": "visual_exploration", "artifactKind": "visual_direction",
+            "scope": ["complete"], "completionOrHandoff": "done", "inputRefs": [def_ev, ev], "prerequisiteRefs": [rev_ev],
+        })
+        a2 = self.store.begin_attempt(c2_id, "complete-vis-1", {"dispatchId": "owned"})
+        ref2 = self.store.bind_evidence(c2_id, "vis-complete-doc", "complete mockups", source={"attemptId": "complete-vis-1"})
+        ev2 = {"evidenceId": ref2["evidenceId"], "sha256": ref2["sha256"]}
+        self.store.submit(a2["context"], "sub-complete", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [ev2], "primaryEvidenceId": ev2["evidenceId"],
+        })
+        self.store.finish_attempt(a2["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(c2_id, "close-complete-vis", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["complete-vis-1"], "evidenceRefs": [ev2], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-complete")
+        state2 = artifact_state(self.store, scope)
+        self.assertEqual(state2["heads"]["visual_direction"]["evidenceId"], ev2["evidenceId"])
+        self.assertEqual(state2["incomplete"], [])
+        self.assertTrue(load_inputs(self.store, {"inputRefs": [ev2], "prerequisiteRefs": []})[0]["isCompletedHead"])
+
+    def test_repeated_identical_rejection_escalates_to_human(self):
+        with patch.dict(os.environ, {"COMPANY_HARNESS_CORRECTIONS": "1", "COMPANY_HARNESS_MAX_SAME_ERROR": "2",
+                                     "AUTONOMOUS_COMPANY_LOCK_PID": str(os.getpid())}):
+            m1 = runner.begin_attempt(self.store, self.root, self.cycle_id)
+            self.addCleanup(shutil.rmtree, m1["temporary"], ignore_errors=True)
+            a1 = m1["context"]["attemptId"]
+            runner.write_fact(self.root / m1["collectRelative"], {**m1["context"], "collected": True, "versions": {}})
+            r1 = runner.finish_attempt(self.store, self.root, a1, {"status": "success", "exit_code": 0, "input_tokens": 5, "output_tokens": 2},
+                {"cleanupFailed": False, "supervisorOwner": "owned"})
+            self.assertEqual(r1["action"], "retry")
+            m2 = runner.begin_attempt(self.store, self.root, self.cycle_id)
+            self.addCleanup(shutil.rmtree, m2["temporary"], ignore_errors=True)
+            a2 = m2["context"]["attemptId"]
+            runner.write_fact(self.root / m2["collectRelative"], {**m2["context"], "collected": True, "versions": {}})
+            r2 = runner.finish_attempt(self.store, self.root, a2, {"status": "success", "exit_code": 0, "input_tokens": 5, "output_tokens": 2},
+                {"cleanupFailed": False, "supervisorOwner": "owned"})
+            self.assertEqual(r2["action"], "human")
+            self.assertEqual(r2["repeatedErrorCount"], 2)
+            self.assertIn("Repeated identical rejection", r2["guidance"])
+
+    def test_usage_mirror_reports_self_coverage_when_tokens_measured(self):
+        manifest, metadata = self.stopped_material(with_handoff=True)
+        runner.finish_attempt(self.store, self.root, manifest["context"]["attemptId"], metadata,
+            {"cleanupFailed": False, "supervisorOwner": "verified-tree"})
+        attempt = self.store.snapshot()["cycles"][0]["attempts"][0]
+        self.assertEqual(attempt["calls"][0]["coverage"], "self")
+        self.assertTrue(attempt["usage"]["observedFieldsComplete"]["totalTokens"])
+        self.assertFalse(attempt["usage"]["totalTokensComplete"])
+
+    def test_reconcile_crash_closes_orphaned_cycle_after_writers_stopped(self):
+        with patch.dict(os.environ, {"AUTONOMOUS_COMPANY_LOCK_PID": str(os.getpid())}):
+            manifest = runner.begin_attempt(self.store, self.root, self.cycle_id)
+        self.addCleanup(shutil.rmtree, manifest["temporary"], ignore_errors=True)
+        with self.assertRaisesRegex(HarnessError, "UNFINISHED_HARNESS"):
+            runner.recover_stopped_cycles(self.store, self.root)
+        # Active process blocks crash reconciliation.
+        live_proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        self.addCleanup(lambda: (live_proc.terminate(), live_proc.wait(timeout=5)) if live_proc.poll() is None else None)
+        live_start = runner.process_start(live_proc.pid)
+        runner.write_fact(Path(manifest["ready"]), {"pid": live_proc.pid, "processStart": live_start})
+        with self.assertRaisesRegex(HarnessError, "WRITERS_UNCONFIRMED"):
+            runner.reconcile_crash(self.store, self.root)
+        live_proc.terminate()
+        live_proc.wait(timeout=5)
+        cli = subprocess.run([sys.executable, str(ROOT / "scripts/core/company_harness_runner.py"),
+                              "--root", str(self.root), "reconcile-crash", "--reason", "test_power_loss"],
+                             capture_output=True, text=True)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        payload = json.loads(cli.stdout)
+        self.assertEqual(payload["reconciledCycles"], [self.cycle_id])
+        cycle = self.store.snapshot()["cycles"][0]
+        self.assertEqual(cycle["protocolState"], "closed")
+        self.assertEqual(cycle["outcome"], "interrupted")
+        self.assertFalse(cycle["continuationDecision"]["allowed"])
+        self.assertEqual(cycle["continuationDecision"]["reason"], "crash_reconciled_human_review")
+        startup = subprocess.run([sys.executable, str(ROOT / "scripts/core/company_harness_runner.py"),
+                                  "--root", str(self.root), "startup"], capture_output=True, text=True)
+        self.assertEqual(startup.returncode, 0, startup.stderr)
+
 
 @unittest.skipUnless(sys.platform == 'linux', 'Live pre-dispatch ownership uses real Linux processes')
 class PreDispatchTests(unittest.TestCase):

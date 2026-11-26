@@ -59,7 +59,7 @@ def host_admission(root, starting=False):
 
 def policy():
     result = {}
-    for name, default in (("CORRECTIONS", 2), ("RECOVERY_ATTEMPTS", 2), ("RECOVERY_SECONDS", 300), ("CLOSE_SECONDS", 60)):
+    for name, default in (("CORRECTIONS", 2), ("RECOVERY_ATTEMPTS", 2), ("RECOVERY_SECONDS", 300), ("CLOSE_SECONDS", 60), ("MAX_SAME_ERROR", 2)):
         raw = os.environ.get("COMPANY_HARNESS_" + name, str(default))
         if not raw.isdecimal() or int(raw) < (0 if name in {"CORRECTIONS", "RECOVERY_ATTEMPTS"} else 1):
             raise HarnessError("INVALID_CONFIG", "COMPANY_HARNESS_" + name)
@@ -99,8 +99,9 @@ def prepare(store, root, cycle_id):
     proposal = next_contract(store, scope)
     proposal.update(targetRangeSeconds=[180, 300] if proposal["timeClass"] == "regular" else None,
                     targetSeconds=300 if proposal["timeClass"] == "regular" else 600,
-                    capabilities={"adapter": "codex", "liveTimeReminder": False, "submitFeedback": True,
-                                  "recoveryBusinessReadonly": True, "recoveryInnerMode": "inherited",
+                    capabilities={"adapter": "codex", "liveTimeReminder": False, "receiptTimeReminder": True,
+                                  "submitFeedback": True, "recoveryBusinessReadonly": True,
+                                  "recoveryInnerMode": "inherited",
                                   "supportedInnerModes": ["danger-full-access"], "protocolScratch": True})
     return store.create_cycle({**proposal, "cycleId": cycle_id, "productId": identity.get("productId"),
         "explorationId": identity.get("explorationId"), "sequenceNumber": identity["sequenceNumber"] or identity["productCycleNumber"],
@@ -188,9 +189,9 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "Do not invoke cycle_reports.py or create another deliverable/cycle. All teammate/tool work shares this deadline."
     prompt += "\nRegular work targets 3–5 minutes (180–300 seconds); development uses an engineering target of 600 seconds. "
     prompt += "Finish earlier when ready. If unfinished at the target, request_extension with reason and remainingSeconds; the fixed 480/720-second hard deadline never resets. "
-    prompt += "This Codex adapter has no reliable live time reminder (liveTimeReminder=false); query status for remaining time and plan your own submission margin."
+    prompt += "Every company_harness_client.py receipt reports remainingSeconds and timePhase (plus a stderr warning at <=120s); query status when unsure and stop feature work immediately at <=120s to generate handoff and submit."
     prompt += "\nUse the READ-ONLY immutable input versions listed in /run/autonomous-company/harness-inputs/index.json. "
-    prompt += "Each entry maps evidenceId/SHA256/mediaType to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
+    prompt += "Each entry maps evidenceId/SHA256/mediaType/sourceOutcome/isCompletedHead to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
     handoff_path = protocol_handoff_path(attempt_id) if recovery else "docs/harness/" + attempt_id + "-handoff.json"
     prompt += "\nPrefer the deterministic handoff helper instead of hand-copying hashes. Write logs/next-plan.json with "
     prompt += '{"contract":{"objective":"YOUR NEXT OUTCOME","workKind":"research","timeClass":"regular","scope":["AUTHORIZED SCOPE"],"completionOrHandoff":"USABLE RESULT","reviewRequirement":null},"inputs":[],"prerequisites":[]}. '
@@ -200,10 +201,12 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "Use your actual primary path. The helper returns handoffPath=" + handoff_path + "; submit separately with --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + ". "
     prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.inputRefs exactly; verdict/issues/applicability require actual independent assessment. "
     prompt += "Serialize generation and submission. After accepted, never rerun the helper; query status or replay the original submit ID/content. The original handwritten handoff remains supported."
-    from company_harness_quality import ARTIFACTS, REQUIRED
+    from company_harness_quality import ARTIFACTS, REQUIRED, artifact_state
     prompt += "\nAllowed workKind values: " + ", ".join([*ARTIFACTS, "revision"]) + ". revision also requires revisesKind naming its artifact kind. "
     prompt += "Typed prerequisites (each requires current version inputRefs plus independent-review prerequisiteRefs): " + json.dumps(REQUIRED) + ". "
     prompt += "Review/research/revision can recur; these are admission conditions, not a fixed cycle sequence."
+    heads_summary = artifact_state(store, {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")})
+    prompt += "\nCurrent artifact head status (partial cycles NEVER create a completed head; if a required artifactKind has no completed head, propose its original production workKind to finish the gap and submit completed—never propose review or revision): " + json.dumps(heads_summary, ensure_ascii=False)
     previous_result = host_path(root, cycle_id + ".result.json")
     if previous_result.exists():
         prompt += "\nPrior attempt's deterministic feedback (correct within this SAME deliverable): " + json.dumps(read_fact(previous_result), ensure_ascii=False)
@@ -292,10 +295,17 @@ def settle_usage_intent(store, root, record):
         return
     append_cycle_record(root / "logs/usage.jsonl", record, budget_config=load_budget_config(os.environ),
                         pause_path=root / ".auto-loop-budget-paused", reconcile_budget=True)
+    usage = record.get("usage") or {}
+    in_tok, out_tok = usage.get("input_tokens"), usage.get("output_tokens")
+    has_tokens = (
+        isinstance(in_tok, (int, float)) and not isinstance(in_tok, bool) and math.isfinite(in_tok)
+        and isinstance(out_tok, (int, float)) and not isinstance(out_tok, bool) and math.isfinite(out_tok)
+    )
     store.record_usage(record["logical_cycle_id"], record["attempt_id"], {
-        "callId": record["attempt_id"] + "-provider", "coverage": "unknown",
-        "cost": record["cost_usd"], "inputTokens": record["usage"]["input_tokens"], "outputTokens": record["usage"]["output_tokens"],
-        "source": {"type": "usage_ledger_mirror", "ledgerId": record["attempt_id"], "providerCoverage": "unknown"}})
+        "callId": record["attempt_id"] + "-provider", "coverage": "self" if has_tokens else "unknown",
+        "cost": record["cost_usd"], "inputTokens": in_tok, "outputTokens": out_tok,
+        "source": {"type": "usage_ledger_mirror", "ledgerId": record["attempt_id"],
+                   "providerCoverage": "root_cli_self" if has_tokens else "unknown"}})
 
 
 def process_start(pid):
@@ -549,6 +559,8 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
     collected = read_fact(receipt_path) if receipt_path.exists() else None
     if collected and any(collected.get(key) != manifest["context"].get(key) for key in ("cycleId", "attemptId", "generation")):
         raise HarnessError("COLLECTION_OWNER_MISMATCH")
+    if collected and not submission:
+        error = "SUBMISSION_MISSING"
     if collected and submission:
         try:
             from isolation_workspace import regular_bytes
@@ -591,6 +603,29 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
         "action": "close" if valid and success else "retry"}
     if not collected:
         result.update(action="human", error="COLLECTION_UNCONFIRMED")
+    if result["action"] == "retry" and error:
+        def _sig(text):
+            parts = str(text or "").split(": ", 2)
+            return ": ".join(parts[:2]) if len(parts) >= 2 else parts[0]
+        cur_sig = _sig(error)
+        repeat_count = 1
+        prior_attempts = [a for a in cycle["attempts"] if a["attemptId"] != attempt_id]
+        for prior in reversed(prior_attempts):
+            pf = host_path(root, prior["attemptId"] + ".finish.json")
+            if not pf.exists():
+                break
+            prev_err = read_fact(pf).get("error") or ""
+            if _sig(prev_err) == cur_sig:
+                repeat_count += 1
+            else:
+                break
+        max_same = policy()["MAX_SAME_ERROR"]
+        if repeat_count >= max_same:
+            result["repeatedErrorCount"] = repeat_count
+            result["guidance"] = "Repeated identical rejection; change strategy/workKind instead of repeating the same rejected contract"
+            normal_count = sum(a["recoveryId"] is None for a in cycle["attempts"])
+            if attempt.get("recoveryId") or normal_count >= 1 + policy()["CORRECTIONS"]:
+                result["action"] = "human"
     write_fact(previous_finish, result)
     publish_cycle_result(store, root, result)
     # Only remove our short-lived socket directory, never retained worker views.
@@ -737,10 +772,68 @@ def recover_stopped_cycles(store, root):
         close_cycle(store, root, cycle["cycleId"], True)
 
 
+def reconcile_crash(store, root, reason="operator_crash_reconcile"):
+    """Close proven-stopped orphaned Harness cycles after an unclean host crash."""
+    host_admission(root)
+    reconciled = []
+    for cycle in store.snapshot()["cycles"]:
+        if cycle["protocolState"] == "closed":
+            continue
+        identity_id = (read_state(root).get("cycles") or {}).get(cycle["cycleId"], {}).get("identityId")
+        if identity_id:
+            active = safe_path(root, ".autonomous-company/isolation/" + identity_id + "/active-run.json")
+            if active.exists():
+                worker = read_fact(active)
+                wpid = worker.get("pid")
+                if isinstance(wpid, int) and process_start(wpid) == worker.get("processStart") and process_start(wpid) is not None:
+                    raise HarnessError("WRITERS_UNCONFIRMED", "worker")
+        for attempt in cycle["attempts"]:
+            aid = attempt["attemptId"]
+            mpath = host_path(root, aid + ".json")
+            if mpath.exists():
+                manifest = read_fact(mpath)
+                rpath = Path(manifest["ready"])
+                if rpath.exists():
+                    ready = read_fact(rpath)
+                    bpid = ready.get("pid")
+                    if isinstance(bpid, int) and process_start(bpid) == ready.get("processStart") and process_start(bpid) is not None:
+                        raise HarnessError("WRITERS_UNCONFIRMED", "bridge")
+                tmp_dir = Path(manifest["temporary"])
+                if tmp_dir.resolve().parent == Path(tempfile.gettempdir()).resolve() and tmp_dir.name.startswith("ac-harness-"):
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+            if attempt["status"] != "finished" or not attempt["writersStopped"]:
+                store.finish_attempt(
+                    attempt["context"],
+                    {"outcome": "interrupted", "exitCode": None, "crashReconciled": True},
+                    writers_stopped=True,
+                    observation={"type": "operator_crash_reconcile", "reason": reason, "checkedAt": now()},
+                )
+        pending_file = safe_path(root, "memories/.consensus-cycle-pending")
+        if pending_file.exists() or pending_file.is_symlink():
+            guard = Path(__file__).with_name("consensus-guard.sh")
+            res = subprocess.run(["bash", str(guard), "recover"], env={**os.environ, "AUTONOMOUS_COMPANY_ROOT": str(root)},
+                                 capture_output=True, text=True, timeout=policy()["CLOSE_SECONDS"])
+            if res.returncode not in (0, 42):
+                raise HarnessError("GOVERNANCE_RECOVERY_REQUIRED", "recover")
+        refreshed = row(store, cycle["cycleId"])
+        store.close_cycle(
+            cycle["cycleId"],
+            "reconcile-" + cycle["cycleId"],
+            outcome="interrupted",
+            verification={"writersStopped": True, "crashReconciled": True,
+                          "attemptResults": [a["attemptId"] for a in refreshed["attempts"]],
+                          "evidenceRefs": [], "reason": reason, "checkedAt": now()},
+            continuation_decision={"allowed": False, "reason": "crash_reconciled_human_review", "checkedAt": now()},
+        )
+        sync_identity(root, row(store, cycle["cycleId"]))
+        reconciled.append(cycle["cycleId"])
+    return {"reconciledCycles": reconciled, "reason": reason}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("action", choices=("startup", "recover-usage", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close", "dispatch", "unstarted"))
+    parser.add_argument("action", choices=("startup", "recover-usage", "reconcile-crash", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close", "dispatch", "unstarted"))
     parser.add_argument("--cycle")
     parser.add_argument("--attempt")
     parser.add_argument('--bridge-pid', type=int)
@@ -749,11 +842,17 @@ def main():
     parser.add_argument("--cleanup-failed", type=int, default=1)
     parser.add_argument("--governance-ok", type=int, default=0)
     parser.add_argument("--product", default="")
+    parser.add_argument("--reason", default="operator_crash_reconcile")
     args = parser.parse_args()
     root = args.root.resolve()
     if args.action in {"startup", "next", "prepare", "attempt"} and os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access") != "danger-full-access":
         raise HarnessError("UNSUPPORTED_INNER_SANDBOX", "CODEX_SANDBOX_MODE")
     store = HarnessStore(root, create=True)
+    if args.action == "reconcile-crash":
+        for path in sorted(host_path(root, "").glob("*.usage.json")):
+            settle_usage_intent(store, root, read_fact(path))
+        print(json.dumps(reconcile_crash(store, root, args.reason), ensure_ascii=False))
+        return 0
     if args.action in {"startup", "recover-usage"}:
         for path in sorted(host_path(root, "").glob("*.usage.json")):
             settle_usage_intent(store, root, read_fact(path))

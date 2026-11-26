@@ -18,11 +18,7 @@ P1_ITEM = re.compile(
 LIST_ITEM = re.compile(rb"^([ \t]*)(?:[-+*]|\d+[.)])\s+")
 
 
-def sections(path):
-    path = Path(path)
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("consensus must be a regular file")
-    data = path.read_bytes()
+def sections_bytes(data):
     if b"\0" in data:
         raise ValueError("consensus contains NUL bytes")
     lines = data.splitlines(keepends=True)
@@ -45,6 +41,13 @@ def sections(path):
             end += 1
         result[heading] = b"".join(lines[start:end])
     return result
+
+
+def sections(path):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("consensus must be a regular file")
+    return sections_bytes(path.read_bytes())
 
 
 def p1_items(section):

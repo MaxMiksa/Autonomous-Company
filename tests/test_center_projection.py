@@ -701,7 +701,9 @@ class ProjectionTests(unittest.TestCase):
         from center_runtime import harness_capability
         folder = self.root / 'scripts/core'
         folder.mkdir(parents=True)
-        for name in ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py', 'company_harness_client.py'):
+        for name in ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py',
+                     'company_harness_client.py', 'company_harness_contract.py', 'company_harness_handoff.py',
+                     'company_harness_inputs.py', 'company_harness_loop.sh', 'company_harness_quality.py'):
             (folder / name).write_text('# capability fixture')
         with patch.dict('os.environ', {'CODEX_SANDBOX_MODE': 'danger-full-access'}):
             self.assertTrue(harness_capability(self.root, 'codex')['supported'])
@@ -709,6 +711,12 @@ class ProjectionTests(unittest.TestCase):
         with patch.dict('os.environ', {'CODEX_SANDBOX_MODE': 'read-only'}):
             self.assertEqual(harness_capability(self.root, 'codex')['reason'], 'unsupported_inner_sandbox')
         self.assertFalse((self.root / '.autonomous-company.local').exists())
+        sys.path.insert(0, str(ROOT / 'scripts/core'))
+        from center_runner import CONTROL_FILES
+        for name in ('company_harness.py', 'company_harness_bridge.py', 'company_harness_client.py',
+                     'company_harness_contract.py', 'company_harness_handoff.py', 'company_harness_inputs.py',
+                     'company_harness_loop.sh', 'company_harness_quality.py', 'company_harness_runner.py'):
+            self.assertIn('scripts/core/' + name, CONTROL_FILES)
 
     def test_center_catalog_updates_from_harness_progress_without_legacy_report(self):
         cycle, attempt = self.cycle(close=False, report=False)

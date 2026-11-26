@@ -883,11 +883,7 @@ Resume the work and phase in the current consensus. First-exploration rules appl
     elif [ "$consensus_guard_status" -ne 0 ]; then
         cycle_failed_reason="Consensus guard failed with exit code $consensus_guard_status"
     elif [ "$CYCLE_TIMED_OUT" -eq 1 ]; then
-        if validate_consensus && consensus_changed_since_backup; then
-            cycle_soft_timeout=1
-        else
-            cycle_failed_reason="Timed out after ${CYCLE_TIMEOUT_SECONDS}s"
-        fi
+        cycle_failed_reason="Timed out after ${CYCLE_TIMEOUT_SECONDS}s"
     elif [ "$EXIT_CODE" -ne 0 ]; then
         cycle_failed_reason="Exit code $EXIT_CODE"
     elif [ "$ADAPTER_STATUS" != "success" ]; then

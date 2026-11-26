@@ -40,7 +40,9 @@ RUNTIME_ENV_NAMES = {"CODEX_BIN", "CODEX_SANDBOX_MODE", "CLAUDE_BIN", "CLAUDE_PE
                      "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_ALLOW_INSECURE_HTTP", "OPENAI_COMPATIBLE_MODEL",
                      "LOOP_INTERVAL", "CYCLE_TIMEOUT_SECONDS", "CYCLE_TERM_GRACE_SECONDS", "CYCLE_KILL_WAIT_SECONDS",
                      "USAGE_BUDGET_PERIOD", "USAGE_WARNING_USD", "USAGE_HARD_LIMIT_USD", "USAGE_WARNING_TOKENS", "USAGE_HARD_LIMIT_TOKENS",
-                     "AUTONOMOUS_COMPANY_BWRAP", "AUTONOMOUS_COMPANY_BROWSER_RUNTIME", "AUTONOMOUS_COMPANY_LIBRARY_RUNTIME"}
+                     "AUTONOMOUS_COMPANY_BWRAP", "AUTONOMOUS_COMPANY_BROWSER_RUNTIME", "AUTONOMOUS_COMPANY_LIBRARY_RUNTIME",
+                     "COMPANY_HARNESS_ENABLED", "COMPANY_HARNESS_CORRECTIONS", "COMPANY_HARNESS_RECOVERY_ATTEMPTS",
+                     "COMPANY_HARNESS_RECOVERY_SECONDS", "COMPANY_HARNESS_CLOSE_SECONDS", "COMPANY_HARNESS_MAX_SAME_ERROR"}
 
 
 def now():
@@ -52,8 +54,10 @@ def harness_capability(root, engine):
         return {'supported': False, 'enabled': False, 'reason': 'unsupported_adapter'}
     if os.environ.get('CODEX_SANDBOX_MODE', 'danger-full-access') != 'danger-full-access':
         return {'supported': False, 'enabled': False, 'reason': 'unsupported_inner_sandbox'}
-    supported = all((Path(root) / 'scripts/core' / name).is_file() for name in
-                    ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py', 'company_harness_client.py'))
+    supported = all((Path(root) / 'scripts/core' / name).is_file() for name in (
+        'company_harness.py', 'company_harness_bridge.py', 'company_harness_client.py',
+        'company_harness_contract.py', 'company_harness_handoff.py', 'company_harness_inputs.py',
+        'company_harness_loop.sh', 'company_harness_quality.py', 'company_harness_runner.py'))
     return {'supported': supported, 'enabled': supported, 'reason': None if supported else 'unsupported_framework'}
 
 

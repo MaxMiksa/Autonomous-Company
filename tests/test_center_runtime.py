@@ -922,7 +922,9 @@ class PreparationTests(unittest.TestCase):
 
     def test_only_new_supported_codex_copies_default_to_harness(self):
         framework = self.runtime.framework_root
-        for name in ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py', 'company_harness_client.py'):
+        for name in ('company_harness.py', 'company_harness_runner.py', 'company_harness_bridge.py',
+                     'company_harness_client.py', 'company_harness_contract.py', 'company_harness_handoff.py',
+                     'company_harness_inputs.py', 'company_harness_loop.sh', 'company_harness_quality.py'):
             (framework / 'scripts/core' / name).write_text('# preparation capability fixture\n')
         subprocess.run(['git', '-C', str(framework), 'add', 'scripts/core'], check=True, capture_output=True)
         subprocess.run(['git', '-C', str(framework), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',

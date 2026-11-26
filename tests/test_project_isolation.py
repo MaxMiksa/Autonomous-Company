@@ -211,6 +211,49 @@ class ExplorationArtifactCollectionTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b"historical observation")
         self.assertFalse(view.collected)
 
+    def test_governance_violation_holds_back_product_and_docs_on_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "gov-host"
+            (root / "projects/sample").mkdir(parents=True)
+            (root / "projects/sample/value.txt").write_text("original")
+            (root / "projects/registry.tsv").write_text("name\tpath\tlifecycle\tcreated_at_utc\nsample\tprojects/sample\tlocal\t2026-10-02\n")
+            (root / "memories").mkdir()
+            (root / "memories/consensus.md").write_text(
+                "# Legacy\n\n## Current Phase\nBuilding\n\n## Human Overrides\n- keep-me\n\n## Priority Issues\n- None.\n"
+            )
+            view = workspace.CompanyView(root, "projects/sample", "gov-holdback")
+            self.addCleanup(shutil.rmtree, view.folder, ignore_errors=True)
+            with patch.object(workspace, "TEMPLATES", ()):
+                view.prepare()
+            (view.workspace / "projects/sample/value.txt").write_text("rogue-edit")
+            (view.workspace / "docs").mkdir(exist_ok=True)
+            (view.workspace / "docs/rogue.md").write_text("rogue doc")
+            (view.workspace / "memories/consensus.md").write_text(
+                "# Legacy\n\n## Current Phase\nBuilding\n\n## Human Overrides\n- tampered\n\n## Priority Issues\n- None.\n"
+            )
+            view.collect()
+            self.assertTrue(view.collected)
+            self.assertTrue(view.retain_view)
+            self.assertEqual((root / "projects/sample/value.txt").read_text(), "original")
+            self.assertFalse((root / "docs/rogue.md").exists())
+            record = json.loads((view.store / "last-run.json").read_text())
+            self.assertTrue(record["governanceViolationHeldBack"])
+            self.assertIn("- tampered", (root / "memories/consensus.md").read_text())
+
+    def test_chunked_copy_and_fingerprint_handle_multichunk_regular_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "chunk-src"
+            dst = Path(tmp) / "chunk-dst"
+            src.mkdir()
+            payload = (b"A1-chunk-boundary-" * 12000)  # > 200 KiB
+            (src / "large.bin").write_bytes(payload)
+            workspace.copy_tree(src, dst)
+            self.assertEqual((dst / "large.bin").read_bytes(), payload)
+            self.assertEqual(workspace.fingerprint(src), workspace.fingerprint(dst))
+            os.link(src / "large.bin", src / "hardlink.bin")
+            with self.assertRaises(boundary.IsolationError):
+                workspace.fingerprint(src)
+
 
 @unittest.skipUnless(sys.platform == "linux" and (os.environ.get("AUTONOMOUS_COMPANY_BWRAP") or shutil.which("bwrap")),
                      "Requires real Linux namespaces and bubblewrap; no emulation")

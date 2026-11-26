@@ -38,7 +38,7 @@ def request(action, message_id=None, payload=None, *, socket_path=None, token=No
     if len(raw) > LIMIT:
         raise ValueError("Request exceeds 64 KiB")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(5)
+        connection.settimeout(35)
         connection.connect(str(socket_path or os.environ["COMPANY_HARNESS_SOCKET"]))
         connection.sendall(raw)
         with connection.makefile("rb") as source:
@@ -96,6 +96,10 @@ def main():
     if materials:
         payload["materials"] = materials
     result = request(args.action, args.id, payload)
+    rem = result.get("remainingSeconds")
+    if isinstance(rem, int) and rem <= 120:
+        phase = result.get("timePhase", "wrap_up_now")
+        print(f"[harness-timer] WARNING: only {rem}s remaining ({phase}); finish handoff and submit now.", file=sys.stderr)
     print(json.dumps(result, ensure_ascii=False))
     return 2 if result.get("status") == "rejected" else 0
 

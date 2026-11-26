@@ -42,6 +42,41 @@ def regular_bytes(path, limit=None):
         os.close(descriptor)
 
 
+def copy_regular_file(incoming, outgoing, mode):
+    descriptor = os.open(incoming, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise IsolationError("Only private regular files may cross the isolation boundary")
+        with os.fdopen(descriptor, "rb", closefd=False) as source_stream, open(outgoing, "wb") as target_stream:
+            while True:
+                chunk = source_stream.read(65536)
+                if not chunk:
+                    break
+                target_stream.write(chunk)
+    finally:
+        os.close(descriptor)
+    outgoing.chmod(mode & 0o777)
+
+
+def hash_regular_file(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise IsolationError("Only private regular files may cross the isolation boundary")
+        file_digest = hashlib.sha256()
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    break
+                file_digest.update(chunk)
+        return file_digest.digest()
+    finally:
+        os.close(descriptor)
+
+
 def copy_tree(source, target):
     source, target = Path(source), Path(target)
     checked_tree(source)
@@ -59,8 +94,7 @@ def copy_tree(source, target):
             elif stat.S_ISDIR(info.st_mode):
                 outgoing.mkdir(exist_ok=True)
             elif stat.S_ISREG(info.st_mode):
-                outgoing.write_bytes(regular_bytes(incoming))
-                outgoing.chmod(info.st_mode & 0o777)
+                copy_regular_file(incoming, outgoing, info.st_mode)
     checked_tree(target)
 
 
@@ -77,7 +111,7 @@ def fingerprint(root):
             if stat.S_ISLNK(info.st_mode):
                 digest.update(os.readlink(path).encode())
             elif stat.S_ISREG(info.st_mode):
-                digest.update(hashlib.sha256(regular_bytes(path)).digest())
+                digest.update(hash_regular_file(path))
     return digest.hexdigest()
 
 
@@ -441,11 +475,28 @@ class CompanyView:
             (ready / "registry.tsv").write_text(original)
             replacements.append((ready / "registry.tsv", self.root / "projects/registry.tsv"))
         candidate = self.workspace / "memories/consensus.md"
+        governance_violation = False
+        consensus_data = None
         if candidate.exists():
-            data = regular_bytes(candidate)
-            (ready / "consensus.md").write_bytes(data)
-            (ready / "scope-consensus.md").write_bytes(data)
+            consensus_data = regular_bytes(candidate)
+            (ready / "consensus.md").write_bytes(consensus_data)
+            (ready / "scope-consensus.md").write_bytes(consensus_data)
             replacements += [(ready / "consensus.md", consensus), (ready / "scope-consensus.md", self.store / "consensus.md")]
+        if self.consensus_before is not None:
+            spec = importlib.util.spec_from_file_location("isolation_consensus_format", HERE / "consensus-format.py")
+            cf = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cf)
+            if consensus_data is None:
+                governance_violation = True
+            else:
+                try:
+                    before_sec = cf.sections_bytes(self.consensus_before)
+                    after_sec = cf.sections_bytes(consensus_data)
+                    if (before_sec[cf.HEADINGS[0]] != after_sec[cf.HEADINGS[0]]
+                            or not cf.p1_preserved(after_sec[cf.HEADINGS[1]], before_sec[cf.HEADINGS[1]])):
+                        governance_violation = True
+                except ValueError:
+                    governance_violation = True
         docs = self.store / "docs"
         copy_tree(self.workspace / "docs", ready / "docs")
         replacements.append((ready / "docs", docs))
@@ -528,10 +579,15 @@ class CompanyView:
         write_json(ready / "last-run.json", {"backend": "bubblewrap", "scope": self.scope,
                    "cycle": self.cycle, "workspace": str(self.folder), "collected": True,
                    "project": self.project, "sessions": str(session_target), "uncollectedRootOutputs": uncollected,
-                   "uncollectedWorkReports": rejected_reports})
+                   "uncollectedWorkReports": rejected_reports, "governanceViolationHeldBack": governance_violation})
         write_json(ready / "product-state.json", state)
         replacements += [(ready / "last-run.json", self.store / "last-run.json"),
                          (ready / "product-state.json", self.root / ".autonomous-company/product-state.json")]
+        if governance_violation:
+            # Never overwrite host projects, docs, registry or state when a cycle mutates Human Overrides or P1s.
+            # Keep only memories/consensus.md and last-run.json so consensus-guard.sh verify archives, restores & pauses.
+            self.retain_view = True
+            replacements = [(src, dst) for src, dst in replacements if dst in (consensus, self.store / "last-run.json")]
         lock = safe_path(self.root, ".autonomous-company/product-state.lock")
         with transaction_signals():
             acquired = False

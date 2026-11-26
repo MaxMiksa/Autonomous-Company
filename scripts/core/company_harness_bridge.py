@@ -43,7 +43,31 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
         finally:
             self.requests.release()
 
+    def _time_status(self, cycle, attempt):
+        if not cycle:
+            return {"remainingSeconds": None, "timePhase": "unknown"}
+        recovery = next((r for r in cycle["recoveries"] if attempt and r["recoveryId"] == attempt["recoveryId"]), None)
+        timer = recovery["timer"] if recovery else cycle["budgetTimer"]
+        if not timer:
+            return {"remainingSeconds": None, "timePhase": "unknown"}
+        consumed, reliability = self.store._elapsed(timer)
+        if reliability != "reliable":
+            return {"remainingSeconds": None, "timePhase": "unknown"}
+        remaining = max(0, math.floor(timer["limitSeconds"] - consumed))
+        target = (cycle.get("contract") or {}).get("targetSeconds")
+        limit = timer.get("limitSeconds")
+        if remaining <= 60:
+            phase = "critical"
+        elif remaining <= 120:
+            phase = "wrap_up_now"
+        elif isinstance(target, (int, float)) and isinstance(limit, (int, float)) and remaining <= max(120, limit - target):
+            phase = "approaching_target"
+        else:
+            phase = "ok"
+        return {"remainingSeconds": remaining, "timePhase": phase}
+
     def dispatch(self, request):
+        from company_harness_quality import artifact_state
         if not isinstance(request, dict) or set(request) - {"token", "action", "id", "payload"}:
             raise HarnessError("INVALID_REQUEST")
         token = request.get("token")
@@ -58,11 +82,7 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             status = self.client.status()
             cycle = status["cycle"]
             attempt = next((a for a in cycle["attempts"] if a["attemptId"] == self.context["attemptId"]), None) if cycle else None
-            recovery = next((r for r in cycle["recoveries"] if attempt and r["recoveryId"] == attempt["recoveryId"]), None) if cycle else None
-            timer = recovery["timer"] if recovery else cycle["budgetTimer"] if cycle else None
-            if timer:
-                consumed, reliability = self.store._elapsed(timer)
-                status["remainingSeconds"] = max(0, math.floor(timer["limitSeconds"] - consumed)) if reliability == "reliable" else None
+            status.update(self._time_status(cycle, attempt))
             status["recovery"] = bool(attempt and attempt["recoveryId"])
             status["attempt"] = {key: attempt.get(key) for key in
                 ("attemptId", "status", "recoveryId", "acceptedSubmissionId")} if attempt else None
@@ -72,10 +92,16 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
                 status["writeAllowed"] = True
             except HarnessError:
                 status["writeAllowed"] = False
+            if cycle:
+                status["artifactHeads"] = artifact_state(
+                    self.store,
+                    {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")},
+                )
             status["cycle"] = {key: cycle.get(key) for key in ("cycleId", "contract", "objective", "workKind", "protocolState", "outcome", "time", "activeAttemptId", "report")} if cycle else None
             return status
         if action == "publish_progress":
-            return self.client.publish_progress(request.get("id"), payload)
+            result = self.client.publish_progress(request.get("id"), payload)
+            return self._with_timer(result)
         if action == "submit":
             from company_harness_runner import evidence_path, validate_recovery_submission
             from company_harness_client import PROTOCOL_LIMIT, protocol_handoff_path
@@ -103,7 +129,8 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
         if action == "request_extension":
             if set(payload) != {"reason", "remainingSeconds"}:
                 raise HarnessError("INVALID_REQUEST", "payload")
-            return self.client.request_extension(request.get("id"), payload["reason"], payload["remainingSeconds"])
+            result = self.client.request_extension(request.get("id"), payload["reason"], payload["remainingSeconds"])
+            return self._with_timer(result)
         if action == "checkpoint":
             materials = payload.pop("materials", [])
             if not isinstance(materials, list) or len(materials) > 8:
@@ -117,8 +144,17 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
                     raise HarnessError("INVALID_REQUEST", "materials")
                 self.store.bind_evidence(self.context["cycleId"], material["evidenceId"], material["content"],
                     source={"type": "worker_checkpoint", "attemptId": self.context["attemptId"]})
-            return self.client.checkpoint(request.get("id"), payload)
+            result = self.client.checkpoint(request.get("id"), payload)
+            return self._with_timer(result)
         raise HarnessError("UNSUPPORTED_ACTION", "action")
+
+    def _with_timer(self, result):
+        try:
+            cycle = self.client.status().get("cycle")
+            attempt = next((a for a in cycle["attempts"] if a["attemptId"] == self.context["attemptId"]), None) if cycle else None
+            return {**result, **self._time_status(cycle, attempt)}
+        except Exception:
+            return result
 
     def live_workspace(self):
         """Host observes the live private view; model paths never select a root."""
@@ -155,12 +191,12 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
 
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
-        self.connection.settimeout(3)
+        self.connection.settimeout(30)
         try:
             raw = self.rfile.readline(MAX_REQUEST + 1)
             if len(raw) > MAX_REQUEST or not raw.endswith(b"\n"):
                 raise HarnessError("REQUEST_TOO_LARGE")
-            if not self.server.dispatch_lock.acquire(timeout=3):
+            if not self.server.dispatch_lock.acquire(timeout=30):
                 raise HarnessError("REQUEST_BUSY")
             try:
                 result = self.server.dispatch(json.loads(raw))
