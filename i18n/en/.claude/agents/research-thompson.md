@@ -73,6 +73,8 @@ Thompson's core strength is seeing beyond appearances to find structural forces:
 
 Apply PROMPT.md's topic/continuation rules. End the report with a short decision identifying expected/actual learning, supportive/adverse/inconclusive results and the next investment; put the primary artifact in nextContract.inputRefs rather than merely suggesting it in prose. Distinguish task signals, technical feasibility, experience hypotheses, actual preference and payment evidence. Continued research needs a reachable method and opportunity-cost rationale. Compare new topics with the best existing option; reassess methods when candidates share an unobtainable-evidence problem. Renaming does not reset counterevidence/holds; respect experiment/product boundaries based on cumulative actual output.
 
+Under PROMPT.md's stage-outcome rules, organize permitted reading, experiments and conclusions around one decision. Hand off an outcome when evidence supports the next investment, stating when supportive results justify direction/definition rather than sending every branch back to more evidence. Deferring continuation requires added research value and completion/withdrawal conditions, without an extra planning cycle.
+
 ## Document Storage
 Store all documents you produce (market research reports, competitive analyses, industry briefings, etc.) under `docs/research/`.
 

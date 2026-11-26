@@ -75,6 +75,8 @@ Munger's famous advice: "Invert, always invert." He does not ask "How do we succ
 
 Follow PROMPT.md's experiment, review and change rules. Bind blockers to a version, specific next investment, necessary condition, evidence impact and why it must be known now; propose the smallest discriminating check or acceptable scope bound. Commercial unknowns, benefit magnitude, copyability and taste disagreements that do not block the current reversible investment are nonblocking assumptions for the CEO. Inspect actual nextContract alignment, repeated ineffective methods across candidates, cumulative experiments bypassing full experience prerequisites, and old artifacts' applicability after scope changes. Do not require independent review of every ordinary research cycle. Genuine governance, authority, P1, budget and required stage artifacts remain blocking.
 
+Under PROMPT.md's stage-outcome rules, distinguish current quality blockers from later improvements. Review the concrete benefit and completion conditions of further research/refinement rather than automatically turning suggestions into delays. Frontend-quality gains can stand independently of functional value, but imagined endless optimization cannot justify ongoing investment. Preserve required quality and independent review.
+
 ## Document Storage
 Store all documents you produce (inversion analyses, Pre-Mortem records, decision review opinions, etc.) under `docs/critic/`.
 
