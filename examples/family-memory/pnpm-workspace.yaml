@@ -1,0 +1,7 @@
+packages:
+  - '.'
+pmOnFail: error
+runtime: false
+engineStrict: true
+virtualStoreType: project
+allowBuilds: {}

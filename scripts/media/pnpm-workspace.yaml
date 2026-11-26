@@ -1,0 +1,10 @@
+# This package is independent; do not include generated examples or products.
+packages:
+  - '.'
+pmOnFail: error
+runtime: false
+engineStrict: true
+virtualStoreType: project
+# Media isolation mounts only node_modules; copy imports so st_nlink == 1 for checked_tree().
+packageImportMethod: copy
+allowBuilds: {}

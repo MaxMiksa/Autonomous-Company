@@ -5,5 +5,10 @@
   "description": "本地离线采集往返结果验收",
   "devDependencies": {
     "playwright": "1.58.2"
-  }
+  },
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
+  "packageManager": "pnpm@12.16.1"
 }

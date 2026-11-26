@@ -1,10 +1,12 @@
 # Dashboard shared UI
 
+Development uses Node.js 24.11.1 (24.x) and pnpm 12.16.1. This package has its own lockfile and package-manager settings; the repository root is metadata only.
+
 Follow [UI/UX specification](../../docs/design/UI-UX-SPEC.md): business layout remains project-specific; general controls use official shadcn components and their standard behavior/styles.
 
 ## Build
 
-Run `npm ci --prefix dashboard/ui`, `npm run check --prefix dashboard/ui`, and `npm run build --prefix dashboard/ui`. Source and generated `../ui-assets/` ship together. Python serves the allowlisted assets; users need no Node server, CDN or remote fonts. The lockfile pins dependencies. Component sources come from the official `new-york-v4` registry under [MIT](SHADCN-LICENSE.md). Local adaptations: utility/import aliases, browser-local light/dark Sonner theme (no Next.js provider).
+Run `pnpm --dir dashboard/ui install --frozen-lockfile`, `pnpm --dir dashboard/ui run check`, and `pnpm --dir dashboard/ui run build`. Source and generated `../ui-assets/` ship together. Python serves the allowlisted assets; users need no Node server, CDN or remote fonts. The lockfile pins dependencies. Component sources come from the official `new-york-v4` registry under [MIT](SHADCN-LICENSE.md). Local adaptations: utility/import aliases, browser-local light/dark Sonner theme (no Next.js provider).
 
 ## Ownership
 
@@ -22,4 +24,4 @@ Official utility styles override the `legacy` layer; replaced control declaratio
 
 Custom content is limited to the page frame, responsive columns, recent/other grouping, continuous cycle report/record layout, media fallback and backend state/permission interpretation. The cycle disclosure heading needs a grid to align the cycle rail with its report; its open state and keyboard behavior still belong to Collapsible. All controls within these views use the shared primitives.
 
-See the [interface specification](../../docs/design/UI-UX-SPEC.md). Run `npm ci --prefix dashboard/ui`, `npm run check --prefix dashboard/ui`, and `npm run build --prefix dashboard/ui` from the repository root; commit the updated `dashboard/ui-assets` with its source. Browser contracts live in `tests/browser`.
+See the [interface specification](../../docs/design/UI-UX-SPEC.md). Run `pnpm --dir dashboard/ui install --frozen-lockfile`, `pnpm --dir dashboard/ui run check`, and `pnpm --dir dashboard/ui run build` from the repository root; commit the updated `dashboard/ui-assets` with its source. Browser contracts live in `tests/browser`.

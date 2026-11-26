@@ -219,6 +219,15 @@ pathlib.Path('/workspace/success').write_text('yes')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "/usr/bin/python3")
 
+    def test_pnpm_isolation_workspaces_require_copy_imports(self):
+        for rel in ("scripts/media/pnpm-workspace.yaml", "tests/browser/pnpm-workspace.yaml"):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn("virtualStoreType: project", text)
+            self.assertIn("packageImportMethod: copy", text)
+        media_modules = ROOT / "scripts/media/node_modules"
+        if sys.platform == "linux" and media_modules.is_dir():
+            boundary.checked_tree(media_modules)
+
 
 if __name__ == "__main__":
     unittest.main()
