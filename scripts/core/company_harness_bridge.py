@@ -1,8 +1,12 @@
 """Attempt-bound Unix socket bridge. No host control methods cross this API."""
 import argparse
+import base64
 from contextlib import contextmanager
+from copy import deepcopy
+import hashlib
 import json
 import math
+import mimetypes
 import os
 from pathlib import Path
 import secrets
@@ -103,11 +107,13 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             result = self.client.publish_progress(request.get("id"), payload)
             return self._with_timer(result)
         if action == "submit":
+            from company_harness_quality import close_review, prepare_contract
             from company_harness_runner import evidence_path, validate_recovery_submission
-            from company_harness_client import PROTOCOL_LIMIT, protocol_handoff_path
+            from company_harness_client import PROTOCOL_LIMIT, PROTOCOL_ROOT, protocol_handoff_path
             from isolation_workspace import regular_bytes
             with self.store._transaction() as tx:
                 cycle, _ = self.store._context(tx, self.context, business=False)
+            base_snapshot = self.store.snapshot()
             def capture(attempt):
                 workspace = self.live_workspace()
                 def protocol(ref):
@@ -122,8 +128,63 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
                 receipt = {"attemptId": attempt["attemptId"], "docsRoot": str(view / "docs")}
                 if attempt["recoveryId"]:
                     receipt["protocolRoot"] = str(view / Path(protocol_handoff_path(attempt["attemptId"])).parent)
-                for ref in payload.get("evidenceRefs", []):
+                refs = payload.get("evidenceRefs", [])
+                for ref in refs:
                     evidence_path(view, cycle, receipt, ref.get("path"))
+                if payload.get("handoffRef") or (cycle.get("contract") or {}).get("workKind") == "review":
+                    live_evidence = {}
+                    for ref in refs:
+                        path = evidence_path(view, cycle, receipt, ref.get("path"))
+                        is_proto = str(ref.get("path", "")).startswith(PROTOCOL_ROOT + "/")
+                        data = regular_bytes(path, PROTOCOL_LIMIT if is_proto else 1024 * 1024)
+                        if hashlib.sha256(data).hexdigest() != ref.get("sha256"):
+                            raise HarnessError("EVIDENCE_VERSION_MISMATCH", ref["evidenceId"])
+                        try:
+                            content, encoding = data.decode("utf-8"), None
+                        except UnicodeDecodeError:
+                            content, encoding = base64.b64encode(data).decode("ascii"), "base64"
+                        entry = {
+                            "evidenceId": ref["evidenceId"],
+                            "cycleId": cycle["cycleId"],
+                            "content": content,
+                            "sha256": ref["sha256"],
+                            "mediaType": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                            "source": {
+                                "type": "isolated_collect",
+                                "attemptId": attempt["attemptId"],
+                                "workKind": cycle["workKind"],
+                                "project": cycle["contract"].get("project"),
+                                "path": ref["path"],
+                            },
+                        }
+                        if encoding:
+                            entry["contentEncoding"] = encoding
+                        live_evidence[ref["evidenceId"]] = entry
+                    overlay = _LiveOverlayStore(self.store, base_snapshot, live_evidence)
+                    pending_sub = {"attemptId": attempt["attemptId"], "payload": deepcopy(payload)}
+                    pending_cycle = {
+                        **deepcopy(cycle),
+                        "activeAttemptId": None,
+                        "attempts": [{**deepcopy(item), "writersStopped": True} for item in cycle.get("attempts", [])],
+                        "outcome": payload.get("result"),
+                        "submissions": [*deepcopy(cycle.get("submissions", [])), pending_sub],
+                    }
+                    quality = close_review(overlay, pending_cycle, pending_sub)
+                    handoff = payload.get("handoffRef")
+                    if handoff and payload.get("result") in ("completed", "partial"):
+                        if handoff not in refs:
+                            raise HarnessError("HANDOFF_UNBOUND", "handoffRef")
+                        try:
+                            proposal = json.loads(overlay.read_evidence(handoff["evidenceId"])["content"])["nextContract"]
+                        except (ValueError, KeyError, TypeError):
+                            raise HarnessError("HANDOFF_INVALID", "nextContract")
+                        prepare_contract(
+                            overlay,
+                            proposal,
+                            {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")},
+                            pending_cycle=pending_cycle,
+                            pending_quality=quality,
+                        )
                 return self.capture_versions(attempt, workspace)
             return self.store.submit_with_versions(self.context, request.get("id"), payload, capture)
         if action == "request_extension":
@@ -185,8 +246,27 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             try:
                 versions["protocol"] = protocol_version(workspace, self.context["attemptId"])
             except ValueError as error:
-                raise HarnessError(str(error), "protocol")
+                code, _, detail = str(error).partition(": ")
+                raise HarnessError(code, "protocol", detail or None)
         return versions
+
+
+class _LiveOverlayStore:
+    def __init__(self, store, snap, live_evidence):
+        self._store = store
+        self._snapshot = snap
+        self._live_evidence = live_evidence
+
+    def snapshot(self):
+        return self._snapshot
+
+    def read_evidence(self, evidence_id):
+        if evidence_id in self._live_evidence:
+            return self._live_evidence[evidence_id]
+        return self._store.read_evidence(evidence_id)
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -204,6 +284,8 @@ class Handler(socketserver.StreamRequestHandler):
                 self.server.dispatch_lock.release()
         except HarnessError as error:
             result = {"status": "rejected", "errorCode": error.code, "field": error.field}
+            if getattr(error, "detail", None):
+                result["detail"] = error.detail
         except (ValueError, TypeError, OSError, RecursionError):
             result = {"status": "rejected", "errorCode": "INVALID_REQUEST"}
         try:

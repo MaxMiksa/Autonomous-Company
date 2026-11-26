@@ -893,6 +893,139 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(state2["incomplete"], [])
         self.assertTrue(load_inputs(self.store, {"inputRefs": [ev2], "prerequisiteRefs": []})[0]["isCompletedHead"])
 
+    def test_bridge_submit_synchronously_rejects_missing_review_prereq_and_allows_retry(self):
+        # Seed completed definition head + passed independent review covering prototype.
+        with self.store._transaction() as tx:
+            c0 = self.store._cycle(tx, self.cycle_id)
+            c0["contract"].update(workKind="definition", artifactKind="definition")
+            c0["workKind"] = "definition"
+            self.store._save_cycle(tx, c0)
+        a0 = self.store.begin_attempt(self.cycle_id, "def-live-1", {"dispatchId": "owned"})
+        def_ref = self.store.bind_evidence(self.cycle_id, "def-live-doc", "complete definition", source={"attemptId": "def-live-1"})
+        def_ev = {"evidenceId": def_ref["evidenceId"], "sha256": def_ref["sha256"]}
+        self.store.submit(a0["context"], "sub-def-live", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [def_ev], "primaryEvidenceId": def_ev["evidenceId"],
+        })
+        self.store.finish_attempt(a0["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(self.cycle_id, "close-def-live", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["def-live-1"], "evidenceRefs": [def_ev], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-def-live")
+        runner.sync_identity(self.root, runner.row(self.store, self.cycle_id))
+
+        rev_id = reserve_cycle(self.root, "", "rev-def-live", 2)["cycleId"]
+        self.store.create_cycle({
+            "cycleId": rev_id, "explorationId": self.identity["explorationId"], "sequenceNumber": 2,
+            "objective": "Review definition", "workKind": "review", "artifactKind": "review",
+            "scope": ["review def"], "completionOrHandoff": "passed",
+            "inputRefs": [def_ev], "reviewRequirement": {"independent": True, "targetRefs": [def_ev]},
+        })
+        arev = self.store.begin_attempt(rev_id, "rev-live-1", {"dispatchId": "owned"})
+        rev_ref = self.store.bind_evidence(rev_id, "rev-def-live-doc", "passed review", source={"attemptId": "rev-live-1"})
+        rev_ev = {"evidenceId": rev_ref["evidenceId"], "sha256": rev_ref["sha256"]}
+        self.store.submit(arev["context"], "sub-rev-live", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [rev_ev], "primaryEvidenceId": rev_ev["evidenceId"],
+            "review": {"verdict": "passed", "targetRefs": [def_ev], "issues": [], "qualityApplicability": ["visual_exploration", "prototype"]},
+        })
+        self.store.finish_attempt(arev["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        self.store.close_cycle(rev_id, "close-rev-live", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["rev-live-1"], "evidenceRefs": [rev_ev], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-rev-live",
+            quality_applicability=[{"artifactKind": "definition", "targetRef": def_ev, "verdict": "passed",
+                "workKinds": ["visual_exploration", "prototype"], "issues": [], "source": "independent_review",
+                "reviewerAttemptId": "rev-live-1", "reviewCycleId": rev_id, "reviewEvidenceRefs": [rev_ev]}])
+        runner.sync_identity(self.root, runner.row(self.store, rev_id))
+
+        vis_id = reserve_cycle(self.root, "", "vis-live", 3)["cycleId"]
+        self.store.create_cycle({
+            "cycleId": vis_id, "explorationId": self.identity["explorationId"], "sequenceNumber": 3,
+            "objective": "Explore visual direction", "workKind": "visual_exploration", "artifactKind": "visual_direction",
+            "scope": ["visual"], "completionOrHandoff": "done", "inputRefs": [def_ev], "prerequisiteRefs": [rev_ev],
+        })
+        vis_attempt = self.store.begin_attempt(vis_id, "vis-live-1", {"dispatchId": "owned"})
+        ctx = vis_attempt["context"]
+        ws = self.root / "live-vis-ws"
+        for folder in ("docs/harness", "projects", "memories"):
+            (ws / folder).mkdir(parents=True, exist_ok=True)
+        vis_file = ws / "docs/vis.md"
+        vis_file.write_text("visual direction A", encoding="utf-8")
+        vis_ev_ref = {"evidenceId": "vis-doc-live", "path": "docs/vis.md", "sha256": hashlib.sha256(vis_file.read_bytes()).hexdigest()}
+        handoff_file = ws / "docs/harness/handoff.json"
+        handoff_payload = {
+            "nextContract": {
+                "objective": "Build prototype", "workKind": "prototype", "scope": ["proto"],
+                "completionOrHandoff": "proto done", "inputRefs": [def_ev, vis_ev_ref], "prerequisiteRefs": [],
+            }
+        }
+        handoff_file.write_text(json.dumps(handoff_payload), encoding="utf-8")
+        hoff_ref = {"evidenceId": "vis-hoff-live", "path": "docs/harness/handoff.json", "sha256": hashlib.sha256(handoff_file.read_bytes()).hexdigest()}
+        sock = self.root / "vis-live.sock"
+        with running_bridge(sock, self.store, ctx, "vis-token") as server:
+            with patch.object(server, "live_workspace", return_value=ws):
+                bad_payload = {"result": "completed", "unfinishedItems": [], "evidenceRefs": [vis_ev_ref, hoff_ref],
+                               "primaryEvidenceId": "vis-doc-live", "handoffRef": hoff_ref}
+                rejected = request("submit", "bad-sub", bad_payload, socket_path=sock, token="vis-token")
+                self.assertEqual(rejected["status"], "rejected")
+                self.assertEqual(rejected["errorCode"], "REVIEW_REQUIRED")
+                self.assertEqual(rejected["field"], "definition")
+                self.assertIn(rev_ev["evidenceId"], rejected.get("detail", ""))
+                self.assertEqual(self.store.snapshot()["cycles"][-1]["submissions"], [])
+
+                handoff_payload["nextContract"]["prerequisiteRefs"] = [rev_ev]
+                handoff_file.write_text(json.dumps(handoff_payload), encoding="utf-8")
+                fixed_hoff = {"evidenceId": "vis-hoff-live", "path": "docs/harness/handoff.json",
+                              "sha256": hashlib.sha256(handoff_file.read_bytes()).hexdigest()}
+                missing_vis_rev = request("submit", "missing-vis-rev", {
+                    **bad_payload, "evidenceRefs": [vis_ev_ref, fixed_hoff], "handoffRef": fixed_hoff,
+                }, socket_path=sock, token="vis-token")
+                self.assertEqual(missing_vis_rev["status"], "rejected")
+                self.assertEqual(missing_vis_rev["errorCode"], "REVIEW_REQUIRED")
+                self.assertEqual(missing_vis_rev["field"], "visual_direction")
+                self.assertIn("workKind=review", missing_vis_rev.get("detail", ""))
+
+                review_payload = {
+                    "nextContract": {
+                        "objective": "Independent review of visual direction", "workKind": "review",
+                        "scope": ["review visual"], "completionOrHandoff": "review passed",
+                        "inputRefs": [vis_ev_ref], "prerequisiteRefs": [],
+                    }
+                }
+                handoff_file.write_text(json.dumps(review_payload), encoding="utf-8")
+                review_hoff = {"evidenceId": "vis-hoff-live", "path": "docs/harness/handoff.json",
+                               "sha256": hashlib.sha256(handoff_file.read_bytes()).hexdigest()}
+                accepted = request("submit", "fixed-sub", {
+                    **bad_payload, "evidenceRefs": [vis_ev_ref, review_hoff], "handoffRef": review_hoff,
+                }, socket_path=sock, token="vis-token")
+                self.assertEqual(accepted["status"], "accepted")
+
+    def test_bridge_recovery_submit_reports_offending_protocol_file_detail(self):
+        a0 = self.store.begin_attempt(self.cycle_id, "rec-first-1", {"dispatchId": "owned"})
+        self.store.finish_attempt(a0["context"], {"outcome": "failed", "exitCode": 1}, writers_stopped=True, observation="fail")
+        self.store.begin_recovery(self.cycle_id, "rec-1", budget_seconds=300, reason="recover")
+        rec_attempt = self.store.begin_attempt(self.cycle_id, "rec-att-1", {"dispatchId": "owned"}, recovery_id="rec-1")
+        ws = self.root / "live-rec-ws"
+        proto_dir = ws / ".company-harness-protocol" / "rec-att-1"
+        for folder in (proto_dir, ws / "docs", ws / "projects", ws / "memories"):
+            folder.mkdir(parents=True, exist_ok=True)
+        existing = ws / "docs/existing.md"
+        existing.write_text("existing partial artifact", encoding="utf-8")
+        hoff = proto_dir / "handoff.json"
+        hoff.write_text(json.dumps({"nextContract": {"objective": "Continue", "workKind": "research", "scope": ["s"], "completionOrHandoff": "d", "inputRefs": [], "prerequisiteRefs": []}}), encoding="utf-8")
+        (proto_dir / "progress.json").write_text('{"transient": true}', encoding="utf-8")
+        refs = [
+            {"evidenceId": "existing-doc", "path": "docs/existing.md", "sha256": hashlib.sha256(existing.read_bytes()).hexdigest()},
+            {"evidenceId": "rec-hoff", "path": ".company-harness-protocol/rec-att-1/handoff.json", "sha256": hashlib.sha256(hoff.read_bytes()).hexdigest()},
+        ]
+        sock = self.root / "rec-live.sock"
+        with running_bridge(sock, self.store, rec_attempt["context"], "rec-token") as server:
+            with patch.object(server, "live_workspace", return_value=ws):
+                res = request("submit", "rec-bad", {
+                    "result": "partial", "unfinishedItems": ["pending"], "evidenceRefs": refs,
+                    "primaryEvidenceId": "existing-doc", "handoffRef": refs[1],
+                }, socket_path=sock, token="rec-token")
+                self.assertEqual(res["status"], "rejected")
+                self.assertEqual(res["errorCode"], "PROTOCOL_SCOPE")
+                self.assertIn("progress.json", res.get("detail", ""))
+
     def test_repeated_identical_rejection_escalates_to_human(self):
         with patch.dict(os.environ, {"COMPANY_HARNESS_CORRECTIONS": "1", "COMPANY_HARNESS_MAX_SAME_ERROR": "2",
                                      "AUTONOMOUS_COMPANY_LOCK_PID": str(os.getpid())}):

@@ -242,7 +242,9 @@ def protocol_version(workspace, attempt):
         if path.is_dir() and relative == attempt:
             continue
         if relative not in expected or not path.is_file():
-            raise ValueError("PROTOCOL_SCOPE")
+            raise ValueError(
+                f"PROTOCOL_SCOPE: unexpected entry '{relative}'; only '{attempt}/handoff.json' is allowed under .company-harness-protocol/ (put transient payload/progress files in logs/)"
+            )
         if path.stat().st_size > PROTOCOL_LIMIT:
             raise ValueError("PROTOCOL_MATERIAL_TOO_LARGE")
         validate_protocol_handoff(regular_bytes(path, PROTOCOL_LIMIT + 1))

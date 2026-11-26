@@ -58,6 +58,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_deterministic_generation_and_submit_lost_ack(self):
         self.add_input()
+        self.store.bind_evidence('cycle', 'old', 'old result')
         self.plan['inputs'] = [{'input': 'history.md'}, {'primary': True}]
         first = self.run_plan()
         raw = self.output().read_bytes()

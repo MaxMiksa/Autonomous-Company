@@ -250,10 +250,18 @@ def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_q
         current = applicable[-1] if applicable else {}
         if current.get('verdict') != 'passed' or not any(
                 _ref(ref) in prerequisites for ref in current.get('reviewEvidenceRefs', [])):
-            raise HarnessError(
-                'REVIEW_REQUIRED', artifact_kind,
-                f"include passed independent review for {artifact_kind} head {head['evidenceId']} covering {kind} in prerequisiteRefs",
-            )
+            if current.get('verdict') == 'passed' and current.get('reviewEvidenceRefs'):
+                review_id = current['reviewEvidenceRefs'][0]['evidenceId']
+                detail = (
+                    f"include passed independent review {review_id} "
+                    f"(for {artifact_kind} head {head['evidenceId']} covering {kind}) in prerequisiteRefs"
+                )
+            else:
+                detail = (
+                    f"no passed independent review exists for {artifact_kind} head {head['evidenceId']} "
+                    f"covering {kind}; run workKind=review on it first"
+                )
+            raise HarnessError('REVIEW_REQUIRED', artifact_kind, detail)
     if kind == 'review' and not inputs:
         raise HarnessError('EVIDENCE_MISSING', 'inputRefs')
     result = {key: deepcopy(proposal[key]) for key in (
