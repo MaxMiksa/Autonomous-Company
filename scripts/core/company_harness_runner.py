@@ -13,6 +13,7 @@ import math
 import mimetypes
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import stat
@@ -159,6 +160,33 @@ def _initial_proposal(root=None, project=""):
     }
 
 
+def _plan_recovery_contract(store, root, cycle):
+    from company_harness_quality import prepare_contract, _belongs
+    snapshot = store.snapshot()
+    scope = {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")}
+    applicable = [c for c in snapshot["cycles"] if _belongs(c, scope)]
+    prior = []
+    for item in applicable:
+        if item["cycleId"] == cycle["cycleId"]:
+            break
+        prior.append(item)
+    source_cycle = next(
+        (c for c in reversed(prior) if c["protocolState"] == "closed" and c["outcome"] in {"completed", "partial"}),
+        None,
+    )
+    project = (cycle.get("contract") or {}).get("project") or ""
+    if not source_cycle:
+        proposal = _initial_proposal(root=root, project=project)
+    else:
+        submission = next((s for s in source_cycle["submissions"] if s["submissionId"] == source_cycle["closeReceipt"]["input"]["submissionId"]), None)
+        ref = submission["payload"].get("handoffRef") if submission else None
+        evidence = store.read_evidence(ref["evidenceId"]) if ref else None
+        if not evidence or evidence["sha256"] != ref.get("sha256"):
+            raise HarnessError("HANDOFF_MISSING")
+        proposal = json.loads(evidence["content"]).get("nextContract")
+    return prepare_contract(store, proposal, scope)
+
+
 def next_contract(store, identity, *, root=None, project=""):
     from company_harness_quality import prepare_contract, _belongs
     snapshot = store.snapshot()
@@ -169,6 +197,10 @@ def next_contract(store, identity, *, root=None, project=""):
         previous = applicable[-1]
         if previous["protocolState"] != "closed" or not previous["continuationDecision"].get("allowed"):
             raise HarnessError("CONTINUATION_BLOCKED")
+        if previous["outcome"] == "interrupted" and previous["continuationDecision"].get("reason") == "human_recovery_approved":
+            bound = (previous["continuationDecision"].get("basis") or {}).get("boundNextContract")
+            if isinstance(bound, dict):
+                return prepare_contract(store, bound, identity)
         source_cycle = previous
         if previous["outcome"] == "interrupted":
             source_cycle = next(
@@ -259,19 +291,33 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
         raise HarnessError('BUDGET_PAUSED')
     attempt = store.begin_attempt(cycle_id, attempt_id, owner, recovery_id=recovery["recoveryId"] if recovery else None,
         log_refs=[{"log": f"logs/{attempt_id}.log", "events": f"logs/{attempt_id}.events.jsonl", "metadata": f"logs/{attempt_id}.json"}])
-    cycle = row(store, cycle_id)
-    inputs = directory / "inputs"
-    manifest = {"root": str(root), "context": attempt["context"], "token": secrets.token_hex(32),
-        "socket": str(directory / "h.sock"), "ready": str(directory / "ready"), "temporary": str(directory),
-        "collectRelative": ".autonomous-company/harness/" + attempt_id + ".collect.json",
-        "timeoutSeconds": seconds, "recovery": bool(recovery), "inputsDirectory": str(inputs)}
-    write_fact(host_path(root, attempt_id + ".json"), manifest)
-    write_fact(host_path(root, attempt_id + '.launch.json'), {'context': attempt['context'], 'phase': 'prepared'})
-    record = build_cycle_record(cycle_id=attempt_id, cycle_number=cycle["contract"]["runCycleNumber"],
-        started_at=attempt["startedAt"], ended_at=attempt["startedAt"], status="interrupted", exit_code=130,
-        engine="codex", model=os.environ.get("MODEL_LABEL", os.environ.get("MODEL", "config-default")), metadata_raw="{}")
-    record.update(record_role="harness_attempt", logical_cycle_id=cycle_id, attempt_id=attempt_id)
-    begin_cycle(ledger, record)
+    try:
+        cycle = row(store, cycle_id)
+        inputs = directory / "inputs"
+        manifest = {"root": str(root), "context": attempt["context"], "token": secrets.token_hex(32),
+            "socket": str(directory / "h.sock"), "ready": str(directory / "ready"), "temporary": str(directory),
+            "collectRelative": ".autonomous-company/harness/" + attempt_id + ".collect.json",
+            "timeoutSeconds": seconds, "recovery": bool(recovery), "inputsDirectory": str(inputs)}
+        write_fact(host_path(root, attempt_id + ".json"), manifest)
+        write_fact(host_path(root, attempt_id + '.launch.json'), {'context': attempt['context'], 'phase': 'prepared'})
+        record = build_cycle_record(cycle_id=attempt_id, cycle_number=cycle["contract"]["runCycleNumber"],
+            started_at=attempt["startedAt"], ended_at=attempt["startedAt"], status="interrupted", exit_code=130,
+            engine="codex", model=os.environ.get("MODEL_LABEL", os.environ.get("MODEL", "config-default")), metadata_raw="{}")
+        record.update(record_role="harness_attempt", logical_cycle_id=cycle_id, attempt_id=attempt_id)
+        begin_cycle(ledger, record)
+    except BaseException:
+        for suffix in (".json", ".launch.json"):
+            try:
+                host_path(root, attempt_id + suffix).unlink(missing_ok=True)
+            except OSError:
+                pass
+        store.finish_attempt(
+            attempt["context"],
+            {"outcome": "not_started", "exitCode": None, "providerInvoked": False},
+            writers_stopped=True,
+            observation={"type": "prepare_rollback", "checkedAt": now()},
+        )
+        raise
     prompt = "\n\n## Company Harness active contract\n" + json.dumps(cycle["contract"], ensure_ascii=False)
     prompt += "\nThis contract is one primary deliverable. Stay inside its scope. Use python3 /workspace/scripts/core/company_harness_client.py. "
     prompt += "For every action, --payload is a PATH to a UTF-8 JSON FILE, never an inline JSON string. "
@@ -724,7 +770,8 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
         result.update(action="human", error="COLLECTION_UNCONFIRMED")
     if result["action"] == "retry" and error:
         def _sig(text):
-            parts = str(text or "").split(": ", 2)
+            normalized = re.sub(r"attempt-[0-9a-f]{8,}", "attempt-*", str(text or ""))
+            parts = normalized.split(": ", 2)
             return ": ".join(parts[:2]) if len(parts) >= 2 else parts[0]
         cur_sig = _sig(error)
         repeat_count = 1
@@ -764,8 +811,8 @@ def close_cycle(store, root, cycle_id, governance_ok):
         raise HarnessError("WRITERS_UNCONFIRMED")
     gov_ok = bool(governance_ok and not result.get("governanceViolation"))
     submission = next((s for s in cycle["submissions"] if s["submissionId"] == result["submissionId"]), None) if result.get("submissionId") else None
-    outcome = result["outcome"] if gov_ok and result["validSubmission"] else "failed"
-    quality = close_review(store, cycle, submission) if gov_ok and submission and result["validSubmission"] else []
+    outcome = result["outcome"] if gov_ok and result.get("validSubmission") else "failed"
+    quality = close_review(store, cycle, submission) if gov_ok and submission and result.get("validSubmission") else []
     cycle["outcome"] = outcome
     continuation = evaluate_continuation(store, root, cycle, submission, pending_quality=quality)
     if result.get("governanceViolation"):
@@ -777,9 +824,9 @@ def close_cycle(store, root, cycle_id, governance_ok):
         raise HarnessError("CLOSE_BUDGET_EXHAUSTED")
     closed = store.close_cycle(cycle_id, "close-" + cycle_id, outcome=outcome,
         verification={"writersStopped": True, "attemptResults": [a["attemptId"] for a in cycle["attempts"]],
-            "evidenceRefs": result["evidenceRefs"], "submittedVersionUnchanged": result["validSubmission"],
+            "evidenceRefs": result.get("evidenceRefs", []), "submittedVersionUnchanged": bool(result.get("validSubmission")),
             "checkedAt": now(), "governanceVerified": gov_ok},
-        continuation_decision=continuation, quality_applicability=quality, submission_id=result["submissionId"] if (gov_ok and result["validSubmission"]) else None)
+        continuation_decision=continuation, quality_applicability=quality, submission_id=result.get("submissionId") if (gov_ok and result.get("validSubmission")) else None)
     sync_identity(root, row(store, cycle_id))
     return {"receipt": closed, "continuationAllowed": continuation["allowed"], "continuationReason": continuation["reason"], "outcome": outcome}
 
@@ -902,7 +949,14 @@ def approve_recovery(store, root, review_token, reason="human_recovery_approved"
         if latest["outcome"] == "interrupted":
             if any(not a.get("writersStopped") for a in latest["attempts"]):
                 raise HarnessError("WRITERS_UNCONFIRMED")
-            basis = {"operatorConfirmed": True, "reviewToken": review_token, "reason": reason}
+            planned = _plan_recovery_contract(store, root, latest)
+            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
+            basis = {
+                "operatorConfirmed": True,
+                "reviewToken": review_token,
+                "reason": reason,
+                "boundNextContract": planned,
+            }
             decision = {
                 "allowed": True,
                 "reason": "human_recovery_approved",
@@ -910,13 +964,6 @@ def approve_recovery(store, root, review_token, reason="human_recovery_approved"
                 "checkedAt": now(),
             }
             store.set_continuation_decision(latest["cycleId"], decision)
-            scope = {"productId": latest.get("productId"), "explorationId": latest.get("explorationId")}
-            planned = next_contract(store, scope, root=root, project=latest["contract"].get("project") or "")
-            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
-            store.set_continuation_decision(
-                latest["cycleId"],
-                {**decision, "basis": {**basis, "boundNextContract": next_summary}},
-            )
             approved.append(latest["cycleId"])
     return {"approvedCycles": approved, "reason": reason, "nextContract": next_summary}
 
@@ -927,6 +974,12 @@ def recover_stopped_cycles(store, root):
         if cycle["protocolState"] == "closed":
             continue
         if not cycle["attempts"]:
+            result_path = host_path(root, cycle["cycleId"] + ".result.json")
+            if result_path.exists():
+                saved = read_fact(result_path)
+                if saved.get("cycleId") == cycle["cycleId"] and saved.get("providerInvoked") is False:
+                    close_cycle(store, root, cycle["cycleId"], False)
+                    continue
             raise HarnessError("UNFINISHED_HARNESS", detail="Unconfirmed dispatch intent requires ownership reconciliation")
         close_deadline = time.monotonic() + policy()["CLOSE_SECONDS"]
         last = cycle["attempts"][-1]
@@ -1012,7 +1065,15 @@ def reconcile_crash(store, root, reason="operator_crash_reconcile"):
         )
         sync_identity(root, row(store, cycle["cycleId"]))
         reconciled.append(cycle["cycleId"])
-    return {"reconciledCycles": reconciled, "reason": reason}
+    next_summary = None
+    cycles = store.snapshot()["cycles"]
+    if cycles and cycles[-1]["outcome"] == "interrupted":
+        try:
+            planned = _plan_recovery_contract(store, root, cycles[-1])
+            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
+        except (HarnessError, ValueError):
+            next_summary = None
+    return {"reconciledCycles": reconciled, "reason": reason, "nextContract": next_summary}
 
 
 def main():

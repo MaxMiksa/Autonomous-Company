@@ -466,7 +466,8 @@ window.DashboardNavigation.register('center', (view) => {
 
   const rowNodes = new Map();
   function rowSignature(entry) {
-    return JSON.stringify([entry, state.language, state.previewMode, state.stale, entryState(entry), capability(entry, 'execute'), window.DashboardDate.day()],
+    const trashFailed = entry.trashed ? Boolean(state.readParts.get("trash")?.failed) : false;
+    return JSON.stringify([entry, trashFailed, state.language, state.previewMode, state.stale, entryState(entry), capability(entry, 'execute'), window.DashboardDate.day()],
       (key, value) => ['observedAt', 'liveConfirmedAt', 'generatedAt'].includes(key) ? undefined : value);
   }
   function renderRow(entry) {
@@ -525,8 +526,9 @@ window.DashboardNavigation.register('center', (view) => {
         focusKey: `entry:${entry.entryId}:continue-menu`, action: () => openContinue(entry) });
     }
     if (entry.trashed) {
-      const deleting = Boolean(entry.deletionInProgress);
-      const deletingReason = deleting ? message("actionPending") : "";
+      const trashFailed = Boolean(state.readParts.get("trash")?.failed);
+      const deleting = Boolean(entry.deletionInProgress) || trashFailed;
+      const deletingReason = trashFailed ? message("loadFailed") : deleting ? message("actionPending") : "";
       items.push({ label: message("restoreTrash"), disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:restore-trash`, action: () => trashEntryAction(entry, "restore-trash") },
         { label: message("deletePermanently"), danger: true, disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:delete`, action: () => trashEntryAction(entry, "delete") });
     } else {
@@ -911,7 +913,12 @@ window.DashboardNavigation.register('center', (view) => {
     if (!view.active || generation !== state.writeGeneration) return;
     if (kind === 'entries') {
       if (state.centerId !== metadata.centerId) {
-        state.centerId = metadata.centerId; state.readParts.clear(); state.summary = null; state.trash = { retentionDays: 30, revision: 1, items: [] }; state.requests = []; state.operations = []; state.preferences = null;
+        const preservedFailed = state.centerId === null
+          ? [...state.readParts.entries()].filter(([, part]) => part?.failed && part.round === state.refreshToken)
+          : [];
+        state.centerId = metadata.centerId; state.readParts.clear();
+        for (const [k, v] of preservedFailed) state.readParts.set(k, v);
+        state.summary = null; state.trash = { retentionDays: 30, revision: 1, items: [] }; state.requests = []; state.operations = []; state.preferences = null;
         state.revision = null; state.apiRevision = null; state.apiCenterId = metadata.centerId;
       }
     } else if (metadata.centerId !== state.centerId) {
@@ -936,10 +943,10 @@ window.DashboardNavigation.register('center', (view) => {
       if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
     }
   }
-  function readPart(kind, path) {
+  function readPart(kind, path, force = false) {
     const generation = state.writeGeneration;
     const pending = state.pendingParts.get(kind);
-    if (pending?.generation === generation) return pending.promise;
+    if (!force && pending?.generation === generation) return pending.promise;
     const metadata = { centerId: state.centerId, revision: null, observedAt: null, round: state.refreshToken };
     const promise = (async () => { try {
       const data = kind === 'entries' ? await allEntries(metadata) : await api(path, {}, 15000, metadata);
@@ -947,7 +954,7 @@ window.DashboardNavigation.register('center', (view) => {
       installReadPart(kind, data, metadata, generation);
     } catch (error) {
       if (error.name !== 'AbortError' && view.active && generation === state.writeGeneration) {
-        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true });
+        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true, round: metadata.round });
         if (kind === 'entries') state.loading = false;
         updateReadHealth(); renderPage();
       }
@@ -1550,6 +1557,11 @@ window.DashboardNavigation.register('center', (view) => {
           body.querySelector(".recovery-review")?.remove();
           const panel = element("section", "recovery-review");
           panel.append(element("h3", "", message("recoveryReview")));
+          if (review.nextContract) {
+            panel.append(element("p", "recovery-next-contract", message("recoveryNextContract", {
+              workKind: review.nextContract.workKind || "", objective: review.nextContract.objective || ""
+            })));
+          }
           const checks = element("div", "check-results"); renderChecks(checks, review.checks); panel.append(checks);
           for (const reason of review.reasons || []) panel.append(element("p", "", capabilityReason(typeof reason === "string" ? reason : reason.message || reason.code)));
           const lock = review.canRecoverLock === true;
@@ -1708,7 +1720,8 @@ window.DashboardNavigation.register('center', (view) => {
           await refresh(); closeDialog($("managementDialog"));
         } catch (error) {
           if (error?.code === "REVISION_CONFLICT") {
-            await Promise.allSettled([refresh(), readPart("trash", "/trash")]);
+            state.writeGeneration += 1;
+            await Promise.allSettled([refresh(), readPart("trash", "/trash", true)]);
             openedRevision = state.trash?.revision ?? openedRevision;
             input.value = state.trash?.retentionDays ?? input.value;
           }

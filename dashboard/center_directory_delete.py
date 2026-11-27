@@ -128,7 +128,8 @@ def delete_runtime(manifest):
                 if checked.get('frameworkRevision') != framework_revision or checked.get('marker') != marker:
                     raise ValueError('delete_framework_provenance_changed')
             if not moved and not state['cleanupStarted']:
-                state['stage'] = 'preserve_evidence'
+                state.update(state='deleting', stage='preserve_evidence', pid=os.getpid())
+                atomic_json(receipt, state)
                 no_links(evidence, recursive=False)
                 evidence_descriptor, name = tempfile.mkstemp(prefix='.evidence-', suffix='.tmp', dir=evidence.parent)
                 temporary = Path(name)

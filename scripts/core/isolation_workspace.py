@@ -751,9 +751,16 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
                 from company_harness import HarnessStore
                 hstore = HarnessStore(root)
                 hcycle = next((c for c in hstore.snapshot()["cycles"] if c["cycleId"] == cycle), None)
-                hsub = next((s for s in reversed((hcycle or {}).get("submissions", [])) if s.get("attemptId") == view.attempt), None)
-                if hsub:
-                    expected_versions = hsub.get("acceptanceVersions")
+                if hcycle is None:
+                    raise IsolationError(f"Missing Harness cycle record {cycle} before collect")
+                hsub = next((s for s in reversed(hcycle.get("submissions", [])) if s.get("attemptId") == view.attempt), None)
+                if hsub is not None:
+                    versions = hsub.get("acceptanceVersions")
+                    if not isinstance(versions, dict):
+                        raise IsolationError(f"Accepted submission {hsub.get('submissionId')} is missing acceptanceVersions")
+                    expected_versions = versions
+            except IsolationError:
+                raise
             except Exception as error:
                 raise IsolationError(f"Could not verify accepted submission versions before collect: {error}") from error
         view.expected_versions = expected_versions

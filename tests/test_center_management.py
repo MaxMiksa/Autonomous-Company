@@ -430,6 +430,111 @@ class DeleteConcurrencyTests(ManagementTests):
             self.management.retention({'retentionDays': 7, 'expectedRevision': 1, 'expectedCenterId': 'wrong-center'})
         self.assertEqual(err.exception.code, 'REVISION_CONFLICT')
 
+    def test_live_deletion_child_after_restart_preserves_in_progress_and_blocks_restore(self):
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        (root / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        with self.store.transaction() as tx:
+            row = tx.get('entries', entry['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'crashed-proc'}
+            tx.put('entries', entry['entryId'], row)
+        with patch.object(self.runtime.adapter, 'query', return_value={'quiescent': False}):
+            restarted = CenterManagement(self.store, self.catalog, self.runtime)
+            listing = restarted.trash()
+            self.assertIn('deletionInProgress', listing['items'][0])
+            self.assertNotIn('trashError', listing['items'][0])
+            with self.assertRaises(CenterError) as err:
+                restarted.entry_action(entry['entryId'], 'restore-trash', {'expectedRevision': trashed['revision']})
+            self.assertEqual(err.exception.code, 'ACTION_IN_PROGRESS')
+
+    def test_subtree_commit_post_scan_removal_and_merge_into_deleting_rejected(self):
+        import shutil
+        from product_identity import register_project
+
+        # 1. Subtree commit under a deleting parent root must reject with ACTION_IN_PROGRESS.
+        entry, source = self.entry(managed=True)
+        parent_root = Path(source['root'])
+        sub_root = parent_root / 'nested-copy'
+        (sub_root / 'projects/p2/.git').mkdir(parents=True)
+        (sub_root / 'projects/p2/README.md').write_text('# Sub\n', encoding='utf-8')
+        register_project(sub_root, 'projects/p2')
+        sub_cand = self.catalog.probe({'root': str(sub_root)})
+        self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        with self.store.transaction() as tx:
+            row = tx.get('entries', entry['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'deleting-parent'}
+            tx.put('entries', entry['entryId'], row)
+        with self.assertRaises(CenterError) as sub_err:
+            self.catalog.commit({'candidateId': sub_cand['candidateId'], 'candidateHash': sub_cand['candidateHash']})
+        self.assertEqual(sub_err.exception.code, 'ACTION_IN_PROGRESS')
+
+        # 2. Commit after scanned directory is removed must reject with SOURCE_MISSING (preflight) or SOURCE_CHANGED (TOCTOU inside tx).
+        vanished = self.base / 'vanished-ws'
+        (vanished / 'projects/p3/.git').mkdir(parents=True)
+        (vanished / 'projects/p3/README.md').write_text('# Vanished\n', encoding='utf-8')
+        register_project(vanished, 'projects/p3')
+        vanished_cand = self.catalog.probe({'root': str(vanished)})
+        shutil.rmtree(vanished)
+        with self.assertRaises(CenterError) as gone_err:
+            self.catalog.commit({'candidateId': vanished_cand['candidateId'], 'candidateHash': vanished_cand['candidateHash']})
+        self.assertEqual(gone_err.exception.code, 'SOURCE_MISSING')
+
+        toctou = self.base / 'toctou-ws'
+        (toctou / 'projects/p3t/.git').mkdir(parents=True)
+        (toctou / 'projects/p3t/README.md').write_text('# TOCTOU\n', encoding='utf-8')
+        register_project(toctou, 'projects/p3t')
+        toctou_cand = self.catalog.probe({'root': str(toctou)})
+        orig_candidate = self.catalog._candidate
+        def delete_after_candidate(body):
+            cand = orig_candidate(body)
+            shutil.rmtree(toctou)
+            return cand
+        with patch.object(self.catalog, '_candidate', side_effect=delete_after_candidate):
+            with self.assertRaises(CenterError) as toctou_err:
+                self.catalog.commit({'candidateId': toctou_cand['candidateId'], 'candidateHash': toctou_cand['candidateHash']})
+        self.assertEqual(toctou_err.exception.code, 'SOURCE_CHANGED')
+
+        # 3. Merging an external copy into a deleting entry must reject with ACTION_IN_PROGRESS.
+        orig_ws = self.base / 'orig-merge'
+        (orig_ws / 'projects/pm/.git').mkdir(parents=True)
+        (orig_ws / 'projects/pm/README.md').write_text('# Merge\n', encoding='utf-8')
+        register_project(orig_ws, 'projects/pm')
+        orig_cand = self.catalog.probe({'root': str(orig_ws)})
+        orig_entry_id = self.catalog.commit({'candidateId': orig_cand['candidateId'], 'candidateHash': orig_cand['candidateHash']})['items'][0]['entryId']
+        ext_copy = self.base / 'ext-merge'
+        shutil.copytree(orig_ws, ext_copy)
+        ext_cand = self.catalog.probe({'root': str(ext_copy)})
+        with self.store.transaction() as tx:
+            row = tx.get('entries', orig_entry_id)
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'deleting-target'}
+            tx.put('entries', orig_entry_id, row)
+        with self.assertRaises(CenterError) as merge_err:
+            self.catalog.commit({'candidateId': ext_cand['candidateId'], 'candidateHash': ext_cand['candidateHash']})
+        self.assertEqual(merge_err.exception.code, 'ACTION_IN_PROGRESS')
+
+    def test_delete_timeout_expired_clears_in_progress_and_records_delete_failed(self):
+        import subprocess
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        (root / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        with patch.object(self.management, '_delete_directory', side_effect=subprocess.TimeoutExpired(['helper'], 30)):
+            with self.assertRaises(CenterError) as err:
+                self.management.entry_action(entry['entryId'], 'delete', {'confirmPermanent': True, 'expectedRevision': trashed['revision']})
+        self.assertEqual(err.exception.code, 'DELETE_FAILED')
+        with self.store.transaction() as tx:
+            saved = tx.get('entries', entry['entryId'])
+            self.assertNotIn('deletionInProgress', saved)
+            self.assertFalse(saved.get('detached'))
+            self.assertEqual(saved['trashError']['code'], 'DELETE_FAILED')
+
 
 if __name__ == '__main__':
     unittest.main()

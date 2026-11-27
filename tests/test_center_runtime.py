@@ -1296,6 +1296,23 @@ class GovernanceObservationTests(unittest.TestCase):
         fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
         self.assertEqual(len(calls), 4)
 
+    def test_capability_cache_evicts_expired_and_stale_stamp_entries(self):
+        fixture = QueueTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        root = Path(fixture.a["root"])
+        (root / ".autonomous-company").mkdir(exist_ok=True)
+        for index in range(100):
+            (root / ".autonomous-company/product-state.json").write_text(
+                json.dumps({"mutation": index, "pad": "x" * index}),
+                encoding="utf-8",
+            )
+            result = fixture.runtime._cached_capabilities(
+                fixture.a["sourceId"], root, True, lambda i=index: {"execute": True, "stop": False, "seq": i}
+            )
+            self.assertEqual(result["seq"], index)
+        self.assertEqual(len(fixture.runtime._capability_cache), 1)
+
 
 class ExecutionContextTests(unittest.TestCase):
     def setUp(self):

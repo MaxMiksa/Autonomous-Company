@@ -320,18 +320,20 @@ class CenterRuntime:
 
     def _cached_capabilities(self, source_id, root, owned, loader):
         key = (source_id, root, bool(owned), json.dumps(self.domain, sort_keys=True) if self.domain else "", self._capability_stamp(root))
+        now_mono = time.monotonic()
         with self._capability_lock:
             entry = self._capability_cache.get(key)
-            if entry and time.monotonic() < entry[0]:
+            if entry and now_mono < entry[0]:
                 return dict(entry[1])
         value = loader()
         cacheable = isinstance(value, dict) and bool(value) and value.get("_cacheable") is not False and value.get("pauseReason") != "interrupted_cycle"
         result = {k: v for k, v in value.items() if k != "_cacheable"} if isinstance(value, dict) else value
+        now_mono = time.monotonic()
         with self._capability_lock:
+            for existing_key in [k for k, v in self._capability_cache.items() if k[0] == source_id or now_mono >= v[0]]:
+                self._capability_cache.pop(existing_key, None)
             if cacheable:
-                self._capability_cache[key] = (time.monotonic() + 5.0, dict(result))
-            else:
-                self._capability_cache.pop(key, None)
+                self._capability_cache[key] = (now_mono + 5.0, dict(result))
         return result
 
     def environment(self):

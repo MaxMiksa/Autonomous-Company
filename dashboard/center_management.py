@@ -88,13 +88,24 @@ class CenterManagement:
         self._event(tx, entry_id, event_action, errorCode=code, deletionReceipts=receipts)
         tx.put('entries', entry_id, entry)
 
-    def _reconcile_stale_deletion(self, tx, entry, *, bump_revision=True):
-        if not entry.get('deletionInProgress') or self._is_live_deletion(entry):
-            return False
-        entry.pop('deletionInProgress', None)
-        entry.pop('deletionTargetRoots', None)
+    def _owned_sources_quiescent(self, sources):
+        for source in sources:
+            if not self.runtime.adapter.available:
+                return False
+            try:
+                check = self.runtime.adapter.query(
+                    'preflight', root=source['root'], center_id=self.store.center_id,
+                    allow_protected='1', require_context='0',
+                )
+            except Exception:
+                return False
+            if not check.get('quiescent'):
+                return False
+        return True
+
+    def _stale_owned_sources(self, tx, entry):
         sources = [row for row in tx.list('sources') if row['entryId'] == entry['entryId'] and not row.get('detached')]
-        owned_runtime_ids = []
+        owned = []
         for source in sources:
             rid = source.get('runtimeId')
             if not rid:
@@ -102,11 +113,45 @@ class CenterManagement:
             runtime = tx.get('runtimes', rid)
             expected = self.store.data_dir / 'runtimes' / rid
             if runtime and runtime.get('managed') and Path(source['root']) == expected and runtime.get('root') == source['root']:
-                owned_runtime_ids.append((rid, expected))
-        if owned_runtime_ids:
+                owned.append((dict(source), rid, expected))
+        return sources, owned
+
+    def _reconcile_stale_entries(self, entry_id=None, *, bump_revision=True):
+        with self.store.transaction() as tx:
+            candidates = ([tx.get('entries', entry_id)] if entry_id else tx.list('entries'))
+            stale = []
+            for row in candidates:
+                if row and row.get('trashed') and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
+                    sources, owned = self._stale_owned_sources(tx, row)
+                    stale.append((row['entryId'], owned))
+        if not stale:
+            return
+        quiescent_map = {}
+        for target_id, owned in stale:
+            if not owned:
+                quiescent_map[target_id] = True
+                continue
+            all_done = all(
+                (not expected.exists() and not (self.store.data_dir / 'trash-files' / rid).exists()
+                 and (r := self._delete_receipt(rid)).get('state') == 'succeeded' and bool(r.get('filesDeleted')))
+                for _s, rid, expected in owned
+            )
+            quiescent_map[target_id] = True if all_done else self._owned_sources_quiescent([s for s, _r, _e in owned])
+        with self.store.transaction() as tx:
+            for target_id, _owned in stale:
+                row = tx.get('entries', target_id)
+                if row and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
+                    self._reconcile_stale_deletion(tx, row, bump_revision=bump_revision,
+                                                   quiescent_confirmed=quiescent_map.get(target_id, False))
+
+    def _reconcile_stale_deletion(self, tx, entry, *, bump_revision=True, quiescent_confirmed=False):
+        if not entry.get('deletionInProgress') or self._is_live_deletion(entry):
+            return False
+        sources, owned = self._stale_owned_sources(tx, entry)
+        if owned:
             receipts = []
             all_deleted = True
-            for rid, expected in owned_runtime_ids:
+            for _src, rid, expected in owned:
                 receipt = self._delete_receipt(rid)
                 receipts.append(receipt)
                 if (expected.exists() or (self.store.data_dir / 'trash-files' / rid).exists()
@@ -117,6 +162,10 @@ class CenterManagement:
                 evidence = [r['evidence'] for r in receipts if r.get('evidence')]
                 self._finalize_detached(tx, entry, deletion_scope='managed_files', evidence=evidence, sources=sources)
                 return True
+            if not quiescent_confirmed:
+                return 'still_active'
+        entry.pop('deletionInProgress', None)
+        entry.pop('deletionTargetRoots', None)
         self._record_delete_failure(
             tx, entry, 'DELETE_INTERRUPTED',
             'Previous deletion was interrupted; retry permanent deletion.',
@@ -125,10 +174,8 @@ class CenterManagement:
         return False
 
     def trash(self):
+        self._reconcile_stale_entries(bump_revision=True)
         with self.store.transaction() as tx:
-            for row in tx.list('entries'):
-                if row.get('trashed') and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
-                    self._reconcile_stale_deletion(tx, row, bump_revision=True)
             settings = tx.get('management', 'trash') or {'retentionDays': 30, 'revision': 1}
             entries = [self.catalog._entry_view(tx, row) for row in tx.list('entries')
                        if row.get('trashed') and not row.get('detached')]
@@ -220,16 +267,14 @@ class CenterManagement:
     def entry_action(self, entry_id, action, body):
         if action == 'delete':
             return self._delete(entry_id, body)
+        self._reconcile_stale_entries(entry_id, bump_revision=False)
         with self.catalog._source_refresh_lock, self.store.transaction() as tx:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
-            if self._is_live_deletion(entry):
+            if entry.get('deletionInProgress'):
                 raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
-            if entry.get('deletionInProgress'):
-                if self._reconcile_stale_deletion(tx, entry, bump_revision=False):
-                    raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
             if action == 'rename':
                 entry['customDisplayName'] = self._name(body.get('displayName'))
             elif action == 'trash':
@@ -486,59 +531,53 @@ class CenterManagement:
             raise CenterError('CONFIRMATION_REQUIRED', 'Confirm permanent deletion.', 409)
         failure = None
         runtime_ids = []
+        planned_source_ids = []
         owned_items = []
         idle_checks = []
         external_managed = False
         reserved = False
         entry_snapshot = None
+        self._reconcile_stale_entries(entry_id, bump_revision=False)
         with self.catalog._source_refresh_lock, self.store.transaction() as tx:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
-            if self._is_live_deletion(entry):
+            if entry.get('deletionInProgress'):
                 raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
-            if entry.get('deletionInProgress'):
-                if self._reconcile_stale_deletion(tx, entry, bump_revision=False):
-                    detached_view = dict(entry)
-                    runtime_ids = [row['runtimeId'] for row in tx.list('sources') if row['entryId'] == entry_id and row.get('runtimeId')]
-                    reserved = False
-                    entry_snapshot = detached_view
-                elif not entry.get('trashed'):
-                    raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
-            if not entry_snapshot:
-                if not entry.get('trashed'):
-                    raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
-                try:
-                    sources, idle_checks = self._idle_db(tx, entry)
-                    runtime_ids = [source['runtimeId'] for source in sources if source.get('runtimeId')]
-                    for source in sources:
-                        item = self._owned_directory_db(tx, entry, source)
-                        if item is not None:
-                            owned_items.append(item)
-                        elif source.get('runtimeId') and (tx.get('runtimes', source['runtimeId']) or {}).get('managed'):
-                            external_managed = True
-                    if owned_items or idle_checks:
-                        target_roots = sorted(
-                            {str(item['expected']) for item in owned_items}
-                            | {str(Path(s['root']).resolve()) for s in sources if s.get('root')}
-                        )
-                        with self._active_lock:
-                            self._active_deletions.add(entry_id)
-                        reserved = True
-                        entry['deletionInProgress'] = {'startedAt': now(), 'instanceId': self._instance_id}
-                        entry['deletionTargetRoots'] = target_roots
-                        entry['revision'] += 1
-                        tx.put('entries', entry_id, entry)
-                        entry_snapshot = dict(entry)
-                    elif external_managed:
-                        raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
-                    else:
-                        self._finalize_detached(tx, entry, deletion_scope='center_registration', evidence=[], sources=sources)
-                        entry_snapshot = dict(entry)
-                except (CenterError, OSError, ValueError) as error:
-                    failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
-                    self._record_delete_failure(tx, entry, failure.code, failure.message)
+            if not entry.get('trashed'):
+                raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
+            try:
+                sources, idle_checks = self._idle_db(tx, entry)
+                planned_source_ids = [source['sourceId'] for source in sources]
+                runtime_ids = [source['runtimeId'] for source in sources if source.get('runtimeId')]
+                for source in sources:
+                    item = self._owned_directory_db(tx, entry, source)
+                    if item is not None:
+                        owned_items.append(item)
+                    elif source.get('runtimeId') and (tx.get('runtimes', source['runtimeId']) or {}).get('managed'):
+                        external_managed = True
+                if owned_items or idle_checks:
+                    target_roots = sorted(
+                        {str(item['expected']) for item in owned_items}
+                        | {str(Path(s['root']).resolve()) for s in sources if s.get('root')}
+                    )
+                    with self._active_lock:
+                        self._active_deletions.add(entry_id)
+                    reserved = True
+                    entry['deletionInProgress'] = {'startedAt': now(), 'instanceId': self._instance_id}
+                    entry['deletionTargetRoots'] = target_roots
+                    entry['revision'] += 1
+                    tx.put('entries', entry_id, entry)
+                    entry_snapshot = dict(entry)
+                elif external_managed:
+                    raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
+                else:
+                    self._finalize_detached(tx, entry, deletion_scope='center_registration', evidence=[], sources=sources)
+                    entry_snapshot = dict(entry)
+            except (CenterError, OSError, ValueError, subprocess.SubprocessError) as error:
+                failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
+                self._record_delete_failure(tx, entry, failure.code, failure.message)
         if reserved:
             evidence = []
             try:
@@ -550,7 +589,7 @@ class CenterManagement:
                         raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
                     for item in owned_items:
                         evidence.append(self._delete_directory(item['expected'], item['source'], entry_snapshot, item['frameworkRevision']))
-                except (CenterError, OSError, ValueError) as error:
+                except (CenterError, OSError, ValueError, subprocess.SubprocessError) as error:
                     failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
                 with self.catalog._source_refresh_lock, self.store.transaction() as tx:
                     entry = tx.get('entries', entry_id)
@@ -558,7 +597,9 @@ class CenterManagement:
                     entry.pop('deletionTargetRoots', None)
                     if failure is None:
                         scope = 'managed_files' if owned_items else 'center_registration'
-                        self._finalize_detached(tx, entry, deletion_scope=scope, evidence=evidence)
+                        detach_sources = [row for row in tx.list('sources')
+                                          if row['sourceId'] in planned_source_ids and not row.get('detached')]
+                        self._finalize_detached(tx, entry, deletion_scope=scope, evidence=evidence, sources=detach_sources)
                         entry_snapshot = dict(entry)
                     else:
                         self._record_delete_failure(tx, entry, failure.code, failure.message)
@@ -579,10 +620,8 @@ class CenterManagement:
                 return {'items': []}
             self._last_sweep = time.monotonic()
             stamp = datetime.now(timezone.utc)
+            self._reconcile_stale_entries(bump_revision=True)
             with self.store.transaction() as tx:
-                for row in tx.list('entries'):
-                    if row.get('trashed') and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
-                        self._reconcile_stale_deletion(tx, row, bump_revision=True)
                 entries = [row for row in tx.list('entries') if row.get('trashed') and not row.get('detached')
                            and not row.get('deletionInProgress')
                            and datetime.fromisoformat(row['expiresAt']) <= stamp]

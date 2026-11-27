@@ -1553,10 +1553,13 @@ def source_control(manifest_path):
                     "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
                     "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
                 }
+                next_contract_preview = None
                 if control_path(root, ".autonomous-company/company-harness.sqlite3").exists():
-                    subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
+                    reconcile_res = subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
                         "--root", str(root), "reconcile-crash", "--reason", "center_review_recovery"],
                         cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
+                    reconcile_data = json.loads(reconcile_res.stdout or "{}")
+                    next_contract_preview = reconcile_data.get("nextContract")
                 command = subprocess.run(["bash", str(root / "scripts/core/consensus-guard.sh"), "recover"],
                     cwd=root, env=environment, capture_output=True, text=True, timeout=15)
                 if command.returncode not in {0, 42} or control_path(root, "memories/.consensus-cycle-pending").exists():
@@ -1580,10 +1583,12 @@ def source_control(manifest_path):
                     raise ValueError(context["reason"])
                 review = {"reviewToken": secrets.token_hex(24), "createdAt": now(), "expiresAt": time.time() + 900,
                           "fingerprint": recovery_fingerprint(root), "pauseReason": reason,
+                          "nextContract": next_contract_preview,
                           **{key: marker[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}}
                 atomic_json(control_path(root, REVIEW_FILE), review)
                 return {"ok": True, "reviewToken": review["reviewToken"], "pauseReason": reason,
                         "writersStopped": True, "recoveryComplete": True, "context": context,
+                        "nextContract": next_contract_preview,
                         "requiresConfirmation": ["productCodeReviewed", "externalEffectsReviewed"],
                         "reviewScope": "Restored consensus and human configuration; product code and external effects are not rolled back"}
             review = read_json(control_path(root, REVIEW_FILE))
@@ -1610,10 +1615,13 @@ def source_control(manifest_path):
                     "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
                     "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
                 }
-                subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
+                approve_res = subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
                     "--root", str(root), "approve-recovery", "--review-token", review["reviewToken"],
                     "--reason", "center_human_confirmed"],
                     cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
+                approve_data = json.loads(approve_res.stdout or "{}")
+                if "nextContract" in review and review.get("nextContract") is not None and approve_data.get("nextContract") != review.get("nextContract"):
+                    raise ValueError("recovery_review_changed")
             confirmation = {**review, "confirmedAt": now(), "productCodeReviewed": True, "externalEffectsReviewed": True}
             atomic_json(control_path(root, REVIEW_FILE), confirmation)
             control_path(root, ".auto-loop-paused").unlink()

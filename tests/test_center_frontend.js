@@ -1640,6 +1640,176 @@ test('trashSettings captures open revision and updates on REVISION_CONFLICT; fai
   let capturedMenus = [];
   h2.context.window.DashboardUI = undefined;
   assert.match(app, /if \(\$\("trashSettingsButton"\)\) \$\("trashSettingsButton"\)\.disabled = state\.stale \|\| !trashPart \|\| Boolean\(trashPart\.failed\);/);
-  assert.match(app, /const deleting = Boolean\(entry\.deletionInProgress\);/);
+  assert.match(app, /const deleting = Boolean\(entry\.deletionInProgress\) \|\| trashFailed;/);
   assert.match(app, /state\.readParts\.get\("trash"\)\?\.failed \? "failed" : state\.readParts\.has\("trash"\) \? "ok" : "pending"/);
+});
+
+test('trashSettings REVISION_CONFLICT ignores pre-conflict in-flight /trash v2 and fetches v4', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.revision = 2;
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  let releaseStaleTrash;
+  const staleTrashGate = new Promise(resolve => { releaseStaleTrash = resolve; });
+  let trashCalls = 0;
+  const writes = [];
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      writes.push(JSON.parse(options.body));
+      return {
+        ok: false, status: 409,
+        json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+      };
+    }
+    if (url.endsWith('/trash')) {
+      trashCalls += 1;
+      if (trashCalls === 1) {
+        await staleTrashGate;
+        return envelope({ revision: 2, retentionDays: 99, items: [] });
+      }
+      return envelope({ revision: 4, retentionDays: 45, items: [] });
+    }
+    return refreshResponse(url);
+  };
+  const pendingRefresh = h.refresh();
+  await Promise.resolve();
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[0].expectedRevision, 2);
+  assert.equal(h.state.trash.revision, 4);
+  assert.equal(input.value, 45);
+  releaseStaleTrash();
+  await pendingRefresh;
+  assert.equal(h.state.trash.revision, 4);
+  assert.equal(h.state.trash.retentionDays, 45);
+});
+
+test('initial /trash failure before /entries sets centerId preserves failed state and loadFailed', async () => {
+  const h = harness();
+  h.state.centerId = null;
+  let releaseEntries;
+  const entriesGate = new Promise(resolve => { releaseEntries = resolve; });
+  h.context.fetch = async (url) => {
+    if (url.endsWith('/trash')) throw new Error('trash read failed');
+    if (url.includes('/entries')) {
+      await entriesGate;
+      return envelope({ items: [] });
+    }
+    return refreshResponse(url);
+  };
+  const pending = h.refresh();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  releaseEntries();
+  await pending;
+  assert.equal(h.state.centerId, 'fixture');
+  assert.equal(h.state.readParts.get('trash')?.failed, true);
+});
+
+test('failed /trash invalidates cached trashed row and disables restore and delete menu items', () => {
+  const h = helpers();
+  const capturedMenus = [];
+  const doc = h.context.document;
+  const origGet = doc.getElementById;
+  const makeNode = (tag = 'div') => ({
+    tag, className: '', dataset: {}, children: [], style: {},
+    classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
+    setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {},
+    querySelector() { return null; }, querySelectorAll() { return []; }, focus() {},
+    append(...items) { this.children.push(...items.flat().filter(Boolean)); },
+    replaceChildren(...items) { this.children = items.flat().filter(Boolean); },
+  });
+  const nodes = { productRows: makeNode('table'), listState: makeNode('div'), searchCount: makeNode('span') };
+  doc.getElementById = id => (nodes[id] ||= makeNode('div'));
+  doc.createElement = tag => makeNode(tag);
+  doc.createElementNS = (_ns, tag) => makeNode(tag);
+  h.context.Option = function Option(text, value) { return { text, value }; };
+  Object.assign(h.context.window.DashboardUI, {
+    element(tag, className, text) {
+      const node = makeNode(tag);
+      node.className = className || '';
+      if (text !== undefined) node.textContent = String(text);
+      return node;
+    },
+    retainMenus() {},
+    positions() { return new Map(); },
+    reconcile() {},
+    layout() {},
+    animate() {},
+    menu(options) { capturedMenus.push(options.items); return doc.createElement('div'); },
+  });
+  h.context.performance = { now: () => 0 };
+  const trashedEntry = {
+    entryId: 'entry-trash-cached',
+    kind: 'exploration',
+    trashed: true,
+    deletionInProgress: null,
+    displayName: 'Cached Trash Item',
+    createdAt: '2026-11-27T00:00:00Z',
+    revision: 1,
+    capabilities: { execute: false },
+  };
+  h.state.loading = false;
+  h.state.filter = 'trash';
+  h.state.trash = { revision: 1, retentionDays: 30, items: [trashedEntry] };
+  h.state.readParts.set('trash', { failed: false });
+  h.renderEntries();
+  const firstMenu = capturedMenus.at(-1);
+  assert.equal(firstMenu.every(item => item.disabled === false), true);
+
+  h.state.readParts.set('trash', { failed: true });
+  h.renderEntries();
+  const secondMenu = capturedMenus.at(-1);
+  assert.equal(secondMenu.length >= 2, true);
+  assert.equal(secondMenu.every(item => item.disabled === true), true);
+});
+
+test('.recovery-review panel renders review.nextContract preview', async () => {
+  const h = harness();
+  h.state.language = 'en';
+  const detail = {
+    entryId: 'entry-rec',
+    sourceId: 'source-rec',
+    revision: 1,
+    recovery: { canReview: true },
+    capabilities: { reviewRecovery: { enabled: true } },
+    sources: [{ sourceId: 'source-rec', revision: 1, sourceRevision: 1, kind: 'product', availability: 'available', capabilities: { reviewRecovery: { enabled: true } } }],
+  };
+  h.context.fetch = async (url) => {
+    if (url.includes('/entries/entry-rec')) return envelope(detail);
+    if (url.includes('/sources/source-rec/review-recovery')) {
+      return envelope({
+        expectedRevision: 2,
+        expectedSourceRevision: 2,
+        nextContract: { workKind: 'direction', objective: 'Bounded next preview goal' },
+        checks: [],
+        reasons: [],
+        canConfirm: true,
+      });
+    }
+    return refreshResponse(url);
+  };
+  await h.openSourceManager({ entryId: 'entry-rec', sourceId: 'source-rec', displayName: 'Rec' });
+  h.nodes.sourceManagerBody.querySelector = () => null;
+  h.context.window.DashboardIcons = { hydrate() {}, icon() { return h.context.document.createElement('span'); } };
+  const findAll = (root, pred, out = []) => {
+    if (!root || typeof root !== 'object') return out;
+    if (pred(root)) out.push(root);
+    for (const child of root.children || []) findAll(child, pred, out);
+    return out;
+  };
+  const buttons = findAll(h.nodes.sourceManagerBody, node => typeof node.listeners?.click === 'function');
+  const reviewBtn = buttons.find(btn => /review|核对恢复条件/i.test(btn.textContent || ''));
+  assert.ok(reviewBtn, 'expected reviewRecovery button');
+  await reviewBtn.fire('click');
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const nextContractNode = findAll(
+    h.nodes.sourceManagerBody,
+    node => String(node.className || '').includes('recovery-next-contract') || /Bounded next preview goal/.test(node.textContent || ''),
+  )[0];
+  assert.ok(nextContractNode, 'expected .recovery-next-contract element');
+  assert.match(nextContractNode.textContent, /direction/);
+  assert.match(nextContractNode.textContent, /Bounded next preview goal/);
 });

@@ -349,6 +349,53 @@ class ExplorationArtifactCollectionTests(unittest.TestCase):
                     workspace.run_engine(root, "projects/sample", "codex", str(fake_bin), "prompt")
             self.assertEqual((root / "projects/sample/value.txt").read_text(), "original")
 
+    def test_run_engine_fails_closed_when_cycle_missing_or_acceptance_versions_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "fail-closed-invalid"
+            for name in workspace.TEMPLATES:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, target)
+            (root / "projects/sample").mkdir(parents=True)
+            (root / "projects/sample/value.txt").write_text("original")
+            (root / "projects/registry.tsv").write_text(
+                "name\tpath\tlifecycle\tcreated_at_utc\nsample\tprojects/sample\tlocal\t2026-10-02\n"
+            )
+            (root / "memories").mkdir(exist_ok=True)
+            (root / "memories/consensus.md").write_text(
+                "# Legacy\n\n## Current Phase\nBuilding\n\n## Human Overrides\n- keep-me\n\n## Priority Issues\n- None.\n"
+            )
+            inputs = root / "inputs"
+            inputs.mkdir()
+            manifest_path = root / "attempt-manifest.json"
+            manifest_path.write_text(json.dumps({
+                "root": str(root),
+                "context": {"cycleId": "cycle-fc-2", "attemptId": "att-fc-2", "generation": "gen-2"},
+                "token": "tok",
+                "socket": str(root / "harness.sock"),
+                "inputsDirectory": str(inputs),
+                "recovery": False,
+                "collectRelative": ".autonomous-company/harness/att-fc-2.collect.json",
+            }))
+            fake_bin = root / "fake-codex"
+            fake_bin.write_text("#!/bin/sh\nexit 0\n")
+            for snap in (
+                {"cycles": []},
+                {"cycles": [{"cycleId": "cycle-fc-2", "submissions": [{"attemptId": "att-fc-2", "submissionId": "sub-1", "acceptanceVersions": None}]}]},
+            ):
+                with self.subTest(snap=snap), patch.dict(os.environ, {
+                    "COMPANY_HARNESS_ENABLED": "1",
+                    "AUTONOMOUS_COMPANY_CYCLE_ID": "cycle-fc-2",
+                    "AUTONOMOUS_COMPANY_ATTEMPT_ID": "att-fc-2",
+                    "COMPANY_HARNESS_MANIFEST": str(manifest_path),
+                }), patch.object(workspace, "runtime_binary", return_value=Path("/usr/bin/bwrap")), \
+                     patch.object(workspace, "TEMPLATES", ()), \
+                     patch.object(workspace, "run_isolated", return_value=0), \
+                     patch("company_harness.HarnessStore.snapshot", return_value=snap):
+                    with self.assertRaises(boundary.IsolationError):
+                        workspace.run_engine(root, "projects/sample", "codex", str(fake_bin), "prompt")
+                    self.assertEqual((root / "projects/sample/value.txt").read_text(), "original")
+
     def test_chunked_copy_and_fingerprint_handle_multichunk_regular_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "chunk-src"

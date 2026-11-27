@@ -353,7 +353,7 @@ class HarnessStore:
                     # Worker material may only become visible after collect.
                     # Reception acknowledges its requested immutable version;
                     # final closure requires that exact readable binding.
-                    self._verify_refs(tx, cycle, payload.get("evidenceRefs", []), allow_pending=True)
+                    self._verify_refs(tx, cycle, payload.get("evidenceRefs", []), allow_pending=True, attempt_id=attempt["attemptId"])
                     if payload["result"] in {"completed", "partial"} and not payload.get("evidenceRefs"):
                         raise HarnessError("EVIDENCE_MISSING", "evidenceRefs")
                     # The host baseline and accepted receipt commit together.
@@ -416,7 +416,7 @@ class HarnessStore:
             tx.put("evidence", evidence_id, evidence)
             return {key: value for key, value in evidence.items() if key != "content"}
 
-    def _verify_refs(self, tx, cycle, refs, allow_pending=False):
+    def _verify_refs(self, tx, cycle, refs, allow_pending=False, attempt_id=None):
         if not isinstance(refs, list):
             raise HarnessError("INVALID_FIELD", "evidenceRefs")
         seen = {}
@@ -435,8 +435,11 @@ class HarnessStore:
                 raise HarnessError("EVIDENCE_MISSING", ref["evidenceId"])
             if evidence["sha256"] != ref["sha256"]:
                 raise HarnessError("EVIDENCE_VERSION_MISMATCH", ref["evidenceId"])
-            existing_path = (evidence.get("source") or {}).get("path")
+            source = evidence.get("source") or {}
+            existing_path = source.get("path")
             if ref.get("path") and existing_path and existing_path != ref["path"]:
+                raise HarnessError("ID_CONFLICT", ref["evidenceId"])
+            if attempt_id and evidence and ref.get("path") and source.get("attemptId") and source.get("attemptId") != attempt_id:
                 raise HarnessError("ID_CONFLICT", ref["evidenceId"])
 
     def finish_attempt(self, context, actual_result, *, writers_stopped, observation):

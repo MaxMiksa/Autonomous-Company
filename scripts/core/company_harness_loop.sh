@@ -142,6 +142,15 @@ $harness_prompt"
     local final_outcome
     final_outcome=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["outcome"])' "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_PRODUCT_CYCLE_ID.result.json")
     if [ "$HARNESS_FINAL_ACTION" != close ] || { [ "$final_outcome" != completed ] && [ "$final_outcome" != partial ]; }; then
+        if [ "$HARNESS_GOVERNANCE_BLOCKED" -eq 0 ] && [ "$HARNESS_GOVERNANCE_VIOLATION" -eq 0 ] && python3 "$SCRIPT_DIR/consensus-format.py" p1 "$CONSENSUS_FILE" >/dev/null 2>&1; then
+            set +e
+            "$CONSENSUS_GUARD" check-admission "$loop_count"
+            admit_status=$?
+            set -e
+            if [ "$admit_status" -eq 41 ]; then
+                HARNESS_GOVERNANCE_BLOCKED=1
+            fi
+        fi
         ADAPTER_STATUS=error
         ADAPTER_EXIT_CODE=78
         ADAPTER_SUBTYPE=harness_needs_human

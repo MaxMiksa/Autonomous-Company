@@ -176,6 +176,32 @@ class BridgeTests(unittest.TestCase):
         exp_loaded = load_inputs(store2, {"explorationId": "exp-scope", "inputRefs": [ev], "prerequisiteRefs": []})
         self.assertTrue(exp_loaded[0]["isCompletedHead"])
 
+    def test_cross_attempt_reused_evidence_id_with_path_rejected_at_submit(self):
+        first = self.store.bind_evidence(
+            "formal-cycle",
+            "shared-ev",
+            "attempt-one-doc",
+            source={"attemptId": "attempt-one"},
+            media_type="text/markdown",
+        )
+        self.store.finish_attempt(self.context, {"outcome": "failed", "exitCode": 1}, writers_stopped=True, observation="done")
+        self.store.begin_recovery("formal-cycle", "rec-cross", budget_seconds=60, reason="retry")
+        attempt2 = self.store.begin_attempt("formal-cycle", "attempt-two", {"dispatchId": "owned-2"}, recovery_id="rec-cross")
+        ws2 = self.root / "ws-cross-attempt"
+        (ws2 / "docs").mkdir(parents=True, exist_ok=True)
+        (ws2 / "docs/reused.md").write_text("attempt-two-content", encoding="utf-8")
+        sock2 = self.root / "bridge-cross.sock"
+        with running_bridge(sock2, self.store, attempt2["context"], "bound-token-2") as server:
+            with patch.object(server, "live_workspace", return_value=ws2):
+                rejected = request("submit", "sub-cross", {
+                    "result": "completed",
+                    "unfinishedItems": [],
+                    "evidenceRefs": [{"evidenceId": "shared-ev", "sha256": first["sha256"], "path": "docs/reused.md"}],
+                    "primaryEvidenceId": "shared-ev",
+                }, socket_path=sock2, token="bound-token-2")
+        self.assertEqual(rejected["status"], "rejected")
+        self.assertEqual(rejected["errorCode"], "ID_CONFLICT")
+
 
 @unittest.skipUnless(sys.platform == "linux", "Linux host ownership and accounting")
 class RunnerTests(unittest.TestCase):
@@ -1213,6 +1239,110 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(planned["workKind"], "direction")
             self.assertEqual(planned["objective"], "Follow-up direction")
 
+    def test_begin_prepared_attempt_failure_rolls_back_active_attempt_and_manifests(self):
+        env = dict(os.environ, AUTONOMOUS_COMPANY_LOCK_PID=str(os.getpid()))
+        with patch.dict(os.environ, env), \
+             patch.object(runner, "begin_cycle", side_effect=OSError("ledger write failed")):
+            with self.assertRaisesRegex(OSError, "ledger write failed"):
+                runner.begin_attempt(self.store, self.root, self.cycle_id)
+        cycle = runner.row(self.store, self.cycle_id)
+        self.assertIsNone(cycle["activeAttemptId"])
+        self.assertEqual(len(cycle["attempts"]), 1)
+        self.assertEqual(cycle["attempts"][0]["actualResult"]["outcome"], "not_started")
+        self.assertEqual(cycle["attempts"][0]["actualResult"]["providerInvoked"], False)
+        self.assertFalse(any(runner.host_path(self.root, "").glob("*.launch.json")))
+
+    def test_recover_stopped_cycles_closes_zero_attempt_unstarted_result(self):
+        runner.write_fact(
+            runner.host_path(self.root, self.cycle_id + ".result.json"),
+            {"cycleId": self.cycle_id, "outcome": "not_started", "providerInvoked": False,
+             "submissionId": None, "validSubmission": False, "evidenceRefs": []},
+        )
+        runner.recover_stopped_cycles(self.store, self.root)
+        cycle = runner.row(self.store, self.cycle_id)
+        self.assertEqual(cycle["protocolState"], "closed")
+        self.assertEqual(cycle["outcome"], "failed")
+
+    def test_approve_recovery_atomic_failure_and_next_contract_uses_bound_contract(self):
+        with tempfile.TemporaryDirectory(prefix="harness-bound-rec-") as tmp:
+            troot = Path(tmp)
+            (troot / "memories").mkdir()
+            (troot / "scripts/core").mkdir(parents=True)
+            shutil.copy2(ROOT / "memories/consensus.template.md", troot / "memories/consensus.md")
+            tstore = HarnessStore(troot, create=True)
+            id1 = reserve_cycle(troot, "", "crashed-initial", 1)["cycleId"]
+            tstore.create_cycle({
+                "cycleId": id1, "explorationId": "exp-bound-rec", "sequenceNumber": 1, "runCycleNumber": 1,
+                "objective": "Initial objective", "workKind": "objective_selection", "artifactKind": "objective",
+                "scope": ["topic"], "inputRefs": [], "prerequisiteRefs": [], "completionOrHandoff": "topic note",
+            })
+            tstore.begin_attempt(id1, "crashed-att-1", {"dispatchId": "owned"})
+            reconciled = runner.reconcile_crash(tstore, troot)
+            self.assertEqual(reconciled["nextContract"]["workKind"], "objective_selection")
+
+            # If planning raises inside approve_recovery, continuationDecision stays disallowed.
+            with patch.object(runner, "_plan_recovery_contract", side_effect=HarnessError("HANDOFF_MISSING")):
+                with self.assertRaisesRegex(HarnessError, "HANDOFF_MISSING"):
+                    runner.approve_recovery(tstore, troot, "rev-tok-fail")
+            self.assertFalse(runner.row(tstore, id1)["continuationDecision"]["allowed"])
+
+            # Once approved, boundNextContract is preserved even if consensus/env change afterward.
+            approved = runner.approve_recovery(tstore, troot, "rev-tok-ok")
+            self.assertEqual(approved["nextContract"]["workKind"], "objective_selection")
+            consensus = troot / "memories/consensus.md"
+            consensus.write_text(consensus.read_text().replace("- (none)", "- Mutated later objective"), encoding="utf-8")
+            with patch.dict(os.environ, {"COMPANY_HARNESS_INITIAL_WORK_KIND": "research"}):
+                planned = runner.next_contract(tstore, {"productId": None, "explorationId": "exp-bound-rec"}, root=troot)
+            self.assertEqual(planned["workKind"], "objective_selection")
+
+    def test_retry_error_signature_normalizes_attempt_hex_and_trips_max_same_error(self):
+        import company_harness_quality as hquality
+        attempts = []
+        docs = self.root / "collected-sig/docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        content = "body"
+        (docs / "res.md").write_text(content, encoding="utf-8")
+        ev_ref = {"evidenceId": "ev-sig", "sha256": hashlib.sha256(content.encode()).hexdigest(), "path": "docs/res.md"}
+        hoff_text = json.dumps({"nextContract": {"objective": "Next", "workKind": "research", "scope": ["s"], "inputRefs": [ev_ref], "prerequisiteRefs": [], "completionOrHandoff": "note"}})
+        (docs / "hoff.json").write_text(hoff_text, encoding="utf-8")
+        hoff_ref = {"evidenceId": "hoff-sig", "sha256": hashlib.sha256(hoff_text.encode()).hexdigest(), "path": "docs/hoff.json"}
+        versions = {"projects": "p", "docs": "d", "memories": "m"}
+        runner.prepare(self.store, self.root, self.cycle_id)
+        for idx, suffix in enumerate(("0123abcd", "deadbeef"), start=1):
+            att_id = f"attempt-{suffix}"
+            rec_id = None if idx == 1 else f"rec-{idx}"
+            if idx > 1:
+                self.store.begin_recovery(self.cycle_id, rec_id, budget_seconds=60, reason="retry")
+            att = self.store.begin_attempt(self.cycle_id, att_id, {"dispatchId": "owned"}, recovery_id=rec_id)
+            ev_i = {"evidenceId": f"ev-sig-{idx}", "sha256": ev_ref["sha256"], "path": "docs/res.md"}
+            hoff_i = {"evidenceId": f"hoff-sig-{idx}", "sha256": hoff_ref["sha256"], "path": "docs/hoff.json"}
+            sub = self.store.submit_with_versions(att["context"], f"sub-{idx}", {
+                "result": "completed" if idx == 1 else "partial", "unfinishedItems": [], "evidenceRefs": [ev_i, hoff_i],
+                "primaryEvidenceId": ev_i["evidenceId"], "handoffRef": hoff_i,
+            }, lambda _: versions)
+            self.assertEqual(sub["status"], "accepted", sub)
+            collect_rel = f".autonomous-company/harness/{att_id}.collect.json"
+            runner.write_fact(runner.host_path(self.root, att_id + ".json"), {
+                "root": str(self.root), "context": att["context"], "collectRelative": collect_rel,
+                "temporary": str(self.root / f"tmp-{att_id}"),
+            })
+            runner.write_fact(self.root / collect_rel, {
+                **{k: att["context"][k] for k in ("cycleId", "attemptId", "generation")},
+                "collected": True, "docsRoot": str(docs), "versions": versions,
+            })
+            with patch.object(hquality, "prepare_contract", side_effect=HarnessError("EVIDENCE_VERSION_MISMATCH", f"{att_id}: stale file")):
+                res = runner.finish_attempt(
+                    self.store,
+                    self.root,
+                    att_id,
+                    {"status": "success", "exit_code": 0, "providerInvoked": True},
+                    {"cleanupFailed": False, "supervisorOwner": "verified-tree"},
+                )
+            attempts.append(res)
+        self.assertEqual(attempts[1].get("repeatedErrorCount"), 2)
+        self.assertEqual(attempts[1].get("action"), "human")
+        self.assertIn("Repeated identical rejection", attempts[1].get("guidance", ""))
+
 
 @unittest.skipUnless(sys.platform == 'linux', 'Live pre-dispatch ownership uses real Linux processes')
 class PreDispatchTests(unittest.TestCase):
@@ -1454,6 +1584,52 @@ assert request('submit','completed-with-new-p1',{'result':'completed','unfinishe
                         if process.poll() is None:
                             process.send_signal(signal.SIGTERM)
                         process.wait(timeout=15)
+
+    def test_voluntary_failed_submission_with_new_p1_triggers_governance_blocked(self):
+        from isolation_workspace import TEMPLATES
+        with tempfile.TemporaryDirectory(prefix="harness-p1-vol-fail-") as temporary:
+            root = Path(temporary)
+            for name in TEMPLATES:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, target)
+            shutil.copytree(ROOT / "scripts/core", root / "scripts/core", dirs_exist_ok=True)
+            shutil.copytree(ROOT / "memories", root / "memories")
+            source, binary = root / "fake.c", root / "fake-codex"
+            program = '''import json,pathlib,sys
+consensus=pathlib.Path('/workspace/memories/consensus.md')
+body=consensus.read_text()
+if '## Next Action' not in body:
+    body += chr(10)+'## Next Action'+chr(10)+'Bounded synthetic task'+chr(10)
+if '## Company State' not in body:
+    body += chr(10)+'## Company State'+chr(10)+'Governance boundary fixture'+chr(10)
+body=body.replace('## Priority Issues','## Priority Issues'+chr(10)+'- [ ] P1: voluntary failed blocker',1)
+consensus.write_text(body)
+sys.path.insert(0,'/workspace/scripts/core')
+from company_harness_client import request
+assert request('submit','voluntary-failed-p1',{'result':'failed','unfinishedItems':['blocker']})['status']=='accepted'
+print(json.dumps({'type':'turn.completed','usage':{'input_tokens':2,'output_tokens':3}}),flush=True)
+'''
+            source.write_text('#include <unistd.h>\n#include <string.h>\n#include <stdio.h>\nint main(int argc,char**argv){if(argc>1&&!strcmp(argv[1],"--version")){puts("p1-fixture");return 0;}char *args[]={"/usr/bin/python3","-c",' + json.dumps(program) + ',0};execv(args[0],args);return 1;}\n')
+            subprocess.run(["cc", str(source), "-o", str(binary)], check=True, capture_output=True)
+            env = dict(os.environ, COMPANY_HARNESS_ENABLED="1", COMPANY_HARNESS_CORRECTIONS="0",
+                ENGINE="codex", CODEX_BIN=str(binary), MODEL="gpt-6.1-sol", CODEX_REASONING_EFFORT="high",
+                LOOP_INTERVAL="0", BUDGET_PAUSE_POLL_SECONDS="1", CYCLE_TERM_GRACE_SECONDS="1", CYCLE_KILL_WAIT_SECONDS="1")
+            output = root / "owned-output"
+            with output.open("w") as stream:
+                process = subprocess.Popen(["bash", str(root / "scripts/core/auto-loop.sh")], env=env, stdout=stream, stderr=stream)
+                try:
+                    deadline = time.monotonic() + 45
+                    while not (root / ".auto-loop-paused").exists() and process.poll() is None and time.monotonic() < deadline:
+                        time.sleep(0.1)
+                    self.assertTrue((root / ".auto-loop-paused").exists(), output.read_text())
+                    self.assertEqual((root / ".auto-loop-paused").read_text(), "PAUSE_REASON=unresolved_p1\n")
+                    self.assertIn("- [ ] P1: voluntary failed blocker", (root / "memories/consensus.md").read_text())
+                finally:
+                    (root / ".auto-loop-stop").touch()
+                    if process.poll() is None:
+                        process.send_signal(signal.SIGTERM)
+                    process.wait(timeout=15)
 
     def test_real_loop_corrects_missing_submit_without_new_cycle_or_duplicate_cost(self):
         self.run_owned_loop(False)
