@@ -1147,11 +1147,11 @@ window.DashboardNavigation.register('journal', (view) => {
       : recordedGroups.length > 1 ? message('usageSeparated') : `${compactNumber(sum.totalTokens)}${knownNumber(sum.totalTokens) ? ' tokens' : ''}${sum.partial && sum.known ? message('usagePartialShort') : ''}`;
     const recordedCycle = data.cycles.find((cycle) => cycle.belongsToCurrentProject !== false);
     const config = {
-      engine: recordedCycle?.engine || 'unknown',
-      model: recordedCycle?.observedConfig?.model || recordedCycle?.model || 'unknown',
-      reasoning: recordedCycle?.observedConfig?.reasoning || 'unknown',
+      engine: recordedCycle?.engine || data.runtime?.engine || 'unknown',
+      model: recordedCycle?.observedConfig?.model || recordedCycle?.model || data.runtime?.model || 'unknown',
+      reasoning: recordedCycle?.observedConfig?.reasoning || data.runtime?.reasoning || 'unknown',
     };
-    const productLanguage = data.languageState?.productLanguageStatus === 'unknown' ? null : data.languageState?.productLanguage;
+    const productLanguage = data.languageState?.productLanguageStatus === 'unknown' ? null : (data.languageState?.productLanguage || data.runtime?.language);
     const effort = ['low', 'medium', 'high', 'xhigh'].includes(config.reasoning) ? message(`effort_${config.reasoning}`) : config.reasoning;
     runtime.append(runtimeRows([[message('productCreated'), data.project?.createdAt ? formatTime(data.project.createdAt, true) : message('unknown')], [message('lastRun'), latest?.startedAt ? formatTime(latest.startedAt, true) : message('unknown')], [message('state'), runtimeLabel()], [message('slotOccupied'), concurrencyLabel()]]));
     runtime.querySelectorAll('dd')[2].id = 'sidebarRuntimeState';
@@ -1175,7 +1175,15 @@ window.DashboardNavigation.register('journal', (view) => {
     if (!view.active) return;
     document.documentElement.lang = state.language;
     document.title = `${state.data?.project?.name || 'Autonomous Company'} · ${message('work')}`;
-    document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = message(node.dataset.i18n); });
+    document.querySelectorAll('[data-i18n]').forEach((node) => {
+      if (node.closest('.ac-tabs-host')) {
+        for (const child of node.childNodes) {
+          if (child.nodeType === 3) { child.textContent = message(node.dataset.i18n); return; }
+        }
+        return;
+      }
+      node.textContent = message(node.dataset.i18n);
+    });
     document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = message(node.dataset.i18nPlaceholder); });
     $('centerContextNav').hidden = false;
     document.body.classList.add('center-journal');
@@ -1183,7 +1191,10 @@ window.DashboardNavigation.register('journal', (view) => {
     const brand = document.querySelector('.brand');
     brand.href = '/center';
     $('journalBackLink').href = brand.href;
-    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal']]) iconLabel($(id), name, $(id).textContent);
+    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal']]) {
+      const node = $(id);
+      if (node && !node.closest('.ac-tabs-host')) iconLabel(node, name, node.textContent);
+    }
     $('refreshButton').replaceChildren(icon('refresh-cw'));
     $('closeSettingsButton').replaceChildren(icon('x'));
     $('refreshButton').title = message('refresh');
@@ -1546,7 +1557,7 @@ window.DashboardNavigation.register('journal', (view) => {
   function scheduleRefresh() {
     clearTimeout(state.timer);
     state.timer = null;
-    if (!$('autoRefresh').checked || document.hidden || state.refreshPending) return;
+    if (!$('autoRefresh').checked || document.hidden || state.refreshPending || state.objectMissing) return;
     state.timer = setTimeout(refresh, state.statusFailed ? 15000 : 5000);
   }
   function refresh(options = {}) {
@@ -1587,6 +1598,7 @@ window.DashboardNavigation.register('journal', (view) => {
       state.data = data;
       state.receivedAt = performance.now();
       state.statusFailed = false;
+      state.objectMissing = false;
       if (data.languageState) {
         const language = data.languageState;
         if (['en', 'zh-CN'].includes(language.language) && (!language.nextLanguage || ['en', 'zh-CN'].includes(language.nextLanguage))) state.languageState = language;
@@ -1613,6 +1625,7 @@ window.DashboardNavigation.register('journal', (view) => {
     } catch (error) {
       if (!view.active) return;
       state.statusFailed = true;
+      state.objectMissing = error.status === 404;
       state.signature = '';
       $('loadingState').hidden = true;
       $('connectionError').hidden = false;

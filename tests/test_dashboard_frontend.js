@@ -334,7 +334,8 @@ test("compact checks never promote stale, incomplete or failed evidence to succe
   assert.equal(show({ tests: { tests: 7, failures: 1, errors: 0, skipped: 0 } }).status, "failed");
   assert.equal(show({ state: "interrupted" }).status, "interrupted");
   assert.equal(show({ tests: { tests: 7, failures: 0, errors: 0, skipped: 7 } }).status, "unknown");
-  assert.equal(checkPresentation({}).status, "unknown");
+  assert.equal(checkPresentation({}), null);
+  assert.equal(checkPresentation({ checkStatus: "stale" }).status, "unknown");
 });
 
 test("cycle progress distinguishes execution completion, pauses and unknown states", () => {

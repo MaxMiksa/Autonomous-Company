@@ -501,9 +501,9 @@ class CenterCatalog:
         projection = tx.get('projections', source.get('sourceId')) or {}
         binding = tx.get('projection_bindings', source.get('sourceId')) or {}
         capabilities = dict(source.get('capabilities', {}))
-        if entry.get('archived') or source.get('availability') != 'available':
+        if entry.get('archived') or entry.get('trashed') or source.get('availability') != 'available':
             capabilities.update(execute=False, preview=False, capture=False)
-        reason = 'ENTRY_ARCHIVED' if entry.get('archived') else 'SOURCE_UNAVAILABLE' if source.get('availability') != 'available' else 'READ_ONLY_SOURCE'
+        reason = 'ENTRY_TRASHED' if entry.get('trashed') else 'ENTRY_ARCHIVED' if entry.get('archived') else 'SOURCE_UNAVAILABLE' if source.get('availability') != 'available' else 'READ_ONLY_SOURCE'
         direction = entry.get('direction') or ''
         if not direction and entry['kind'] == 'exploration':
             operation = next((row for row in tx.list('operations')
@@ -511,8 +511,8 @@ class CenterCatalog:
             direction = (operation or {}).get('input', {}).get('direction') or ''
         direction_summary = ' '.join(direction.split())[:160]
         short_id = entry['entryId'][-8:]
-        display_name = projection.get('displayName') or entry.get('displayName')
-        if entry['kind'] == 'exploration':
+        display_name = entry.get('customDisplayName') or projection.get('displayName') or entry.get('displayName')
+        if entry['kind'] == 'exploration' and not entry.get('customDisplayName'):
             display_name = direction_summary or ('Exploration · ' + short_id)
         return {**entry, **projection, 'displayName': display_name, 'direction': direction,
                 'directionSummary': direction_summary, 'shortId': short_id,
@@ -544,12 +544,13 @@ class CenterCatalog:
         if len(search) > 500:
             raise CenterError('INVALID_INPUT', 'Search is too long.')
         filter_value, sort_value = query.get('filter', 'active'), query.get('sort', 'activity')
-        if filter_value not in {'active', 'all', 'archived', 'product', 'exploration', 'legacy', 'reference'} or sort_value not in {'activity', 'name'}:
+        if filter_value not in {'active', 'all', 'archived', 'trash', 'product', 'exploration', 'legacy', 'reference'} or sort_value not in {'activity', 'name'}:
             raise CenterError('INVALID_INPUT', 'Unsupported catalog filter or sort.')
         query_hash = digest([search, filter_value, sort_value])
         with self.store.transaction() as tx:
             items = [self._entry_view(tx, row) for row in tx.list('entries') if not row.get('detached')]
-        items = [row for row in items if (filter_value != 'active' or not row.get('archived') and row['kind'] in {'product', 'legacy'})
+        items = [row for row in items if (filter_value == 'trash') == bool(row.get('trashed'))
+                 and (filter_value != 'active' or not row.get('archived') and row['kind'] in {'product', 'legacy'})
                  and (filter_value != 'archived' or row.get('archived'))
                  and (filter_value not in {'product', 'exploration', 'legacy', 'reference'} or row['kind'] == filter_value)
                  and (not search or search in ' '.join(str(row.get(key) or '') for key in
@@ -727,6 +728,51 @@ class CenterCatalog:
         row.update(entryId=entry_id, sourceId=source['sourceId'], sourceRevision=source['sourceRevision'])
         return row
 
+    def log_page(self, entry_id, cycle_id, query=None):
+        query = query or {}
+        if set(query) - {'sourceId', 'offset', 'limit', 'revision', 'projectionVersion'}:
+            raise CenterError('INVALID_INPUT', 'Unsupported log range query.')
+        self.record(entry_id, cycle_id, query.get('sourceId'), query=query)
+        _, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
+        limit = bounded_int(query.get('limit'), 128 * 1024, 128 * 1024)
+        try:
+            offset = int(query.get('offset', 0))
+            if offset < 0 or isinstance(query.get('offset'), bool):
+                raise ValueError()
+        except (ValueError, TypeError) as error:
+            raise CenterError('INVALID_INPUT', 'Log offset must be a nonnegative integer.') from error
+        with self.store.transaction() as tx:
+            runtime = tx.get('runtimes', source.get('runtimeId')) if source.get('runtimeId') else None
+        domain_log = bool(source.get('runtimeId')) and not (runtime and runtime.get('managed') is False)
+        if domain_log:
+            if not callable(self.execution_query):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log reader is unavailable.', 503)
+            raw = self.execution_query(source['sourceId'], 'log', path='logs/' + cycle_id + '.log', offset=offset, limit=limit)
+            if raw.get('ok') is not True or not isinstance(raw.get('bytesBase64'), str):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log could not be read.', 503)
+            if query.get('revision') and query['revision'] != raw.get('revision'):
+                raise CenterError('LOG_CHANGED', 'Log changed; restart loading from the beginning.', 409)
+            result = {
+                'ok': True,
+                'offset': raw['offset'],
+                'nextOffset': raw['nextOffset'],
+                'totalBytes': raw['totalBytes'],
+                'eof': raw['eof'],
+                'revision': raw['revision'],
+                'bytesBase64': raw['bytesBase64'],
+            }
+        else:
+            try:
+                status = self.readonly_observer.status(reader)
+                result = reader.log_page(cycle_id, offset, limit, status=status)
+                if query.get('revision') and query['revision'] != result['revision']:
+                    raise CenterError('LOG_CHANGED', 'Log changed; restart loading from the beginning.', 409)
+            except (ValueError, TypeError) as error:
+                raise CenterError('INVALID_INPUT', 'Log offset must be a nonnegative integer.') from error
+            except OSError as error:
+                raise CenterError('RESOURCE_NOT_FOUND', 'Recorded log was not retained.', 404) from error
+        return {**result, 'entryId': entry_id, 'sourceId': source['sourceId'], 'cycleId': cycle_id}
+
     def resource(self, entry_id, resource_id, source_id=None, query=None):
         if query and str(query.get('projectionVersion', '1')) == '2':
             return self.projection.resource(entry_id, resource_id, query)
@@ -804,7 +850,8 @@ class CenterCatalog:
     def _idle(self, tx, entry_id):
         if any(row.get('entryId') == entry_id and row.get('state') not in TERMINAL for row in tx.list('requests')):
             raise CenterError('ENTRY_BUSY', 'This entry has an open request.', 409)
-        if any(row.get('entryId') == entry_id and row.get('state') in {'preparing', 'running', 'pending', 'attention'} for row in tx.list('operations')):
+        if any((row.get('entryId') == entry_id or (row.get('reserved') or {}).get('entryId') == entry_id)
+               and row.get('state') in {'preparing', 'running', 'pending', 'attention'} for row in tx.list('operations')):
             raise CenterError('ENTRY_BUSY', 'This entry has an active operation.', 409)
 
     def entry_action(self, entry_id, action, body):

@@ -6,6 +6,7 @@ work report, not proof of a running process or a stream of agent activity.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -584,6 +585,31 @@ class JournalSource:
             return {"ok": True, "text": text, "available": True, "truncated": truncated}
         except (OSError, ValueError):
             return {"ok": True, "text": "", "available": False, "truncated": False}
+
+    def log_page(self, identity: str, offset: int, limit: int = MAX_LOG_BYTES,
+                 status: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Export only a recorded/scoped cycle, preserving exact original bytes."""
+        if (type(offset) is not int or offset < 0 or type(limit) is not int
+                or not 1 <= limit <= MAX_LOG_BYTES):
+            raise ValueError('Invalid log range')
+        self.log(identity, status)  # Includes active-cycle and immutable scope checks.
+        path = self.safe_path(f'logs/{identity}.log')
+        if not stat.S_ISREG(path.stat().st_mode):
+            raise ValueError('Only regular logs are exposed')
+        with path.open('rb') as source:
+            before = os.fstat(source.fileno())
+            if offset > before.st_size:
+                raise ValueError('Log range changed')
+            source.seek(offset)
+            raw = source.read(min(limit, before.st_size - offset))
+            after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise ValueError('Log changed during export')
+        next_offset = offset + len(raw)
+        return {'ok': True, 'offset': offset, 'nextOffset': next_offset,
+                'totalBytes': before.st_size, 'eof': next_offset == before.st_size,
+                'revision': f'{before.st_size}:{before.st_mtime_ns}',
+                'bytesBase64': base64.b64encode(raw).decode('ascii')}
 
     def snapshot(self, *, status: dict[str, Any] | None = None,
                  language_state: dict[str, Any] | None = None,

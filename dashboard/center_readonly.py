@@ -101,18 +101,37 @@ class ReadOnlyObserver:
         self._wsl_cache = (time.monotonic(), names)
         return names
 
+    @staticmethod
+    def _wsl_target(root, names):
+        """Map Windows drive or \\wsl$ path to an already-running distro without waking stopped ones."""
+        text = str(root)
+        unc = re.match(r'^\\\\(?:wsl\$|wsl\.localhost)\\([^\\/]+)(.*)$', text, re.IGNORECASE)
+        if unc:
+            distro, tail = unc.group(1), unc.group(2)
+            matched = next((name for name in names if name.casefold() == distro.casefold()), None)
+            if not matched:
+                return None
+            return matched, '/' + tail.lstrip('\\/').replace('\\', '/')
+        if re.match(r'^[A-Za-z]:[\\/]', text):
+            usable = [name for name in names if name not in {'docker-desktop', 'docker-desktop-data'}] or names
+            if len(usable) != 1:
+                return None
+            posix = '/mnt/' + text[0].lower() + text[2:].replace('\\', '/')
+            return usable[0], posix
+        return None
+
     def _process(self, root, pid):
         if time.monotonic() < self._process_retry_after:
             return None
         if os.name == 'nt':
             # Query only a distribution already running; never wake WSL for UI.
             names = self._running_wsl()
-            if len(names) != 1 or not re.match(r'^[A-Za-z]:[\\/]', str(root)):
+            target = self._wsl_target(root, names)
+            if not target:
                 return None
-            path = str(root).replace('\\', '/')
-            path = '/mnt/' + path[0].lower() + path[2:]
-            command = ['wsl.exe', '--distribution', names[0], '--exec', 'python3', '-c', PROC_READER, path, str(pid)]
-            domain = {'platform': 'wsl', 'distribution': names[0]}
+            distro, path = target
+            command = ['wsl.exe', '--distribution', distro, '--exec', 'python3', '-c', PROC_READER, path, str(pid)]
+            domain = {'platform': 'wsl', 'distribution': distro}
         elif Path('/proc').is_dir():
             import sys
             command = [sys.executable, '-c', PROC_READER, str(root), str(pid)]
@@ -135,12 +154,16 @@ class ReadOnlyObserver:
             return [None] * len(inputs)
         if os.name == 'nt':
             names = self._running_wsl()
-            if len(names) != 1 or any(not re.match(r'^[A-Za-z]:[\\/]', str(root)) for root, _ in inputs):
+            targets = [self._wsl_target(root, names) for root, _ in inputs]
+            if any(target is None for target in targets):
                 return [None] * len(inputs)
-            paths = [(str(root).replace('\\', '/'), pid) for root, pid in inputs]
-            paths = [('/mnt/' + path[0].lower() + path[2:], pid) for path, pid in paths]
-            command = ['wsl.exe', '--distribution', names[0], '--exec', 'python3', '-c', PROC_READER]
-            domain = {'platform': 'wsl', 'distribution': names[0]}
+            distros = {distro for distro, _ in targets}
+            if len(distros) != 1:
+                return [self._process(root, pid) for root, pid in inputs]
+            distro = next(iter(distros))
+            paths = [(path, pid) for (_, path), (_, pid) in zip(targets, inputs)]
+            command = ['wsl.exe', '--distribution', distro, '--exec', 'python3', '-c', PROC_READER]
+            domain = {'platform': 'wsl', 'distribution': distro}
         elif Path('/proc').is_dir():
             import sys
             paths = [(str(root), pid) for root, pid in inputs]

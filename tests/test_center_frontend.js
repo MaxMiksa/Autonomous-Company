@@ -460,8 +460,8 @@ test("product detail routes are entry scoped with no standalone API fallback", (
   assert.ok(journalApp.includes("const data = await fetchFullScopedJournal()"));
   assert.ok(journalApp.includes("refreshScopedUsage(); refreshMedia();"));
   assert.match(journalApp, /fetchAllCenterEntries\(\)/);
-  assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| 'unknown'/);
-  assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| 'unknown'/);
+  assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| data\.runtime\?\.engine \|\| 'unknown'/);
+  assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| data\.runtime\?\.reasoning \|\| 'unknown'/);
   assert.match(journalApp, /state\.data\?\.entry\?\.sourceRecordRevision/);
 });
 

@@ -31,6 +31,7 @@ PROTOCOL = 2
 MARKER = ".autonomous-company-center.json"
 MAX_JSON = 128 * 1024
 HEARTBEAT_TIMEOUT = 15
+PAUSE_REQUEST = ".autonomous-company/pause-after-cycle.json"
 REVIEW_FILE = ".autonomous-company/recovery-review.json"
 CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "scripts/core/stop-loop.sh",
                  "scripts/core/engine-adapters.sh", "scripts/core/engine-metadata.py", "scripts/core/log_redaction.py",
@@ -500,6 +501,99 @@ def _quiescence_preflight(root, center_id, result):
     return result
 
 
+def disposal_provenance(root, center_id, expected_framework_revision):
+    root = Path(root)
+    for ancestor in (root, *root.parents):
+        if ancestor.is_symlink():
+            raise ValueError("unsafe_disposal_path")
+    root = root.resolve()
+    token(center_id)
+    revision = expected_framework_revision
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("disposal_revision_invalid")
+    marker = marker_for(root)
+    for name in ("centerId", "runtimeId", "entryId", "sourceId", "operationId"):
+        token(marker[name])
+    if marker["centerId"] != center_id or marker.get("protocolVersion") != PROTOCOL:
+        raise ValueError("disposal_identity_mismatch")
+    if root.name != marker["runtimeId"] or root.parent.name != "runtimes":
+        raise ValueError("disposal_root_mismatch")
+    data = root.parent.parent
+    attempt = marker.get("preparationAttempt")
+    genesis_path = "staging/" + marker["operationId"]
+    if attempt is not None:
+        if not isinstance(attempt, str) or not re.fullmatch(r"attempt_[0-9a-f]{32}", attempt):
+            raise ValueError("disposal_attempt_invalid")
+        genesis_path += "/attempts/" + attempt
+    genesis = read_json(control_path(data, genesis_path + "/intent.json"))
+    reserved = genesis.get("reserved", {})
+    if (genesis.get("centerId") != center_id or genesis.get("operationId") != marker["operationId"]
+            or genesis.get("frameworkRevision") != revision or genesis.get("preparationAttempt") != attempt
+            or any(reserved.get(key) != marker[key] for key in ("runtimeId", "entryId", "sourceId"))):
+        raise ValueError("disposal_genesis_mismatch")
+    target = genesis.get("target")
+    if isinstance(target, str) and re.match(r"^[A-Za-z]:[\\/]", target):
+        target = "/mnt/" + target[0].lower() + "/" + target[3:].replace("\\", "/")
+    if not isinstance(target, str) or not Path(target).is_absolute() or Path(target).resolve() != root:
+        raise ValueError("disposal_genesis_target_mismatch")
+    framework = Path(__file__).resolve().parents[2]
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def git(directory, *arguments):
+        checked = subprocess.run(["git", "--no-replace-objects", "-c", "core.fsmonitor=false", "-C", str(directory), *arguments],
+                                 stdin=subprocess.DEVNULL, capture_output=True, env=environment, timeout=10)
+        if checked.returncode:
+            raise ValueError("disposal_revision_unavailable")
+        return checked.stdout
+    if git(framework, "rev-parse", "--verify", revision + "^{commit}").strip().decode("ascii") != revision:
+        raise ValueError("disposal_revision_unavailable")
+    git(framework, "merge-base", "--is-ancestor", revision, "HEAD")
+    if not control_path(root, ".git").is_dir() or git(root, "rev-parse", "--verify", "HEAD").strip().decode("ascii") != revision:
+        raise ValueError("disposal_head_mismatch")
+    import ast
+    historical_runner = git(framework, "show", revision + ":scripts/core/center_runner.py").decode("utf-8")
+    contract = next((ast.literal_eval(node.value) for node in ast.parse(historical_runner).body
+                     if isinstance(node, ast.Assign) and any(isinstance(item, ast.Name) and item.id == "CONTROL_FILES" for item in node.targets)), CONTROL_FILES)
+    for name in contract:
+        source = control_path(root, name)
+        metadata = source.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > 2 * 1024 * 1024:
+            raise ValueError("disposal_control_changed")
+        reference = git(framework, "show", revision + ":" + name)
+        if source.read_bytes() != reference:
+            raise ValueError("disposal_control_changed")
+    return {"disposalCompatible": True, "marker": marker, "frameworkRevision": revision}
+
+
+def disposal_preflight(root, center_id, expected_framework_revision):
+    result = {"compatible": compatible(root), "disposalCompatible": False, "quiescent": False, "reason": None}
+    try:
+        proof = disposal_provenance(root, center_id, expected_framework_revision)
+        root = Path(root).resolve()
+        result.update(disposalCompatible=True, frameworkRevision=proof["frameworkRevision"])
+        if (root / ".autonomous-company.local.team-active").exists():
+            result["reason"] = "interactive_team_active"
+            return result
+        for relative in (".autonomous-company.local.lock", ".autonomous-company.local.language-update",
+                         ".autonomous-company/product-state.lock", ".autonomous-company/product-state.transaction.json"):
+            if control_path(root, relative).exists():
+                result["reason"] = "configuration_writer_active"
+                return result
+        if not existing_lock_free(control_path(root, ".autonomous-company/project-registry.lock")):
+            result["reason"] = "configuration_writer_active"
+            return result
+        if operator_previews(root):
+            result["reason"] = "preview_owner_unconfirmed"
+            return result
+        result = _quiescence_preflight(root, center_id, result)
+        if result["quiescent"]:
+            gate = legacy_gate(proof["marker"])
+            os.close(gate)
+        return result
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        result.update(quiescent=False, reason=str(exc))
+        return result
+
+
 def probe(center_id, manifest_path=None, runtime_id=None):
     marker = {"centerId": center_id, "runtimeId": runtime_id, "protocolVersion": 2 if runtime_id else 1}
     if manifest_path:
@@ -694,7 +788,13 @@ def run_owned(manifest_path, descriptor, gate):
                         pass
             time.sleep(0.1)
         cleanup_children()
-        publish("terminal", reason=stopping or ("natural" if child.returncode == 0 else "runtime"),
+        completed_pause = pause_request(root)
+        if completed_pause and completed_pause.get("state") == "requested" and completed_pause.get("dispatchId") == manifest["dispatchId"]:
+            with request_lock(root):
+                completed_pause = {**completed_pause, "state": "canceled", "canceledAt": now(), "reason": stopping or "run_ended"}
+                atomic_json(control_path(root, PAUSE_REQUEST), completed_pause)
+        graceful_pause = completed_pause and completed_pause.get("state") == "completed" and completed_pause.get("dispatchId") == manifest["dispatchId"]
+        publish("terminal", reason=stopping or ("pause_after_cycle" if graceful_pause else "natural" if child.returncode == 0 else "runtime"),
                 exitCode=child.returncode, launched=launched, cleanupConfirmed=True, endedAt=now())
         return 0
     except (OSError, ValueError, KeyError) as exc:
@@ -1338,9 +1438,80 @@ def recovery_fingerprint(root):
     return value.hexdigest()
 
 
+def pause_request(root):
+    path = control_path(root, PAUSE_REQUEST)
+    return read_json(path) if path.exists() else None
+
+
+@contextmanager
+def request_lock(root):
+    path = control_path(root, ".autonomous-company/pause-after-cycle.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            descriptor = lock_file(path)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise ValueError("pause_request_busy")
+            time.sleep(0.025)
+    try:
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def boundary_pause(root):
+    root = Path(root).resolve()
+    admission(root)
+    with request_lock(root):
+        requested = pause_request(root)
+        if not requested or requested.get("state") != "requested":
+            return False
+        marker = marker_for(root)
+        if any(requested.get(key) != marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId")):
+            raise ValueError("pause_request_identity_mismatch")
+        manifest = read_json(os.environ["AUTONOMOUS_COMPANY_CENTER_MANIFEST"])
+        if requested.get("dispatchId") != manifest.get("dispatchId"):
+            raise ValueError("pause_request_dispatch_mismatch")
+        from product_identity import read_state, OPEN
+        if (control_path(root, "memories/.consensus-cycle-pending").exists()
+                or control_path(root, "logs/usage.jsonl.pending").exists()
+                or any(row["state"] in OPEN for row in read_state(root)["cycles"].values())):
+            raise ValueError("cycle_boundary_unsealed")
+        harness_db = control_path(root, ".autonomous-company/company-harness.sqlite3")
+        if harness_db.exists():
+            from company_harness import HarnessStore
+            if any(row.get("protocolState") != "closed" for row in HarnessStore(root).snapshot()["cycles"]):
+                raise ValueError("cycle_boundary_unsealed")
+        atomic_json(control_path(root, PAUSE_REQUEST), {**requested, "state": "completed", "completedAt": now()})
+        return True
+
+
 def source_control(manifest_path):
     manifest, root, marker = checked_control_manifest(manifest_path)
     action = manifest["action"]
+    if action in {"pause_after_cycle", "cancel_pause_after_cycle"}:
+        observation = probe(marker["centerId"], runtime_id=marker["runtimeId"] if marker.get("protocolVersion", 1) >= 2 else None)
+        owner = observation.get("owner") or {}
+        if (observation["slotFree"] or not observation["ownerAlive"] or owner.get("state") != "running"
+                or any(owner.get(key) != marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId"))
+                or owner.get("dispatchId") != manifest.get("expectedDispatchId")):
+            raise ValueError("active_owner_required")
+        with request_lock(root):
+            previous = pause_request(root)
+            if action == "cancel_pause_after_cycle":
+                if not previous or previous.get("state") != "requested":
+                    raise ValueError("pause_request_already_completed")
+                if previous.get("dispatchId") != owner["dispatchId"]:
+                    raise ValueError("pause_request_dispatch_mismatch")
+                result = {**previous, "state": "canceled", "canceledAt": now()}
+            else:
+                result = {"state": "requested", "requestedAt": now(), "dispatchId": owner["dispatchId"],
+                          **{key: marker[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}}
+            atomic_json(control_path(root, PAUSE_REQUEST), result)
+        return {"ok": True, "pauseAfterCycle": result}
     if action not in {"review_recovery", "confirm_recovery"}:
         raise ValueError("unsupported_control")
     with execution_lock(marker):
@@ -1432,7 +1603,7 @@ def source_control(manifest_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("run", "probe", "admit", "preflight", "media", "media-status", "bind", "dependencies", "query", "control", "stream-log", "stream-log-complete"))
+    parser.add_argument("action", choices=("run", "probe", "admit", "preflight", "disposal-preflight", "media", "media-status", "bind", "dependencies", "query", "control", "boundary-pause", "stream-log", "stream-log-complete"))
     parser.add_argument("--query", default="status")
     parser.add_argument("--relative-path", "--path", dest="relative_path")
     parser.add_argument("--input-path")
@@ -1450,6 +1621,7 @@ def main():
     parser.add_argument("--allow-protected", choices=("0", "1"), default="0")
     parser.add_argument("--require-context", choices=("0", "1"), default="1")
     parser.add_argument("--expected-product-id")
+    parser.add_argument("--expected-framework-revision")
     args = parser.parse_args()
     try:
         if args.action == "run":
@@ -1465,12 +1637,16 @@ def main():
             from live_log import stream_log
             stream_log(args.root, args.input_path, args.relative_path, admission=admission, control_path=control_path)
             return 0
+        if args.action == "boundary-pause":
+            return 0 if boundary_pause(args.root) else 1
         if args.action == "dependencies":
             result = dependency_checks(args.root, args.engine, args.model, args.require_isolation == "1", args.effort, args.product_language)
         elif args.action == "query":
             result = source_query(args.root, args.query, args.center_id, args.relative_path, args.offset, args.limit, args.expected_product_id)
         elif args.action == "control":
             result = source_control(args.manifest)
+        elif args.action == "disposal-preflight":
+            result = disposal_preflight(args.root, args.center_id, args.expected_framework_revision)
         elif args.action == "preflight":
             result = preflight(args.root, args.center_id, args.allow_protected == "1", args.require_context == "1", args.expected_product_id)
         elif args.action == "media":

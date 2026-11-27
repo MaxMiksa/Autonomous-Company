@@ -309,7 +309,7 @@ finalize_cycle_media() {
 }
 
 cleanup() {
-    local requested_exit="${1:-0}" final_state="${2:-stopped}"
+    local requested_exit="${1:-0}" final_state="${2:-stopped}" final_reason="${3:-}"
     trap '' SIGTERM SIGINT SIGHUP
     if [ -n "$LOOP_SLEEP_PID" ]; then
         kill -TERM "$LOOP_SLEEP_PID" 2>/dev/null || true
@@ -371,7 +371,7 @@ cleanup() {
     log "$(ui_message loop.stopping)"
     # Keep the inode: unlinking a held lock lets another process lock a new file.
     : > "$PID_FILE"
-    save_state "$final_state"
+    save_state "$final_state" "$final_reason"
     exit "$requested_exit"
 }
 
@@ -690,6 +690,15 @@ if [ -n "$engine_version" ]; then
 fi
 log "Interval: ${LOOP_INTERVAL}s | Timeout: ${CYCLE_TIMEOUT_SECONDS}s | Breaker: ${MAX_CONSECUTIVE_ERRORS} errors"
 
+pause_at_cycle_boundary() {
+    local request_file="$PROJECT_DIR/.autonomous-company/pause-after-cycle.json"
+    [ -e "$request_file" ] || [ -L "$request_file" ] || return 0
+    if python3 "$SCRIPT_DIR/center_runner.py" boundary-pause --root "$PROJECT_DIR"; then
+        log "Pause after cycle requested. Stopping cleanly at cycle boundary."
+        cleanup 0 paused pause_after_cycle
+    fi
+}
+
 # === Main Loop ===
 
 while true; do
@@ -699,6 +708,7 @@ while true; do
         log "Stop requested. Shutting down gracefully."
         cleanup
     fi
+    pause_at_cycle_boundary
 
     wait_while_paused
     wait_for_budget_resume
@@ -981,6 +991,7 @@ Resume the work and phase in the current consensus. First-exploration rules appl
     # Seal the AI result before optional media: stopping a slow capture must not
     # discard output or relabel an already completed provider invocation.
     finalize_cycle_media
+    pause_at_cycle_boundary
     case "$budget_state" in
         warning)
             log_cycle "$loop_count" "BUDGET" "Warning threshold reached; next cycle remains enabled"

@@ -693,7 +693,7 @@ window.DashboardNavigation.register('center', (view) => {
       else if (["failed", "attention"].includes(operation.state)) groups.operationAttention.push(operation);
       else if (operation.state === "succeeded") groups.operationHistory.push(operation);
     }
-    groups.queued.sort((a, b) => (a.queuePosition ?? a.position ?? Infinity) - (b.queuePosition ?? b.position ?? Infinity));
+    groups.queued.sort((a, b) => (a.queuePosition ?? a.order ?? a.position ?? Infinity) - (b.queuePosition ?? b.order ?? b.position ?? Infinity));
     return groups;
   }
 
@@ -1232,7 +1232,7 @@ window.DashboardNavigation.register('center', (view) => {
       form.elements.user.value = value.domain?.user || "";
       $("environmentCurrent").textContent = value.domain ? message("connectedEnvironment", { name: [value.domain.distribution || value.domain.platform, value.domain.user].filter(Boolean).join(" · ") }) : message("environmentNotConnected");
       selectEnvironment(); renderChecks($("environmentChecks"), value.checks);
-    } catch (error) { if (current()) setFormStatus(form, errorText(error), true); }
+    } catch (error) { if (current()) { if (error.details?.checks) renderChecks($("environmentChecks"), error.details.checks); setFormStatus(form, errorText(error), true); } }
     finally { if ($( "environmentDialog").open && state.environment) form.querySelectorAll("button:not(.dialog-close)").forEach(button => { button.disabled = !form.elements.candidate.options.length; }); }
   }
   async function environmentAction(action) {
@@ -1251,7 +1251,7 @@ window.DashboardNavigation.register('center', (view) => {
       renderChecks($("environmentChecks"), result.checks);
       setFormStatus(form, message(action === "connect" ? "environmentConnected" : result.ready === false || result.checks?.some(item => item.ok === false) ? "environmentCheckFailed" : "environmentChecked"));
       if (action === "connect") $("environmentCurrent").textContent = message("connectedEnvironment", { name: [domain.distribution || domain.platform, domain.user].filter(Boolean).join(" · ") });
-    } catch (error) { if (current()) setFormStatus(form, errorText(error), true); }
+    } catch (error) { if (current()) { if (error.details?.checks) renderChecks($("environmentChecks"), error.details.checks); setFormStatus(form, errorText(error), true); } }
     finally { if (dialog.open && dialogToken === state.dialogToken) { endSubmission(form, button); form.querySelectorAll("button:not(.dialog-close), input, select").forEach(item => { item.disabled = false; }); } }
   }
 

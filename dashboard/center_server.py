@@ -25,6 +25,7 @@ if str(DASHBOARD_DIR) not in sys.path:
 from center_store import CenterError, CenterStore  # noqa: E402
 from center_catalog import CenterCatalog  # noqa: E402
 from center_runtime import CenterRuntime  # noqa: E402
+from center_management import CenterManagement  # noqa: E402
 from documentation import DOCUMENTS, documentation_page  # noqa: E402
 
 
@@ -67,7 +68,7 @@ class CenterServer(ThreadingHTTPServer):
     daemon_threads = False
     block_on_close = True
 
-    def __init__(self, address, store, catalog, runtime, framework_root=FRAMEWORK_ROOT):
+    def __init__(self, address, store, catalog, runtime, framework_root=FRAMEWORK_ROOT, management=None):
         if address[0] not in {"127.0.0.1", "localhost"}:
             raise ValueError("The product center only accepts IPv4 loopback bindings")
         self.store = store
@@ -77,6 +78,7 @@ class CenterServer(ThreadingHTTPServer):
         self.catalog.managed_observer = runtime.observe_source
         self.catalog.execution_query = runtime.execution_query
         self.framework_root = Path(framework_root)
+        self.management = management or CenterManagement(store, catalog, runtime)
         super().__init__(address, CenterHandler)
         self._refresh_stop = threading.Event()
         self._refresh_thread = threading.Thread(target=self._refresh_sources, daemon=True)
@@ -86,6 +88,7 @@ class CenterServer(ThreadingHTTPServer):
         while not self._refresh_stop.wait(5):
             try:
                 self.catalog.refresh_changed_sources(batch_size=8)
+                self.management.sweep_trash()
             except Exception as error:
                 logging.error("Catalog refresh failed: %s", type(error).__name__)
 
@@ -237,6 +240,8 @@ class CenterHandler(BaseHTTPRequestHandler):
             self.result(runtime.preferences())
         elif route == "/environment":
             self.result(runtime.environment())
+        elif route == "/trash":
+            self.result(self.server.management.trash())
         elif match := re.fullmatch(rf"/requests/({IDENTIFIER})", route):
             self.result(runtime.get_request(match[1]))
         elif match := re.fullmatch(rf"/operations/({IDENTIFIER})", route):
@@ -256,6 +261,8 @@ class CenterHandler(BaseHTTPRequestHandler):
                 self.result(result)
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/records/({IDENTIFIER})", route):
             self.result(catalog.record(match[1], match[2], query.get("sourceId"), query=query))
+        elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/logs/({IDENTIFIER})", route):
+            self.result(catalog.log_page(match[1], match[2], query))
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/resources/({RESOURCE_IDENTIFIER})", route):
             content, mime = catalog.resource(match[1], match[2], query.get("sourceId"), query=query)
             # Business HTML must never execute under the control application's origin.
@@ -293,13 +300,15 @@ class CenterHandler(BaseHTTPRequestHandler):
             self.result(runtime.create_request(body), 202)
         elif route == "/preferences":
             self.result(runtime.preferences(body))
+        elif route == "/trash/settings":
+            self.result(self.server.management.retention(body))
         elif route == "/preflight":
             self.result(runtime.preflight(body))
         elif match := re.fullmatch(r"/environment/(check|connect)", route):
             self.result(runtime.environment_action(match[1], body))
         elif match := re.fullmatch(rf"/operations/({IDENTIFIER})/(cancel|archive|retry|restore-draft)", route):
             self.result(runtime.operation_action(match[1], match[2], body))
-        elif match := re.fullmatch(rf"/requests/({IDENTIFIER})/(cancel|stop|reconcile)", route):
+        elif match := re.fullmatch(rf"/requests/({IDENTIFIER})/(cancel|stop|reconcile|pause-after-cycle|cancel-pause-after-cycle)", route):
             self.result(runtime.request_action(match[1], match[2], body), 202)
         elif match := re.fullmatch(r"/queue/(order|pause|resume|stop-all|capacity)", route):
             self.result(runtime.queue_action(match[1], body))
@@ -310,6 +319,8 @@ class CenterHandler(BaseHTTPRequestHandler):
                 self.result(runtime.source_action(match[1], match[2], body), 202)
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/(archive|restore|detach|source-selection)", route):
             self.result(catalog.entry_action(match[1], match[2], body))
+        elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/(trash|restore-trash|delete|rename)", route):
+            self.result(self.server.management.entry_action(match[1], match[2], body))
         elif match := re.fullmatch(rf"/entries/({IDENTIFIER})/(media/capture|preview/start|preview/stop)", route):
             self.result(runtime.media_action(match[1], match[2], body), 202)
         else:
