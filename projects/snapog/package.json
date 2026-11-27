@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "hono": "^4.6.0",
-    "workers-og": "^0.0.14"
+    "workers-og": "^0.0.27"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",
