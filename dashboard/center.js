@@ -323,6 +323,11 @@ window.DashboardNavigation.register('center', (view) => {
 
   function emptyListState(entries = filteredEntries()) {
     if (entries.length) return null;
+    if (state.filter === "trash") {
+      const trashPart = state.readParts.get("trash");
+      if (trashPart?.failed) return { messageKey: "loadFailed" };
+      if (!trashPart && (state.loading || state.readParts.size > 0)) return { messageKey: "loading" };
+    }
     if (state.stale && !state.entries.length) return { messageKey: "loadFailed" };
     if (state.query || state.filter !== "all" || state.roundFilter !== "all") return { messageKey: "noMatches", actionKey: "clearFilters", target: "all" };
     const hasProduct = state.entries.some((entry) => !entry.archived && ["product", "legacy"].includes(entry.kind));
@@ -659,6 +664,8 @@ window.DashboardNavigation.register('center', (view) => {
     if ($("newWorkDialog").open) updateGroupButtons();
     const executionAvailable = state.summary?.executionAvailable !== false;
     $("newWorkButton").disabled = state.stale || !executionAvailable;
+    const trashPart = state.readParts.get("trash");
+    if ($("trashSettingsButton")) $("trashSettingsButton").disabled = state.stale || Boolean(trashPart?.failed) || (!trashPart && state.readParts.size > 0);
     $("newWorkButton").title = !executionAvailable ? message("executionUnavailable") : "";
     $("newWorkUnavailable").hidden = executionAvailable && !state.stale;
     $("newWorkUnavailable").textContent = state.stale ? message("staleActionsDisabled") : !executionAvailable ? message("executionUnavailable") : "";
@@ -1681,17 +1688,29 @@ window.DashboardNavigation.register('center', (view) => {
       action === "delete" ? "deletePermanently" : action === "restore-trash" ? "restoreTrash" : "confirmTrash");
   }
   function trashSettings() {
+    const openedCenterId = state.centerId;
+    let openedRevision = state.trash?.revision ?? 1;
+    const openedDays = state.trash?.retentionDays ?? 30;
     managementDialog(message("trashSettings"), body => {
       body.append(element("p", "", message("trashRetentionIntro")));
       const form = element("form", "group-editor"), label = element("label", "", message("retentionDays")), input = element("input");
-      input.type = "number"; input.min = 1; input.max = 3650; input.value = state.trash?.retentionDays ?? 30; input.required = true; label.append(input);
+      input.type = "number"; input.min = 1; input.max = 3650; input.value = openedDays; input.required = true; label.append(input);
       const save = element("button", "button primary", message("save")); save.type = "submit"; form.append(label, save); body.append(form);
       form.onsubmit = async event => {
-        event.preventDefault(); save.disabled = true; $("managementStatus").textContent = message("saving");
+        event.preventDefault();
+        if (state.centerId !== openedCenterId) { $("managementStatus").textContent = message("staleData"); return; }
+        save.disabled = true; $("managementStatus").textContent = message("saving");
         try {
-          await write("/trash/settings", { retentionDays: Number(input.value), expectedRevision: state.trash?.revision ?? 1 });
+          await write("/trash/settings", { retentionDays: Number(input.value), expectedRevision: openedRevision });
           await refresh(); closeDialog($("managementDialog"));
-        } catch (error) { $("managementStatus").textContent = errorText(error); }
+        } catch (error) {
+          if (error?.code === "REVISION_CONFLICT") {
+            await refresh();
+            openedRevision = state.trash?.revision ?? openedRevision;
+            input.value = state.trash?.retentionDays ?? input.value;
+          }
+          $("managementStatus").textContent = errorText(error);
+        }
         finally { save.disabled = false; }
       };
     });

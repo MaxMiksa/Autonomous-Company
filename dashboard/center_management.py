@@ -138,6 +138,8 @@ class CenterManagement:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
+            if entry.get('deletionInProgress'):
+                raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
             if action == 'rename':
                 entry['customDisplayName'] = self._name(body.get('displayName'))
@@ -293,10 +295,14 @@ class CenterManagement:
             raise CenterError('CONFIRMATION_REQUIRED', 'Confirm permanent deletion.', 409)
         failure = None
         runtime_ids = []
+        plan = []
+        entry_snapshot = None
         with self.catalog._source_refresh_lock, self.store.transaction() as tx:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
+            if entry.get('deletionInProgress'):
+                raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
             if not entry.get('trashed'):
                 raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
@@ -307,17 +313,24 @@ class CenterManagement:
                 if any(target is None and source.get('runtimeId') and
                        (tx.get('runtimes', source['runtimeId']) or {}).get('managed') for source, target in targets):
                     raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
-                evidence = []
                 for source, target in targets:
                     if target:
-                        evidence.append(self._delete_directory(target, source, entry, self._disposal_provenance(tx, entry, source)))
-                entry.update(detached=True, deletedAt=now(), deletionEvidence=evidence,
-                             deletionScope='managed_files' if evidence else 'center_registration', revision=entry['revision'] + 1)
-                entry.pop('trashError', None)
-                for source in sources:
-                    source.update(detached=True, deletedAt=entry['deletedAt'], revision=source.get('revision', 0) + 1)
-                    tx.put('sources', source['sourceId'], source)
-                self._event(tx, entry_id, 'delete', deletionScope=entry['deletionScope'], deletionEvidence=evidence)
+                        plan.append((dict(source), target, self._disposal_provenance(tx, entry, source)))
+                if plan:
+                    entry['deletionInProgress'] = True
+                    entry['revision'] += 1
+                    tx.put('entries', entry_id, entry)
+                    entry_snapshot = dict(entry)
+                else:
+                    entry.update(detached=True, deletedAt=now(), deletionEvidence=[],
+                                 deletionScope='center_registration', revision=entry['revision'] + 1)
+                    entry.pop('trashError', None)
+                    for source in sources:
+                        source.update(detached=True, deletedAt=entry['deletedAt'], revision=source.get('revision', 0) + 1)
+                        tx.put('sources', source['sourceId'], source)
+                    self._event(tx, entry_id, 'delete', deletionScope='center_registration', deletionEvidence=[])
+                    tx.put('entries', entry_id, entry)
+                    entry_snapshot = dict(entry)
             except (CenterError, OSError, ValueError) as error:
                 failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
                 receipts = [self._delete_receipt(row['runtimeId']) for row in tx.list('sources')
@@ -329,12 +342,43 @@ class CenterManagement:
                              deletionReceipts=receipts,
                              deletionEvidence=[row['evidence'] for row in receipts if row.get('evidence')], revision=entry['revision'] + 1)
                 self._event(tx, entry_id, 'delete_failed', errorCode=failure.code, deletionReceipts=receipts)
-            tx.put('entries', entry_id, entry)
+                tx.put('entries', entry_id, entry)
+        if plan and failure is None:
+            evidence = []
+            try:
+                for source, target, framework_revision in plan:
+                    evidence.append(self._delete_directory(target, source, entry_snapshot, framework_revision))
+            except (CenterError, OSError, ValueError) as error:
+                failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
+            with self.catalog._source_refresh_lock, self.store.transaction() as tx:
+                entry = tx.get('entries', entry_id)
+                entry.pop('deletionInProgress', None)
+                if failure is None:
+                    entry.update(detached=True, deletedAt=now(), deletionEvidence=evidence,
+                                 deletionScope='managed_files', revision=entry['revision'] + 1)
+                    entry.pop('trashError', None)
+                    sources = [row for row in tx.list('sources') if row['entryId'] == entry_id and not row.get('detached')]
+                    for source in sources:
+                        source.update(detached=True, deletedAt=entry['deletedAt'], revision=source.get('revision', 0) + 1)
+                        tx.put('sources', source['sourceId'], source)
+                    self._event(tx, entry_id, 'delete', deletionScope='managed_files', deletionEvidence=evidence)
+                    entry_snapshot = dict(entry)
+                else:
+                    receipts = [self._delete_receipt(row['runtimeId']) for row in tx.list('sources')
+                                if row['entryId'] == entry_id and row.get('runtimeId')]
+                    entry.update(trashError={'code': failure.code, 'message': failure.message, 'at': now()},
+                                 partialDeletion=any(row.get('rootMoved') or row.get('cleanupStarted') for row in receipts) or any(
+                                     (self.store.data_dir / 'trash-files' / row['runtimeId']).exists() for row in tx.list('sources')
+                                     if row['entryId'] == entry_id and row.get('runtimeId')),
+                                 deletionReceipts=receipts,
+                                 deletionEvidence=[row['evidence'] for row in receipts if row.get('evidence')], revision=entry['revision'] + 1)
+                    self._event(tx, entry_id, 'delete_failed', errorCode=failure.code, deletionReceipts=receipts)
+                tx.put('entries', entry_id, entry)
         for runtime_id in runtime_ids:
             self._invalidate_runtime(runtime_id)
         if failure:
             raise failure
-        return entry
+        return entry_snapshot
 
     def sweep_trash(self, force=False):
         if not self._maintenance_lock.acquire(blocking=False):
@@ -346,6 +390,7 @@ class CenterManagement:
             stamp = datetime.now(timezone.utc)
             with self.store.transaction() as tx:
                 entries = [row for row in tx.list('entries') if row.get('trashed') and not row.get('detached')
+                           and not row.get('deletionInProgress')
                            and datetime.fromisoformat(row['expiresAt']) <= stamp]
             results = []
             for entry in entries:

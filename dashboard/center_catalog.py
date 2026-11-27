@@ -730,10 +730,13 @@ class CenterCatalog:
 
     def log_page(self, entry_id, cycle_id, query=None):
         query = query or {}
-        if set(query) - {'sourceId', 'offset', 'limit', 'revision', 'projectionVersion'}:
+        if set(query) - {'sourceId', 'offset', 'limit', 'revision', 'projectionVersion', 'sourceBindingVersion', 'projectionEpoch'}:
             raise CenterError('INVALID_INPUT', 'Unsupported log range query.')
-        self.record(entry_id, cycle_id, query.get('sourceId'), query=query)
-        _, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
+        if str(query.get('projectionVersion', '1')) == '2':
+            source, reader = self.projection.resolve_log_target(entry_id, cycle_id, query)
+        else:
+            self.record(entry_id, cycle_id, query.get('sourceId'), query=query)
+            _, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
         limit = bounded_int(query.get('limit'), 128 * 1024, 128 * 1024)
         try:
             offset = int(query.get('offset', 0))
@@ -763,8 +766,9 @@ class CenterCatalog:
             }
         else:
             try:
-                status = self.readonly_observer.status(reader)
-                result = reader.log_page(cycle_id, offset, limit, status=status)
+                status = self.readonly_observer.status(reader) if str(query.get('projectionVersion', '1')) != '2' else None
+                result = reader.log_page(cycle_id, offset, limit, status=status,
+                                         preverified=(str(query.get('projectionVersion', '1')) == '2'))
                 if query.get('revision') and query['revision'] != result['revision']:
                     raise CenterError('LOG_CHANGED', 'Log changed; restart loading from the beginning.', 409)
             except (ValueError, TypeError) as error:

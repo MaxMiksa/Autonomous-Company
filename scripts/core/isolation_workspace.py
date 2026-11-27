@@ -295,6 +295,11 @@ class CompanyView:
         self.initial = filtered_state(self.state, project, cycle)
         self.collected = False
         self.retain_view = False
+        self.collected_versions = None
+        self.expected_versions = None
+        self.governance_violation = False
+        self.governance_reason = None
+        self.post_submission_change = False
 
     def prepare(self):
         start = Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19] if sys.platform == "linux" else "unknown"
@@ -392,14 +397,17 @@ class CompanyView:
                 target.mkdir()
                 (target / ".credentials.json").write_bytes(regular_bytes(original))
 
-    def collect(self):
+    def collect(self, expected_versions=None):
+        if expected_versions is None:
+            expected_versions = getattr(self, "expected_versions", None)
         checked_tree(self.workspace)
         expected_roots = {Path(name).parts[0] for name in TEMPLATES} | {
             "projects", "memories", "docs", "logs", ".autonomous-company", ".autonomous-company.local", ".git", ".gitignore", "prompt.txt"}
         recovery = getattr(self, "harness", None) and self.harness["recovery"]
+        proto_ver = None
         if recovery:
             from company_harness_client import PROTOCOL_ROOT
-            protocol_version(self.workspace, self.attempt)
+            proto_ver = protocol_version(self.workspace, self.attempt)
             expected_roots.add(PROTOCOL_ROOT)
         uncollected = sorted(path.name for path in self.workspace.iterdir() if path.name not in expected_roots)
         self.retain_view = bool(uncollected)
@@ -434,13 +442,20 @@ class CompanyView:
         consensus = self.root / "memories/consensus.md"
         if (regular_bytes(consensus) if consensus.exists() else None) != self.consensus_before:
             raise IsolationError("Consensus changed on host; output retained for recovery")
+        pre_collect_versions = {name: fingerprint(self.workspace / name) for name in ("projects", "docs", "memories")}
+        if recovery:
+            pre_collect_versions["protocol"] = proto_ver
+        self.collected_versions = pre_collect_versions
+        if expected_versions is not None and pre_collect_versions != expected_versions:
+            self.post_submission_change = True
+            self.retain_view = True
         # Prepare validated replacement trees before changing any host target.
         ready = self.store / ("collect-" + self.folder.name)
         ready.mkdir()
         for project in projects:
             candidate = self.workspace / project
-            sanitize_git(candidate)
             copy_tree(candidate, ready / Path(project).name)
+            sanitize_git(ready / Path(project).name)
             original_git = self.root / project / ".git"
             collected_git = ready / Path(project).name / ".git"
             if original_git.is_dir() and collected_git.is_dir():
@@ -478,6 +493,7 @@ class CompanyView:
             replacements.append((ready / "registry.tsv", self.root / "projects/registry.tsv"))
         candidate = self.workspace / "memories/consensus.md"
         governance_violation = False
+        governance_reason = None
         consensus_data = None
         if candidate.exists():
             consensus_data = regular_bytes(candidate)
@@ -490,15 +506,20 @@ class CompanyView:
             spec.loader.exec_module(cf)
             if consensus_data is None:
                 governance_violation = True
+                governance_reason = "human_override_mutated"
             else:
                 try:
                     before_sec = cf.sections_bytes(self.consensus_before)
                     after_sec = cf.sections_bytes(consensus_data)
-                    if (before_sec[cf.HEADINGS[0]] != after_sec[cf.HEADINGS[0]]
-                            or not cf.p1_preserved(after_sec[cf.HEADINGS[1]], before_sec[cf.HEADINGS[1]])):
+                    if before_sec[cf.HEADINGS[0]] != after_sec[cf.HEADINGS[0]]:
                         governance_violation = True
+                        governance_reason = "human_override_mutated"
+                    elif not cf.p1_preserved(after_sec[cf.HEADINGS[1]], before_sec[cf.HEADINGS[1]]):
+                        governance_violation = True
+                        governance_reason = "priority_issue_mutated"
                 except ValueError:
                     governance_violation = True
+                    governance_reason = "human_override_mutated"
         docs = self.store / "docs"
         copy_tree(self.workspace / "docs", ready / "docs")
         replacements.append((ready / "docs", docs))
@@ -578,18 +599,35 @@ class CompanyView:
         if (self.home / ".codex/sessions").is_dir():
             copy_tree(self.home / ".codex/sessions", ready / "sessions")
             replacements.append((ready / "sessions", session_target))
+        self.governance_violation = governance_violation
+        self.governance_reason = governance_reason
         write_json(ready / "last-run.json", {"backend": "bubblewrap", "scope": self.scope,
                    "cycle": self.cycle, "workspace": str(self.folder), "collected": True,
                    "project": self.project, "sessions": str(session_target), "uncollectedRootOutputs": uncollected,
-                   "uncollectedWorkReports": rejected_reports, "governanceViolationHeldBack": governance_violation})
+                   "uncollectedWorkReports": rejected_reports, "governanceViolationHeldBack": governance_violation,
+                   "governanceViolationReason": governance_reason, "postSubmissionChangeHeldBack": self.post_submission_change})
         write_json(ready / "product-state.json", state)
         replacements += [(ready / "last-run.json", self.store / "last-run.json"),
                          (ready / "product-state.json", self.root / ".autonomous-company/product-state.json")]
-        if governance_violation:
-            # Never overwrite host projects, docs, registry or state when a cycle mutates Human Overrides or P1s.
-            # Keep only memories/consensus.md and last-run.json so consensus-guard.sh verify archives, restores & pauses.
+        if self.post_submission_change:
             self.retain_view = True
-            replacements = [(src, dst) for src, dst in replacements if dst in (consensus, self.store / "last-run.json")]
+            replacements = [(ready / "last-run.json", self.store / "last-run.json")]
+        elif governance_violation:
+            # Never overwrite host projects, docs, registry or state when a cycle deletes/mutates Human Overrides or P1s.
+            self.retain_view = True
+            if self.attempt:
+                held = [(ready / "last-run.json", self.store / "last-run.json")]
+                if consensus_data is not None:
+                    rejected_copy = ready / ("rejected-consensus-" + self.event_id + ".md")
+                    rejected_copy.write_bytes(consensus_data)
+                    held.append((rejected_copy, self.store / ("rejected-consensus-" + self.event_id + ".md")))
+                replacements = held
+            else:
+                if consensus_data is None:
+                    (ready / "consensus.md").write_bytes(b"")
+                    replacements = [(ready / "consensus.md", consensus), (ready / "last-run.json", self.store / "last-run.json")]
+                else:
+                    replacements = [(src, dst) for src, dst in replacements if dst in (consensus, self.store / "last-run.json")]
         lock = safe_path(self.root, ".autonomous-company/product-state.lock")
         with transaction_signals():
             acquired = False
@@ -707,16 +745,28 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
             message = regular_bytes(last_message).decode("utf-8", errors="replace")
             print(json.dumps({"type": "item.completed", "item": {"id": "autonomous-company-last-message",
                   "type": "agent_message", "text": message}}, ensure_ascii=False), flush=True)
+        expected_versions = None
+        if harness:
+            try:
+                from company_harness import HarnessStore
+                hstore = HarnessStore(root)
+                hcycle = next((c for c in hstore.snapshot()["cycles"] if c["cycleId"] == cycle), None)
+                hsub = next((s for s in reversed((hcycle or {}).get("submissions", [])) if s.get("attemptId") == view.attempt), None)
+                if hsub:
+                    expected_versions = hsub.get("acceptanceVersions")
+            except Exception:
+                expected_versions = None
+        view.expected_versions = expected_versions
         view.collect()
         if harness:
-            versions = {name: fingerprint(view.workspace / name) for name in ("projects", "docs", "memories")}
-            if harness["recovery"]:
-                versions["protocol"] = protocol_version(view.workspace, view.attempt)
             durable_json(safe_path(root, harness["collectRelative"]), {
                 "cycleId": cycle, "attemptId": view.attempt, "generation": harness["context"]["generation"],
                 "collected": True, "docsRoot": str(view.store / "docs"), "project": project,
                 "protocolRoot": str(view.store / "protocol" / view.attempt) if harness["recovery"] else None,
-                "versions": versions})
+                "versions": view.collected_versions,
+                "governanceViolation": view.governance_violation,
+                "governanceViolationReason": view.governance_reason,
+                "postSubmissionChange": view.post_submission_change})
         return code
     finally:
         if view.collected:

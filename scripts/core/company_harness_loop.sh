@@ -6,6 +6,8 @@ CURRENT_HARNESS_ATTEMPT=""
 HARNESS_FINAL_ACTION=""
 HARNESS_CLOSED=""
 HARNESS_GOVERNANCE_BLOCKED=0
+HARNESS_GOVERNANCE_VIOLATION=0
+HARNESS_GOVERNANCE_REASON=""
 HARNESS_STOPPED_BRIDGE_PID=""
 
 harness_bridge_stop() {
@@ -34,10 +36,12 @@ harness_close_cycle() {
 
 harness_run_cycle() {
     local base_prompt="$1" original_log="$cycle_log" original_timeout="$CYCLE_TIMEOUT_SECONDS"
-    local original_sandbox="$CODEX_SANDBOX_MODE" attempt_fields attempt_timeout recovery ready tries action guard_status
+    local original_sandbox="$CODEX_SANDBOX_MODE" attempt_fields attempt_timeout recovery ready tries action guard_status admit_status gov_reason
     python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" prepare --cycle "$CURRENT_PRODUCT_CYCLE_ID" >/dev/null || cleanup 1 harness_contract_invalid
     HARNESS_FINAL_ACTION="human"
     HARNESS_GOVERNANCE_BLOCKED=0
+    HARNESS_GOVERNANCE_VIOLATION=0
+    HARNESS_GOVERNANCE_REASON=""
     while true; do
         center_admission_check || cleanup 1 center_admission_lost
         check_stop_requested && cleanup 0 stopped
@@ -48,6 +52,11 @@ harness_run_cycle() {
         if [ "$guard_status" -ne 0 ]; then
             HARNESS_GOVERNANCE_BLOCKED=1
             HARNESS_FINAL_ACTION=human
+            if [ ! -e "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_PRODUCT_CYCLE_ID.result.json" ]; then
+                python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" abort-unstarted \
+                    --cycle "$CURRENT_PRODUCT_CYCLE_ID" --reason "governance_admission_blocked" >/dev/null \
+                    || cleanup 1 harness_contract_invalid
+            fi
             break
         fi
         if ! attempt_fields=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" attempt --cycle "$CURRENT_PRODUCT_CYCLE_ID"); then
@@ -70,6 +79,9 @@ harness_run_cycle() {
         cycle_log="$LOG_DIR/$CURRENT_HARNESS_ATTEMPT.log"
         CODEX_SANDBOX_MODE="$original_sandbox"
         export CODEX_SANDBOX_MODE
+        if declare -F build_cycle_prompt >/dev/null 2>&1; then
+            base_prompt=$(build_cycle_prompt)
+        fi
         harness_prompt=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" prompt --attempt "$CURRENT_HARNESS_ATTEMPT")
         if ! CYCLE_TIMEOUT_SECONDS=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" dispatch --attempt "$CURRENT_HARNESS_ATTEMPT"); then
             harness_bridge_stop || cleanup 1 harness_writer_unconfirmed
@@ -92,12 +104,31 @@ $harness_prompt"
             --supervisor-owner "$CYCLE_SUPERVISOR_LAST_PGID"); then
             cleanup 1 harness_settlement_failed
         fi
+        gov_reason=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("governanceViolationReason") or "" if d.get("governanceViolation") else "")' \
+            "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_HARNESS_ATTEMPT.finish.json" 2>/dev/null || true)
+        if [ -n "$gov_reason" ]; then
+            HARNESS_GOVERNANCE_VIOLATION=1
+            HARNESS_GOVERNANCE_REASON="$gov_reason"
+            HARNESS_FINAL_ACTION=human
+            break
+        fi
         set +e
         "$CONSENSUS_GUARD" verify "$loop_count"
         guard_status=$?
         set -e
         HARNESS_FINAL_ACTION="$action"
         [ "$guard_status" -eq 0 ] || break
+        if [ "$action" != close ] && python3 "$SCRIPT_DIR/consensus-format.py" p1 "$CONSENSUS_FILE" >/dev/null 2>&1; then
+            set +e
+            "$CONSENSUS_GUARD" check-admission "$loop_count"
+            admit_status=$?
+            set -e
+            if [ "$admit_status" -eq 41 ]; then
+                HARNESS_GOVERNANCE_BLOCKED=1
+                HARNESS_FINAL_ACTION=human
+                break
+            fi
+        fi
         [ "$action" = retry ] || break
     done
     CYCLE_TIMEOUT_SECONDS="$original_timeout"

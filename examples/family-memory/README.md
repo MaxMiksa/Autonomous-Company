@@ -12,4 +12,4 @@ npm start
 
 ## 开发检查
 
-运行 `npm ci` 后，`npm test` 执行核心与恢复检查；`npm run test:browser` 执行真实 Chromium 流程。首次测试请运行 `npx playwright install chromium`。测试会自行启动本地页面。
+运行 `pnpm install --frozen-lockfile` 后，`pnpm test` 执行核心与恢复检查；`pnpm run test:browser` 执行真实 Chromium 流程。首次测试请运行 `pnpm exec playwright install chromium`。测试会自行启动本地页面。

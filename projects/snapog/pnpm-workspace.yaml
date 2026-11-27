@@ -1,0 +1,11 @@
+packages:
+  - '.'
+pmOnFail: error
+runtime: false
+engineStrict: true
+virtualStoreType: project
+# Validate/link the locked platform binaries used by Wrangler.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false

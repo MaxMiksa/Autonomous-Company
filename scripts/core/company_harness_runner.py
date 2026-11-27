@@ -138,7 +138,16 @@ def next_contract(store, identity, *, root=None, project=""):
         previous = applicable[-1]
         if previous["protocolState"] != "closed" or not previous["continuationDecision"].get("allowed"):
             raise HarnessError("CONTINUATION_BLOCKED")
-        submission = next((s for s in previous["submissions"] if s["submissionId"] == previous["closeReceipt"]["input"]["submissionId"]), None)
+        source_cycle = previous
+        if previous["outcome"] == "interrupted":
+            source_cycle = next(
+                (c for c in reversed(applicable[:-1]) if c["protocolState"] == "closed" and c["outcome"] in {"completed", "partial"}),
+                None,
+            )
+            if not source_cycle:
+                proposal = _initial_proposal(root=root, project=project)
+                return prepare_contract(store, proposal, identity)
+        submission = next((s for s in source_cycle["submissions"] if s["submissionId"] == source_cycle["closeReceipt"]["input"]["submissionId"]), None)
         ref = submission["payload"].get("handoffRef") if submission else None
         evidence = store.read_evidence(ref["evidenceId"]) if ref else None
         if not evidence or evidence["sha256"] != ref.get("sha256"):
@@ -181,7 +190,7 @@ def begin_attempt(store, root, cycle_id):
     if os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access") != "danger-full-access":
         raise HarnessError("UNSUPPORTED_INNER_SANDBOX", "CODEX_SANDBOX_MODE", "Harness v1 preserves explicit stricter modes and refuses unsupported nested sandbox execution")
     limits, cycle = policy(), row(store, cycle_id)
-    materials = load_inputs(store, cycle['contract'])
+    materials = load_inputs(store, {**cycle['contract'], 'productId': cycle.get('productId'), 'explorationId': cycle.get('explorationId')})
     directory = Path(tempfile.mkdtemp(prefix='ac-harness-'))
     try:
         write_inputs(materials, directory / 'inputs')
@@ -628,9 +637,16 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
     collected = read_fact(receipt_path) if receipt_path.exists() else None
     if collected and any(collected.get(key) != manifest["context"].get(key) for key in ("cycleId", "attemptId", "generation")):
         raise HarnessError("COLLECTION_OWNER_MISMATCH")
-    if collected and not submission:
+    gov_violation = bool(collected and collected.get("governanceViolation"))
+    gov_reason = (collected.get("governanceViolationReason") or "human_override_mutated") if gov_violation else None
+    post_change = bool(collected and collected.get("postSubmissionChange"))
+    if gov_violation:
+        error = "GOVERNANCE_VIOLATION: " + gov_reason
+    elif post_change:
+        error = "POST_SUBMISSION_CHANGE: versions"
+    elif collected and not submission:
         error = "SUBMISSION_MISSING"
-    if collected and submission:
+    if collected and submission and not gov_violation and not post_change:
         try:
             from isolation_workspace import regular_bytes
             validate_recovery_submission(attempt, submission["payload"], lambda ref:
@@ -670,6 +686,9 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
         "evidenceRefs": refs, "error": error, "actualSuccess": success, "eventsHealth": events_health,
         "outcome": submission["payload"]["result"] if valid and success else "failed",
         "action": "close" if valid and success else "retry"}
+    if gov_violation:
+        result.update(action="human", outcome="failed", validSubmission=False,
+                      governanceViolation=True, governanceViolationReason=gov_reason)
     if not collected:
         result.update(action="human", error="COLLECTION_UNCONFIRMED")
     if result["action"] == "retry" and error:
@@ -692,9 +711,7 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
         if repeat_count >= max_same:
             result["repeatedErrorCount"] = repeat_count
             result["guidance"] = "Repeated identical rejection; change strategy/workKind instead of repeating the same rejected contract"
-            normal_count = sum(a["recoveryId"] is None for a in cycle["attempts"])
-            if attempt.get("recoveryId") or normal_count >= 1 + policy()["CORRECTIONS"]:
-                result["action"] = "human"
+            result["action"] = "human"
     write_fact(previous_finish, result)
     publish_cycle_result(store, root, result)
     # Only remove our short-lived socket directory, never retained worker views.
@@ -714,19 +731,24 @@ def close_cycle(store, root, cycle_id, governance_ok):
     result = read_fact(host_path(root, cycle_id + ".result.json"))
     if cycle["activeAttemptId"]:
         raise HarnessError("WRITERS_UNCONFIRMED")
-    submission = next((s for s in cycle["submissions"] if s["submissionId"] == result["submissionId"]), None)
-    outcome = result["outcome"] if governance_ok and result["validSubmission"] else "failed"
-    quality = close_review(store, cycle, submission) if governance_ok and submission and result["validSubmission"] else []
+    gov_ok = bool(governance_ok and not result.get("governanceViolation"))
+    submission = next((s for s in cycle["submissions"] if s["submissionId"] == result["submissionId"]), None) if result.get("submissionId") else None
+    outcome = result["outcome"] if gov_ok and result["validSubmission"] else "failed"
+    quality = close_review(store, cycle, submission) if gov_ok and submission and result["validSubmission"] else []
     cycle["outcome"] = outcome
     continuation = evaluate_continuation(store, root, cycle, submission, pending_quality=quality)
+    if result.get("governanceViolation"):
+        continuation["allowed"] = False
+        continuation["reason"] = result.get("governanceViolationReason") or "human_override_mutated"
+        continuation.setdefault("basis", {})["governance"] = continuation["reason"]
     host_admission(root)
     if time.monotonic() - began >= policy()["CLOSE_SECONDS"]:
         raise HarnessError("CLOSE_BUDGET_EXHAUSTED")
     closed = store.close_cycle(cycle_id, "close-" + cycle_id, outcome=outcome,
         verification={"writersStopped": True, "attemptResults": [a["attemptId"] for a in cycle["attempts"]],
             "evidenceRefs": result["evidenceRefs"], "submittedVersionUnchanged": result["validSubmission"],
-            "checkedAt": now(), "governanceVerified": governance_ok},
-        continuation_decision=continuation, quality_applicability=quality, submission_id=result["submissionId"] if result["validSubmission"] else None)
+            "checkedAt": now(), "governanceVerified": gov_ok},
+        continuation_decision=continuation, quality_applicability=quality, submission_id=result["submissionId"] if (gov_ok and result["validSubmission"]) else None)
     sync_identity(root, row(store, cycle_id))
     return {"receipt": closed, "continuationAllowed": continuation["allowed"], "continuationReason": continuation["reason"], "outcome": outcome}
 
@@ -784,8 +806,15 @@ def reassess_continuation(store, root, identity):
     if not cycles:
         return
     cycle = cycles[-1]
-    if (cycle["protocolState"] != "closed" or cycle["outcome"] not in {"completed", "partial"}
-            or not cycle["closeReceipt"] or cycle["closeReceipt"]["source"] != "runtime"
+    human_approved_interrupted = (
+        cycle["outcome"] == "interrupted"
+        and cycle["continuationDecision"].get("reason") == "human_recovery_approved"
+        and (cycle["continuationDecision"].get("basis") or {}).get("operatorConfirmed") is True
+    )
+    if (cycle["protocolState"] != "closed"
+            or (cycle["outcome"] not in {"completed", "partial"} and not human_approved_interrupted)
+            or not cycle["closeReceipt"]
+            or (cycle["closeReceipt"]["source"] != "runtime" and not human_approved_interrupted)
             or cycle["activeAttemptId"] or any(not attempt["writersStopped"] for attempt in cycle["attempts"])):
         raise HarnessError("CONTINUATION_BLOCKED")
     host_admission(root, starting=True)
@@ -797,12 +826,61 @@ def reassess_continuation(store, root, identity):
     check_budget(root / "logs/usage.jsonl", budget_config=load_budget_config(os.environ),
                  pause_path=root / ".auto-loop-budget-paused", target_date=datetime.now().date(), consume_resume=False)
     host_admission(root, starting=True)
-    submission_id = cycle["closeReceipt"]["input"]["submissionId"]
-    submission = next((value for value in cycle["submissions"] if value["submissionId"] == submission_id), None)
-    decision = evaluate_continuation(store, root, cycle, submission)
+    if human_approved_interrupted:
+        decision = dict(cycle["continuationDecision"])
+        if any((root / name).exists() for name in (".auto-loop-stop", ".auto-loop-paused", ".auto-loop-budget-paused")):
+            decision = {**decision, "allowed": False, "reason": "host_paused", "checkedAt": now()}
+    else:
+        submission_id = cycle["closeReceipt"]["input"]["submissionId"]
+        submission = next((value for value in cycle["submissions"] if value["submissionId"] == submission_id), None)
+        decision = evaluate_continuation(store, root, cycle, submission)
     store.set_continuation_decision(cycle["cycleId"], decision)
     if not decision["allowed"]:
         raise HarnessError("CONTINUATION_BLOCKED", detail=decision["reason"])
+
+
+def abort_unstarted_cycle(store, root, cycle_id, reason="governance_admission_blocked"):
+    cycle = row(store, cycle_id)
+    if cycle["activeAttemptId"]:
+        raise HarnessError("WRITERS_UNCONFIRMED")
+    target = host_path(root, cycle_id + ".result.json")
+    if target.exists():
+        return read_fact(target)
+    result = {
+        "cycleId": cycle_id, "attemptId": None, "collected": False,
+        "collectionStatus": "not_applicable", "providerInvoked": False,
+        "submissionId": None, "validSubmission": False, "evidenceRefs": [],
+        "error": reason, "actualSuccess": False, "outcome": "failed", "action": "human",
+    }
+    write_fact(target, result)
+    return result
+
+
+def approve_recovery(store, root, review_token, reason="human_recovery_approved"):
+    """Record operator confirmation after reconcile-crash so an interrupted identity can plan a new contract."""
+    host_admission(root)
+    if not review_token or not isinstance(review_token, str):
+        raise HarnessError("INVALID_FIELD", "reviewToken")
+    cycles = store.snapshot()["cycles"]
+    if any(c["protocolState"] != "closed" for c in cycles):
+        raise HarnessError("UNFINISHED_HARNESS", detail="Reconcile open cycles before confirming recovery")
+    approved = []
+    if cycles:
+        latest = cycles[-1]
+        if latest["outcome"] == "interrupted":
+            if any(not a.get("writersStopped") for a in latest["attempts"]):
+                raise HarnessError("WRITERS_UNCONFIRMED")
+            store.set_continuation_decision(
+                latest["cycleId"],
+                {
+                    "allowed": True,
+                    "reason": "human_recovery_approved",
+                    "basis": {"operatorConfirmed": True, "reviewToken": review_token, "reason": reason},
+                    "checkedAt": now(),
+                },
+            )
+            approved.append(latest["cycleId"])
+    return {"approvedCycles": approved, "reason": reason}
 
 
 def recover_stopped_cycles(store, root):
@@ -902,7 +980,7 @@ def reconcile_crash(store, root, reason="operator_crash_reconcile"):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("action", choices=("startup", "recover-usage", "reconcile-crash", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close", "dispatch", "unstarted"))
+    parser.add_argument("action", choices=("startup", "recover-usage", "reconcile-crash", "approve-recovery", "abort-unstarted", "next", "prepare", "attempt", "remaining", "prompt", "finish", "close", "dispatch", "unstarted"))
     parser.add_argument("--cycle")
     parser.add_argument("--attempt")
     parser.add_argument('--bridge-pid', type=int)
@@ -912,6 +990,7 @@ def main():
     parser.add_argument("--governance-ok", type=int, default=0)
     parser.add_argument("--product", default="")
     parser.add_argument("--reason", default="operator_crash_reconcile")
+    parser.add_argument("--review-token", default="")
     args = parser.parse_args()
     root = args.root.resolve()
     if args.action in {"startup", "next", "prepare", "attempt"} and os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access") != "danger-full-access":
@@ -921,6 +1000,12 @@ def main():
         for path in sorted(host_path(root, "").glob("*.usage.json")):
             settle_usage_intent(store, root, read_fact(path))
         print(json.dumps(reconcile_crash(store, root, args.reason), ensure_ascii=False))
+        return 0
+    if args.action == "approve-recovery":
+        print(json.dumps(approve_recovery(store, root, args.review_token, args.reason), ensure_ascii=False))
+        return 0
+    if args.action == "abort-unstarted":
+        print(json.dumps(abort_unstarted_cycle(store, root, args.cycle, args.reason), ensure_ascii=False))
         return 0
     if args.action in {"startup", "recover-usage"}:
         for path in sorted(host_path(root, "").glob("*.usage.json")):

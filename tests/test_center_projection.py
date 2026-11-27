@@ -733,6 +733,21 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(entry['reportedPhase'], 'validating')
         self.assertFalse((self.root / 'logs' / (cycle + '.work.json')).exists())
 
+    def test_resolve_log_target_allows_entry_cycles_and_attempts_and_rejects_foreign_logs(self):
+        cycle, attempt = self.cycle()
+        (self.root / 'logs/foreign.log').write_text('secret other entry')
+        self.register()
+        query = self.query(self.read())
+        source, _ = self.catalog.projection.resolve_log_target(self.entry, cycle, query)
+        self.assertEqual(source['sourceId'], self.source)
+        source_att, _ = self.catalog.projection.resolve_log_target(self.entry, attempt['attemptId'], query)
+        self.assertEqual(source_att['sourceId'], self.source)
+        page = self.catalog.log_page(self.entry, attempt['attemptId'], query)
+        self.assertTrue(page['ok'])
+        with self.assertRaises(CenterError) as err:
+            self.catalog.projection.resolve_log_target(self.entry, 'foreign', query)
+        self.assertEqual(err.exception.status, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

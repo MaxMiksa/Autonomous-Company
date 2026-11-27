@@ -7,10 +7,10 @@
 开发检查：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm run test:engine
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run test:engine
+pnpm run test:browser
 ```
 
 完整玩法、数据边界与恢复方式见 [DELIVERY.md](DELIVERY.md)。屏幕封存依靠双方约定；本机存档和备份包含双方文字，没有加密或在线同步。任何时候都可以停止，不需要讲真实往事。

@@ -56,7 +56,8 @@ def material(path, checkpoint=False):
     if len(data) > MATERIAL_LIMIT:
         raise ValueError("Key material exceeds 1 MiB")
     digest = hashlib.sha256(data).hexdigest()
-    ref = {"evidenceId": ("checkpoint-" if checkpoint else "evidence-") + os.environ["AUTONOMOUS_COMPANY_ATTEMPT_ID"] + "-" + digest,
+    path_tag = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:12]
+    ref = {"evidenceId": ("checkpoint-" if checkpoint else "evidence-") + os.environ["AUTONOMOUS_COMPANY_ATTEMPT_ID"] + "-" + digest + "-" + path_tag,
            "sha256": digest, "path": relative}
     return ref, {"evidenceId": ref["evidenceId"], "content": data.decode("utf-8")} if checkpoint else None
 

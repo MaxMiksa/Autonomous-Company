@@ -172,19 +172,34 @@ def artifact_state(store, identity, *, pending_cycle=None, pending_quality=None)
     return {'heads': heads, 'latest': latest, 'incomplete': incomplete}
 
 
-def _is_advancing_cycle(cycle):
-    if cycle.get('outcome') != 'completed':
-        return False
-    if cycle['contract'].get('artifactKind') in MILESTONE_ORDER:
-        return True
-    if cycle['contract'].get('workKind') == 'review':
-        for record in cycle.get('qualityApplicability', []):
-            artifact_kind = record.get('artifactKind')
-            if (record.get('verdict') == 'passed'
-                    and artifact_kind in GATED_ARTIFACTS
-                    and any(wk in DOWNSTREAM_CONSUMERS.get(artifact_kind, ()) for wk in record.get('workKinds', []))):
-                return True
-    return False
+def _advancing_flags(cycles):
+    """Mark closed cycles that materially advance a milestone or unlock a new gate."""
+    unlocked = set()
+    flags = []
+    for cycle in cycles:
+        advances = False
+        if cycle.get('outcome') == 'completed':
+            if cycle['contract'].get('artifactKind') in MILESTONE_ORDER:
+                advances = True
+            elif cycle['contract'].get('workKind') == 'review':
+                for record in cycle.get('qualityApplicability', []):
+                    ak = record.get('artifactKind')
+                    if ak not in GATED_ARTIFACTS:
+                        continue
+                    target = record.get('targetRef') or {}
+                    key_base = (ak, target.get('evidenceId'), target.get('sha256'))
+                    for wk in record.get('workKinds', []):
+                        if wk not in DOWNSTREAM_CONSUMERS.get(ak, ()):
+                            continue
+                        gate = (*key_base, wk)
+                        if record.get('verdict') == 'passed':
+                            if gate not in unlocked:
+                                unlocked.add(gate)
+                                advances = True
+                        else:
+                            unlocked.discard(gate)
+        flags.append(advances)
+    return flags
 
 
 def _latest_passed_review(cycles, artifact_kind, head_ref, consumer_work_kind):
@@ -221,9 +236,10 @@ def progression_state(store, identity, *, pending_cycle=None, pending_quality=No
             break
         cycles_since_milestone += 1
 
+    advancing = _advancing_flags(cycles)
     consecutive_non_advancing = 0
-    for cycle in reversed(cycles):
-        if _is_advancing_cycle(cycle):
+    for did_advance in reversed(advancing):
+        if did_advance:
             break
         consecutive_non_advancing += 1
 
@@ -270,31 +286,32 @@ def progression_state(store, identity, *, pending_cycle=None, pending_quality=No
                 'workKind=direction for the strongest winner (commercial validation is deferred), or record a concrete blocker.'
             )
         else:
-            missing_heads = [ak for ak in REQUIRED.get(next_milestone, ()) if ak not in heads]
+            next_work_kind = PRODUCER_FOR_ARTIFACT.get(next_milestone, next_milestone)
+            missing_heads = [ak for ak in REQUIRED.get(next_work_kind, ()) if ak not in heads]
             if missing_heads:
                 producers = ', '.join(PRODUCER_FOR_ARTIFACT.get(ak, ak) for ak in missing_heads)
                 advisory = (
-                    f'STAGNATION ({stagnation_level}): {next_milestone} is missing completed prerequisite head(s) '
+                    f'STAGNATION ({stagnation_level}): {next_work_kind} is missing completed prerequisite head(s) '
                     f'({", ".join(missing_heads)}); produce via workKind={producers}.'
                 )
             else:
                 missing_reviews = [
-                    ak for ak in REQUIRED.get(next_milestone, ())
+                    ak for ak in REQUIRED.get(next_work_kind, ())
                     if not _latest_passed_review(
                         cycles, ak,
                         {'evidenceId': heads[ak]['evidenceId'], 'sha256': heads[ak]['sha256']},
-                        next_milestone,
+                        next_work_kind,
                     )
                 ]
                 if missing_reviews:
                     advisory = (
                         f'STAGNATION ({stagnation_level}): completed head(s) ({", ".join(missing_reviews)}) '
-                        f'lack a passed independent review covering {next_milestone}; propose workKind=review targeting only those head(s).'
+                        f'lack a passed independent review covering {next_work_kind}; propose workKind=review targeting only those head(s).'
                     )
                 else:
                     advisory = (
-                        f'STAGNATION ({stagnation_level}): prerequisites for {next_milestone} are already satisfied; '
-                        f'propose workKind={next_milestone} directly instead of repeating research or review.'
+                        f'STAGNATION ({stagnation_level}): prerequisites for {next_work_kind} are already satisfied; '
+                        f'propose workKind={next_work_kind} directly instead of repeating research or review.'
                     )
 
     return {

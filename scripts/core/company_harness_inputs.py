@@ -7,35 +7,23 @@ import mimetypes
 from company_harness import HarnessError
 from company_harness_contract import MAX_INPUTS, MAX_BYTES
 
-def _cycle_provenance(store):
+def _cycle_provenance(store, contract=None):
     try:
         snapshot = store.snapshot()
         cycles = snapshot.get('cycles', []) if isinstance(snapshot, dict) else []
     except Exception:
-        return {}, {}
-    by_cycle = {}
-    heads = {}
-    for cycle in cycles:
-        by_cycle[cycle['cycleId']] = cycle
-        if cycle.get('protocolState') != 'closed' or cycle.get('outcome') != 'completed':
-            continue
-        ak = (cycle.get('contract') or {}).get('artifactKind')
-        if not ak or ak == 'review':
-            continue
-        sub_id = ((cycle.get('closeReceipt') or {}).get('input') or {}).get('submissionId')
-        sub = next((s for s in cycle.get('submissions', []) if s['submissionId'] == sub_id), None) if sub_id else (cycle.get('submissions') or [None])[-1]
-        if not sub:
-            continue
-        payload = sub.get('payload') or {}
-        if payload.get('result') != 'completed':
-            continue
-        refs = payload.get('evidenceRefs', [])
-        pid = payload.get('primaryEvidenceId')
-        match = next((r for r in refs if r.get('evidenceId') == pid), None) if pid else (refs[0] if len(refs) == 1 else None)
-        if match and isinstance(match.get('evidenceId'), str) and isinstance(match.get('sha256'), str):
-            scope = (cycle.get('productId') or '', cycle.get('explorationId') or '', ak)
-            heads[scope] = (match['evidenceId'], match['sha256'])
-    return by_cycle, set(heads.values())
+        return {}, None
+    by_cycle = {cycle['cycleId']: cycle for cycle in cycles}
+    from company_harness_quality import artifact_state
+    contract = contract or {}
+    if contract.get('productId') or contract.get('explorationId'):
+        scope = {
+            'productId': contract.get('productId'),
+            'explorationId': contract.get('explorationId'),
+        }
+        heads = artifact_state(store, scope)['heads']
+        return by_cycle, {(h['evidenceId'], h['sha256']) for h in heads.values()}
+    return by_cycle, None
 
 
 def load_inputs(store, contract):
@@ -54,7 +42,8 @@ def load_inputs(store, contract):
             references[ref['evidenceId']] = ref['sha256']
             if len(references) > MAX_INPUTS:
                 raise HarnessError('INPUT_PACKAGE_INVALID', 'inputRefs')
-    by_cycle, head_pairs = _cycle_provenance(store) if references else ({}, set())
+    by_cycle, head_pairs = _cycle_provenance(store, contract) if references else ({}, set())
+    scoped_head_cache = {}
     result, total = [], 0
     for identity, digest in references.items():
         evidence = store.read_evidence(identity)
@@ -76,12 +65,20 @@ def load_inputs(store, contract):
         owner = by_cycle.get(evidence.get('cycleId'))
         item = {'evidenceId': identity, 'sha256': digest, 'mediaType': media_type, 'data': data}
         if owner:
+            effective_heads = head_pairs
+            if effective_heads is None:
+                from company_harness_quality import artifact_state
+                owner_key = (owner.get('productId'), owner.get('explorationId'))
+                if owner_key not in scoped_head_cache:
+                    heads = artifact_state(store, {'productId': owner_key[0], 'explorationId': owner_key[1]})['heads']
+                    scoped_head_cache[owner_key] = {(h['evidenceId'], h['sha256']) for h in heads.values()}
+                effective_heads = scoped_head_cache[owner_key]
             item.update({
                 'sourceCycleId': owner.get('cycleId'),
                 'sourceWorkKind': owner.get('workKind'),
                 'sourceArtifactKind': (owner.get('contract') or {}).get('artifactKind'),
                 'sourceOutcome': owner.get('outcome'),
-                'isCompletedHead': (identity, digest) in head_pairs,
+                'isCompletedHead': (identity, digest) in effective_heads,
             })
         result.append(item)
     return result

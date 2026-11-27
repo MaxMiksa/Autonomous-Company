@@ -1563,3 +1563,72 @@ test('trash filter, completedCyclePause state and queue pause-after-cycle contro
   assert.equal(cancelPause.disabled, false);
   assert.equal(blockedPause.disabled, true);
 });
+
+test('scopedRecordedRuntimeState maps pause_after_cycle to paused and customDisplayName takes precedence', () => {
+  const { state, scopedRecordedRuntimeState, runtimeLabel, context } = journalHelpers();
+  const labelNode = {};
+  context.document.getElementById = () => labelNode;
+  state.statusFailed = false;
+  state.centerSummary = { currentRequest: null };
+  state.data = {
+    entry: {
+      entryId: 'entry-custom',
+      displayName: 'Auto Name',
+      customDisplayName: 'Custom Human Name',
+      executionSummary: { requestId: 'req-pac', state: 'ended', terminalReason: 'pause_after_cycle' },
+    },
+  };
+  assert.equal(scopedRecordedRuntimeState(), 'paused');
+  assert.equal(runtimeLabel(), 'Paused');
+  assert.match(journalApp, /data\.entry\?\.customDisplayName\?\.trim\(\)/);
+});
+
+test('trashSettings captures open revision and updates on REVISION_CONFLICT; failed trash load disables settings button', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  const writes = [];
+  let conflictOnce = true;
+  let refreshCount = 0;
+  let trashSettled = Promise.resolve();
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      writes.push(payload);
+      if (conflictOnce) {
+        conflictOnce = false;
+        return {
+          ok: false, status: 409,
+          json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+        };
+      }
+      return envelope({ retentionDays: payload.retentionDays, revision: 5 });
+    }
+    if (url.endsWith('/trash')) {
+      refreshCount += 1;
+      let mark;
+      trashSettled = new Promise(resolve => { mark = resolve; });
+      queueMicrotask(() => queueMicrotask(mark));
+      return envelope({ revision: refreshCount >= 1 ? 4 : 2, retentionDays: 45, items: [] });
+    }
+    if (url.endsWith('/entries')) {
+      await trashSettled;
+      return refreshResponse(url);
+    }
+    return refreshResponse(url);
+  };
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[0].expectedRevision, 2);
+  assert.equal(input.value, 45);
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[1].expectedRevision, 4);
+
+  const helpersCtx = helpers();
+  helpersCtx.state.filter = 'trash';
+  helpersCtx.state.readParts = new Map([['trash', { failed: true }]]);
+  assert.deepEqual({ ...helpersCtx.emptyListState([]) }, { messageKey: 'loadFailed' });
+});

@@ -359,6 +359,7 @@ class HarnessStore:
                     # The host baseline and accepted receipt commit together.
                     # Replays return above before observing the workspace again.
                     acceptance = capture_acceptance(attempt) if capture_acceptance is not None else None
+                    self._budget(cycle, next((r for r in cycle["recoveries"] if r["recoveryId"] == attempt["recoveryId"]), None))
                     attempt["acceptedSubmissionId"] = message_id
                     cycle["submissions"].append({"submissionId": message_id, "attemptId": attempt["attemptId"], "payload": payload,
                         "acceptedAt": self.utc_now(), "acceptanceVersions": acceptance})
@@ -418,9 +419,15 @@ class HarnessStore:
     def _verify_refs(self, tx, cycle, refs, allow_pending=False):
         if not isinstance(refs, list):
             raise HarnessError("INVALID_FIELD", "evidenceRefs")
+        seen = {}
         for ref in refs:
             if not isinstance(ref, dict) or not ref.get("evidenceId") or not ref.get("sha256"):
                 raise HarnessError("INVALID_FIELD", "evidenceRefs")
+            key = (ref["sha256"], ref.get("path"))
+            previous = seen.get(ref["evidenceId"])
+            if previous is not None and previous != key:
+                raise HarnessError("ID_CONFLICT", ref["evidenceId"])
+            seen[ref["evidenceId"]] = key
             evidence = tx.get("evidence", ref["evidenceId"])
             if not evidence and allow_pending:
                 continue
@@ -706,8 +713,16 @@ class HarnessStore:
                 raise HarnessError("CYCLE_NOT_CLOSED")
             if cycle["activeAttemptId"] or any(not a["writersStopped"] for a in cycle["attempts"]):
                 raise HarnessError("WRITERS_UNCONFIRMED")
-            if decision["allowed"] and (cycle["outcome"] not in {"completed", "partial"} or
-                    cycle["closeReceipt"]["source"] != "runtime" or not decision.get("basis")):
+            human_approved_interrupted = (
+                cycle["outcome"] == "interrupted"
+                and cycle["closeReceipt"]["source"] == "system_termination"
+                and decision.get("reason") == "human_recovery_approved"
+                and (decision.get("basis") or {}).get("operatorConfirmed") is True
+                and bool((decision.get("basis") or {}).get("reviewToken"))
+            )
+            if decision["allowed"] and not human_approved_interrupted and (
+                    cycle["outcome"] not in {"completed", "partial"}
+                    or cycle["closeReceipt"]["source"] != "runtime" or not decision.get("basis")):
                 raise HarnessError("CONTINUATION_UNCONFIRMED")
             previous = tx.get("continuation", cycle_id)
             if previous and previous["decision"] == decision:

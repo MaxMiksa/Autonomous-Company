@@ -570,12 +570,13 @@ class JournalSource:
     def log(self, identity: str, status: dict[str, Any] | None = None) -> dict[str, Any]:
         records, _ = self.ledger()
         active = self.active_cycle(status) if status is not None else None
-        allowed = {record["cycle_id"] for record in records}
-        if active:
-            allowed.add(active["id"])
         scoped = self.scoped_cycle_ids()
-        if scoped is not None:
-            allowed &= scoped
+        allowed = {
+            record["cycle_id"] for record in records
+            if scoped is None or record["cycle_id"] in scoped or record.get("logical_cycle_id") in scoped
+        }
+        if active and (scoped is None or active["id"] in scoped):
+            allowed.add(active["id"])
         if identity not in allowed:
             raise ValueError("Unknown cycle identity")
         try:
@@ -587,12 +588,13 @@ class JournalSource:
             return {"ok": True, "text": "", "available": False, "truncated": False}
 
     def log_page(self, identity: str, offset: int, limit: int = MAX_LOG_BYTES,
-                 status: dict[str, Any] | None = None) -> dict[str, Any]:
+                 status: dict[str, Any] | None = None, *, preverified: bool = False) -> dict[str, Any]:
         """Export only a recorded/scoped cycle, preserving exact original bytes."""
         if (type(offset) is not int or offset < 0 or type(limit) is not int
                 or not 1 <= limit <= MAX_LOG_BYTES):
             raise ValueError('Invalid log range')
-        self.log(identity, status)  # Includes active-cycle and immutable scope checks.
+        if not preverified:
+            self.log(identity, status)  # Includes active-cycle and immutable scope checks.
         path = self.safe_path(f'logs/{identity}.log')
         if not stat.S_ISREG(path.stat().st_mode):
             raise ValueError('Only regular logs are exposed')

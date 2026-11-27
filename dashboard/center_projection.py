@@ -578,6 +578,17 @@ class CenterProjection:
                       partitions={'usage': usage})
         return result
 
+    def resolve_log_target(self, entry_id, log_id, query):
+        if not isinstance(log_id, str) or not CYCLE_ID.fullmatch(log_id):
+            raise CenterError('RECORD_NOT_FOUND', 'Record is unavailable.', 404)
+        _, source, reader, store, index, _, _ = self.context(entry_id, query)
+        records, _ = self.ledger(reader, source)
+        inventory, _ = self.inventory(reader, index, records)
+        allowed = {row['id'] for row in inventory} | {attempt['attemptId'] for cycle in index['cycles'] for attempt in cycle['attempts']}
+        if log_id not in allowed:
+            raise CenterError('RECORD_NOT_FOUND', 'Record does not belong to this entry.', 404)
+        return source, reader
+
     def resource(self, entry_id, resource_id, query):
         if query.get('sourceBindingVersion') is None or not query.get('projectionEpoch'):
             raise CenterError('SOURCE_BINDING_REQUIRED', 'Versioned resource requires its source binding.', 409)

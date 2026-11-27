@@ -67,6 +67,7 @@ window.DashboardNavigation.register('journal', (view) => {
     }
     if (!execution?.requestId) return null;
     if (execution.state === 'ended' && execution.terminalReason === 'delivery_complete') return 'delivery_complete';
+    if (execution.state === 'ended' && execution.terminalReason === 'pause_after_cycle') return 'paused';
     return ['ended', 'canceled', 'failed', 'queued', 'attention'].includes(execution.state) ? execution.state : null;
   }
   function runtimeStateValue() {
@@ -228,27 +229,28 @@ window.DashboardNavigation.register('journal', (view) => {
   }
   async function refreshScopedUsage() {
     if (!state.data) return;
-    const data = state.data, selection = usageSelection(), key = usageKey(selection, data);
-    if (state.usagePending.has(key)) return state.usagePending.get(key);
-    const token = ++state.usageToken, ticket = projection.ticket();
+    const data = state.data, selection = usageSelection(), key = usageKey(selection, data), ticket = projection.ticket();
+    const existing = state.usagePending.get(key);
+    if (existing && existing.generation === ticket.generation) return existing.promise;
+    const token = ++state.usageToken;
     const promise = (async () => { try {
       const usage = await fetchScopedUsage(selection, data);
-      if (token !== state.usageToken || usage.key !== usageKey(usageSelection(), state.data)) return;
+      if (ticket.generation !== projection.generation || !view.active || usage.key !== usageKey(usageSelection(), state.data)) return;
       if (data.projectionVersion === 2 && !projection.component(`usage:${key}`, { usage: usage.data.usage, groups: usage.data.groups, costUsd: usage.data.costUsd, costKnown: usage.data.costKnown, count: usage.data.count, recorded: usage.data.recorded, unknown: usage.data.unknown, conflicting: usage.data.conflicting, truncated: usage.data.truncated }, usage.data.partitions?.usage, usage.data, ticket)) throw new Error('Stale usage partition');
       usage.stale = ['unavailable', 'invalid'].includes(usage.data.partitions?.usage?.status) || usage.data.partitions?.usage?.freshness === 'stale';
       state.scopedUsage = usage; renderUsage(); renderSidebar();
     } catch (error) {
       if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
-      if (token === state.usageToken && key === usageKey(usageSelection(), state.data)) {
+      if (ticket.generation === projection.generation && token === state.usageToken && key === usageKey(usageSelection(), state.data)) {
         if (state.scopedUsage?.key === key) state.scopedUsage.stale = true;
         else state.scopedUsage = { key, data: null, stale: true };
         renderUsage();
       }
     } finally {
-      if (state.usagePending.get(key) === promise) state.usagePending.delete(key);
-      if (view.active && state.data && key !== usageKey(usageSelection())) refreshScopedUsage();
+      if (state.usagePending.get(key)?.promise === promise) state.usagePending.delete(key);
+      if (view.active && state.data && key !== usageKey(usageSelection()) && token === state.usageToken) refreshScopedUsage();
     } })();
-    state.usagePending.set(key, promise); return promise;
+    state.usagePending.set(key, { promise, generation: ticket.generation }); return promise;
   }
   async function refreshMedia() {
     if (state.data?.projectionVersion !== 2 || state.mediaPending) return;
@@ -1084,7 +1086,7 @@ window.DashboardNavigation.register('journal', (view) => {
     const sidebar = clear($('projectSidebar'));
     const data = state.data;
     const overview = element('section', 'sidebar-block project-overview');
-    const projectName = data.project?.displayName?.trim() || data.project?.name?.trim() || data.entry?.displayName?.trim() || message('untitledProject');
+    const projectName = data.entry?.customDisplayName?.trim() || data.project?.displayName?.trim() || data.project?.name?.trim() || data.entry?.displayName?.trim() || message('untitledProject');
     $('workspaceProjectName').textContent = projectName;
     $('workspaceProjectName').title = projectName;
     const name = element('h1', '', projectName); name.id = 'projectName';
@@ -1174,7 +1176,7 @@ window.DashboardNavigation.register('journal', (view) => {
   function applyLanguage() {
     if (!view.active) return;
     document.documentElement.lang = state.language;
-    document.title = `${state.data?.project?.name || 'Autonomous Company'} · ${message('work')}`;
+    document.title = `${state.data?.entry?.customDisplayName?.trim() || state.data?.project?.displayName?.trim() || state.data?.project?.name || state.data?.entry?.displayName?.trim() || 'Autonomous Company'} · ${message('work')}`;
     document.querySelectorAll('[data-i18n]').forEach((node) => {
       if (node.closest('.ac-tabs-host')) {
         for (const child of node.childNodes) {
@@ -1246,7 +1248,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (data.projectionVersion !== 2 && !latest?.active && liveProcess() && data.runtime?.state === 'running') latest = { id: '__current__', number: data.runtime?.currentCycleNumber, startedAt: data.runtime?.lastRun, status: 'running', active: true, synthetic: true };
     if (latest?.active && state.statusFailed) latest = { ...latest, active: false, status: 'unknown' };
     state.currentCycle = latest;
-    $('productSwitcherName').textContent = data.project?.name || data.entry?.displayName || message('switchProduct');
+    $('productSwitcherName').textContent = data.entry?.customDisplayName?.trim() || data.project?.name || data.entry?.displayName || message('switchProduct');
     renderCurrent(latest);
     renderHistory();
     renderSidebar();
@@ -1436,7 +1438,7 @@ window.DashboardNavigation.register('journal', (view) => {
       const parts = []; let offset = 0, total = null, revision = null;
       do {
         const revisionQuery = revision !== null ? `&revision=${encodeURIComponent(revision)}` : '';
-        const versionQuery = v2 ? '&projectionVersion=2' : '';
+        const versionQuery = v2 ? projectionQuery(state.data) : '';
         const path = `${scopedJournalPath(`/logs/${encodeURIComponent(identity)}`)}?sourceId=${encodeURIComponent(state.data.sourceId)}${versionQuery}&offset=${offset}&limit=131072${revisionQuery}`;
         const chunk = await fetchCenter(path, {}, 15000);
         if (key !== logContextKey() || !view.active) throw new Error('Log source changed');

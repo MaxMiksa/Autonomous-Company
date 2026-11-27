@@ -14,7 +14,7 @@ npm start
 
 完整操作和责任边界见 [DELIVERY.md](DELIVERY.md)。
 
-开发检查：`npm ci`、`npx playwright install chromium`、`npm test`、`npm run test:browser`。浏览器测试自动启动本机服务，不依赖原运行的临时浏览器路径；`PRODUCT_URL` 可指定现有服务。
+开发检查：`pnpm install --frozen-lockfile`、`pnpm exec playwright install chromium`、`pnpm test`、`pnpm run test:browser`。浏览器测试自动启动本机服务，不依赖原运行的临时浏览器路径；`PRODUCT_URL` 可指定现有服务。
 
 ## CSV 长表
 

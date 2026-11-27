@@ -92,7 +92,7 @@ CLAUDE_BIN="${CLAUDE_BIN:-}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-bypassPermissions}"
 CODEX_BIN="${CODEX_BIN:-}"
 CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-danger-full-access}"
-if [ -z "${LOOP_INTERVAL+x}" ]; then
+if [ -z "${LOOP_INTERVAL:-}" ]; then
     if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
         LOOP_INTERVAL=5
     else
@@ -808,7 +808,11 @@ while true; do
     export AUTONOMOUS_COMPANY_PRODUCT_CYCLE_NUMBER="$PRODUCT_CYCLE_NUMBER"
     log_cycle "$loop_count" "START" "Beginning $PRODUCT_IDENTITY_KIND cycle #$PRODUCT_CYCLE_NUMBER"
     save_state "running"
-    FULL_PROMPT="$PROMPT
+    build_cycle_prompt() {
+        local current_consensus
+        current_consensus=$(cat "$CONSENSUS_FILE" 2>/dev/null || echo "No consensus file found. This is the very first cycle.")
+        cat <<__AUTO_LOOP_PROMPT__
+$PROMPT
 
 ---
 
@@ -830,7 +834,7 @@ while true; do
 - Consensus baton: \`$CONSENSUS_FILE\`
 - Bound ACTIVE_PROJECT: \`${ACTIVE_PROJECT:-none (framework exploration)}\` (source: $PROJECT_CONTEXT_SOURCE)
 - Selected product repository: \`${ACTIVE_PROJECT_PATH:-none}\`
-- If a project is selected, perform all product source work there and use \`git -C \"$ACTIVE_PROJECT_PATH\"\` for product Git operations. Keep product commits and remotes out of the framework repository.
+- If a project is selected, perform all product source work there and use \`git -C "$ACTIVE_PROJECT_PATH"\` for product Git operations. Keep product commits and remotes out of the framework repository.
 - The isolated framework view contains this product and its company coordination files. Other products, host files and host-local services are unavailable.
 
 $REPORT_INSTRUCTIONS
@@ -841,13 +845,16 @@ $ARTIFACT_INSTRUCTIONS
 
 ## Current Consensus (pre-loaded, do NOT re-read this file)
 
-$CONSENSUS
+$current_consensus
 
 ---
 
 This is $PRODUCT_IDENTITY_KIND cycle #$PRODUCT_CYCLE_NUMBER (process-local attempt #$loop_count).
 The stable runtime identity is $PRODUCT_ID. Process restarts and model changes do not restart product discovery.
-Resume the work and phase in the current consensus. First-exploration rules apply only when this is exploration cycle #1 and no earlier decision is recorded. Act decisively."
+Resume the work and phase in the current consensus. First-exploration rules apply only when this is exploration cycle #1 and no earlier decision is recorded. Act decisively.
+__AUTO_LOOP_PROMPT__
+    }
+    FULL_PROMPT=$(build_cycle_prompt)
 
     # Run selected engine in headless mode with per-cycle timeout
     if [ "$COMPANY_HARNESS_ENABLED" != 1 ] && ! python3 "$USAGE_TOOL" begin --ledger "$USAGE_FILE" \
@@ -888,7 +895,10 @@ Resume the work and phase in the current consensus. First-exploration rules appl
     cycle_failed_reason=""
     cycle_soft_timeout=0
     governance_pause_required=0
-    if [ "$consensus_guard_status" -eq 42 ]; then
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ] && [ "${HARNESS_GOVERNANCE_VIOLATION:-0}" -eq 1 ]; then
+        cycle_failed_reason="Harness governance protection violation (${HARNESS_GOVERNANCE_REASON:-human_override_mutated})"
+        governance_pause_required=1
+    elif [ "$consensus_guard_status" -eq 42 ]; then
         cycle_failed_reason="Human Overrides protection violation"
         if [ "$(read_pause_reason "$PAUSE_FLAG" "")" = "active_project_mutated" ]; then
             cycle_failed_reason="Human project selection protection violation"
@@ -899,7 +909,11 @@ Resume the work and phase in the current consensus. First-exploration rules appl
     elif [ "$consensus_guard_status" -ne 0 ]; then
         cycle_failed_reason="Consensus guard failed with exit code $consensus_guard_status"
     elif [ "$CYCLE_TIMED_OUT" -eq 1 ]; then
-        cycle_failed_reason="Timed out after ${CYCLE_TIMEOUT_SECONDS}s"
+        if [ "$COMPANY_HARNESS_ENABLED" != 1 ] && consensus_changed_since_backup && validate_consensus; then
+            cycle_soft_timeout=1
+        else
+            cycle_failed_reason="Timed out after ${CYCLE_TIMEOUT_SECONDS}s"
+        fi
     elif [ "$EXIT_CODE" -ne 0 ]; then
         cycle_failed_reason="Exit code $EXIT_CODE"
     elif [ "$ADAPTER_STATUS" != "success" ]; then

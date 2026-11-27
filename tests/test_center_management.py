@@ -275,5 +275,65 @@ class DeleteLockTests(unittest.TestCase):
                 self.assertEqual(evidence.read('logs/failure.log'), b'original error evidence')
 
 
+class DeleteConcurrencyTests(ManagementTests):
+    def test_delete_releases_mutex_and_rejects_concurrent_actions_while_in_progress(self):
+        import threading
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        (root / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        entered, release = threading.Event(), threading.Event()
+        evidence_zip = str(self.store.data_dir / 'deletion-evidence' / (source['runtimeId'] + '.zip'))
+
+        def slow_delete_dir(target, src, ent, fw_rev):
+            entered.set()
+            release.wait(timeout=5)
+            return evidence_zip
+
+        results = []
+
+        def run_delete():
+            results.append(self.management.entry_action(
+                entry['entryId'], 'delete',
+                {'confirmPermanent': True, 'expectedRevision': trashed['revision']}
+            ))
+
+        with patch.object(self.management, '_delete_directory', side_effect=slow_delete_dir):
+            worker = threading.Thread(target=run_delete)
+            worker.start()
+            self.assertTrue(entered.wait(timeout=5))
+            # While _delete_directory runs without holding the store lock, unrelated store reads succeed
+            # and concurrent actions / sweep_trash on the deleting entry are safely blocked.
+            with self.assertRaises(CenterError) as err:
+                self.management.entry_action(entry['entryId'], 'delete', {'confirmPermanent': True, 'expectedRevision': trashed['revision'] + 1})
+            self.assertEqual(err.exception.code, 'ACTION_IN_PROGRESS')
+            with self.store.transaction() as tx:
+                self.assertTrue(tx.get('entries', entry['entryId']).get('deletionInProgress'))
+            release.set()
+            worker.join(timeout=5)
+        self.assertTrue(results and results[0]['detached'])
+
+    def test_delete_failure_clears_in_progress_and_records_delete_failed(self):
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        (root / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        with patch.object(self.management, '_delete_directory', side_effect=CenterError('DELETE_FAILED', 'boom', 409)):
+            with self.assertRaises(CenterError) as err:
+                self.management.entry_action(entry['entryId'], 'delete', {'confirmPermanent': True, 'expectedRevision': trashed['revision']})
+        self.assertEqual(err.exception.code, 'DELETE_FAILED')
+        with self.store.transaction() as tx:
+            saved = tx.get('entries', entry['entryId'])
+            self.assertNotIn('deletionInProgress', saved)
+            self.assertFalse(saved.get('detached'))
+            self.assertEqual(saved['trashError']['code'], 'DELETE_FAILED')
+
+
 if __name__ == '__main__':
     unittest.main()

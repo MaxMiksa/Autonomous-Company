@@ -678,3 +678,21 @@ test('log search highlights matches, navigates cycling index and full log downlo
   assert.equal(Buffer.concat(h.downloads[0].parts.map(Buffer.from)).toString('utf8'), 'hellobye');
   assert.match(h.fields.get('logStatus').textContent, /Full raw log downloaded/);
 });
+
+test('fast all -> day -> all usage toggle resolves with valid all payload without getting stuck', async () => {
+  const h = scopedUsageHarness();
+  const firstAll = h.refreshScopedUsage();
+  h.fields.get('usagePeriod').value = 'day';
+  h.fields.get('usageDate').value = '2026-10-01';
+  const dayReq = h.refreshScopedUsage();
+  h.fields.get('usagePeriod').value = 'all';
+  h.fields.get('usageDate').value = '';
+  const secondAll = h.refreshScopedUsage();
+  assert.equal(h.requests.length, 2);
+  h.requests[1].resolve({ ...h.usage, period: 'day', startDate: '2026-10-01', endDate: '2026-10-01', usage: { total_tokens: 99 } });
+  await dayReq;
+  h.requests[0].resolve({ ...h.usage, period: 'all', usage: { total_tokens: 555 } });
+  await Promise.all([firstAll, secondAll]);
+  assert.equal(h.state.scopedUsage?.key, '[["entry-a","source-a",1],null,"all",""]');
+  assert.equal(h.state.scopedUsage?.data?.usage?.total_tokens, 555);
+});

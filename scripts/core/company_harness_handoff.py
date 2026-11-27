@@ -71,8 +71,8 @@ def compile_plan(plan, primary, inputs, local):
         return reference(table[value])
 
     resolved_targets = []
-    if plan.get('reviewTargets'):
-        if kind != 'review':
+    if 'reviewTargets' in plan:
+        if kind != 'review' or not plan['reviewTargets']:
             raise ValueError('PLAN_FIELD: reviewTargets')
         resolved_targets = unique([resolve(x) for x in plan['reviewTargets']])
         contract['reviewRequirement'] = {'independent': True, 'targetRefs': resolved_targets}

@@ -245,6 +245,11 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'reviewTargets'):
             self.run_plan(bad_kind)
 
+        empty_targets = deepcopy(plan)
+        empty_targets['reviewTargets'] = []
+        with self.assertRaisesRegex(ValueError, 'PLAN_FIELD: reviewTargets'):
+            self.run_plan(empty_targets)
+
 
 if __name__ == '__main__':
     unittest.main()

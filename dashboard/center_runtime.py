@@ -307,8 +307,9 @@ class CenterRuntime:
     def _capability_stamp(root):
         base = Path(root)
         stamps = []
-        for rel in (MARKER, ".auto-loop-paused", ".auto-loop-budget-paused", "Human Overrides.md",
-                    "memories/consensus.md", ".autonomous-company.local", "scripts/core/stop-loop.sh",
+        for rel in (MARKER, ".auto-loop-paused", ".auto-loop-budget-paused", ".auto-loop-stop-pending",
+                    "Human Overrides.md", "memories/consensus.md", ".autonomous-company.local",
+                    ".autonomous-company/product-state.json", "scripts/core/stop-loop.sh",
                     "scripts/core/auto-loop.sh", "scripts/core/center_runner.py"):
             try:
                 st = (base / rel).lstat()
@@ -324,12 +325,14 @@ class CenterRuntime:
             if entry and time.monotonic() < entry[0]:
                 return dict(entry[1])
         value = loader()
+        cacheable = isinstance(value, dict) and bool(value) and value.get("_cacheable") is not False and value.get("pauseReason") != "interrupted_cycle"
+        result = {k: v for k, v in value.items() if k != "_cacheable"} if isinstance(value, dict) else value
         with self._capability_lock:
-            if isinstance(value, dict) and value and value.get("pauseReason") != "interrupted_cycle":
-                self._capability_cache[key] = (time.monotonic() + 5.0, dict(value))
+            if cacheable:
+                self._capability_cache[key] = (time.monotonic() + 5.0, dict(result))
             else:
                 self._capability_cache.pop(key, None)
-        return value
+        return result
 
     def environment(self):
         with self._mutex, self.store.transaction() as tx:
@@ -857,7 +860,7 @@ class CenterRuntime:
                     return self.execution_query(source["sourceId"], "capabilities")
                 except subprocess.CalledProcessError as exc:
                     if (exc.stderr or "").strip() == "Center admission/runtime refused: ownership_changed":
-                        return {"context": {"valid": False, "reason": "ownership_changed"}}
+                        return {"_cacheable": False, "context": {"valid": False, "reason": "ownership_changed"}}
                     return {}
                 except (CenterError, OSError, ValueError, subprocess.SubprocessError):
                     return {}

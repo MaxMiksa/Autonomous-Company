@@ -1265,6 +1265,37 @@ class GovernanceObservationTests(unittest.TestCase):
             consensus.write_text("invalid governance fixture")
             self.assertEqual(governance_reason(root), "context_unavailable")
 
+    def test_cached_capabilities_skips_ownership_changed_and_invalidates_on_stop_pending_or_product_state(self):
+        fixture = QueueTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        root = Path(fixture.a["root"])
+        calls = []
+
+        def loader():
+            calls.append(1)
+            if len(calls) == 1:
+                return {"execute": False, "stop": False, "_cacheable": False}
+            return {"execute": True, "stop": False}
+
+        first = fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
+        self.assertEqual(first, {"execute": False, "stop": False})
+        self.assertNotIn("_cacheable", first)
+        second = fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
+        self.assertEqual(second, {"execute": True, "stop": False})
+        third = fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
+        self.assertEqual(third, {"execute": True, "stop": False})
+        self.assertEqual(len(calls), 2)
+
+        (root / ".auto-loop-stop-pending").write_text("stop\n")
+        fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
+        self.assertEqual(len(calls), 3)
+
+        (root / ".autonomous-company").mkdir(exist_ok=True)
+        (root / ".autonomous-company/product-state.json").write_text("{}")
+        fixture.runtime._cached_capabilities(fixture.a["sourceId"], root, True, loader)
+        self.assertEqual(len(calls), 4)
+
 
 class ExecutionContextTests(unittest.TestCase):
     def setUp(self):

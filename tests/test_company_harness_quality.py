@@ -345,6 +345,23 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(quality[0]['targetRef'], target)
         self.assertEqual(quality[0]['artifactKind'], 'direction')
 
+    def test_progression_state_maps_visual_direction_and_ignores_duplicate_passed_reviews(self):
+        from company_harness_quality import progression_state
+        identity = {'productId': 'p'}
+        direction, _, _ = self.store.artifact('d1', 'direction')
+        self.store.reviewed(direction, ['definition'])
+        defn, _, _ = self.store.artifact('def1', 'definition')
+        self.store.reviewed(defn, ['visual_exploration'])
+        # 3 duplicate passed reviews on same (direction, definition) must not reset non-advancing count.
+        for _ in range(3):
+            self.store.reviewed(direction, ['definition'])
+        st = progression_state(self.store, identity)
+        self.assertEqual(st['highestMilestone'], 'definition')
+        self.assertEqual(st['nextMilestone'], 'visual_direction')
+        self.assertEqual(st['consecutiveNonAdvancing'], 3)
+        self.assertEqual(st['stagnationLevel'], 'warning')
+        self.assertIn('workKind=visual_exploration directly', st['advisory'])
+
 
 if __name__ == '__main__':
     unittest.main()

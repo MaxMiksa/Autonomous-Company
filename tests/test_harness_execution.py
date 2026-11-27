@@ -114,6 +114,60 @@ class BridgeTests(unittest.TestCase):
                 connection.sendall(json.dumps({"token": "bound-token", "action": "status", "context": {"cycleId": "other"}}).encode() + b"\n")
                 self.assertEqual(json.loads(connection.makefile("rb").readline())["errorCode"], "INVALID_REQUEST")
 
+    def test_submit_rechecks_budget_before_accepting(self):
+        tick = [100.0]
+        bstore = HarnessStore(self.root / "budget-submit", create=True, clock=lambda: tick[0], boot_id="test-boot")
+        bstore.create_cycle({"cycleId": "budget-cycle", "productId": "product", "sequenceNumber": 1,
+                             "objective": "Check deadline", "workKind": "research"})
+        ctx = bstore.begin_attempt("budget-cycle", "budget-att-1", {"dispatchId": "owned"})["context"]
+        def expire_during_capture(_attempt):
+            tick[0] += 500.0
+            return {"projects": "expired"}
+        res = bstore.submit_with_versions(ctx, "late-sub", {"result": "failed", "unfinishedItems": []}, expire_during_capture)
+        self.assertEqual(res["status"], "rejected")
+        self.assertEqual(res["errorCode"], "BUDGET_EXHAUSTED")
+        cycle = bstore.snapshot()["cycles"][0]
+        self.assertEqual(cycle["submissions"], [])
+        self.assertIsNone(cycle["attempts"][0]["acceptedSubmissionId"])
+
+    def test_material_identical_bytes_different_paths_and_conflicting_evidence_id(self):
+        from company_harness_client import material
+        (self.root / "docs").mkdir(exist_ok=True)
+        (self.root / "docs/a.md").write_text("shared bytes", encoding="utf-8")
+        (self.root / "docs/b.md").write_text("shared bytes", encoding="utf-8")
+        with patch.dict(os.environ, {"AUTONOMOUS_COMPANY_ROOT": str(self.root), "AUTONOMOUS_COMPANY_ATTEMPT_ID": "attempt-one"}):
+            ref_a, _ = material("docs/a.md")
+            ref_b, _ = material("docs/b.md")
+        self.assertNotEqual(ref_a["evidenceId"], ref_b["evidenceId"])
+        dup_a = {"evidenceId": "dup-id", "sha256": hashlib.sha256(b"one").hexdigest(), "path": "docs/one.md"}
+        dup_b = {"evidenceId": "dup-id", "sha256": hashlib.sha256(b"two").hexdigest(), "path": "docs/two.md"}
+        res = self.store.submit(self.context, "dup-submit", {"result": "completed", "unfinishedItems": [], "evidenceRefs": [dup_a, dup_b]})
+        self.assertEqual(res["status"], "rejected")
+        self.assertEqual(res["errorCode"], "ID_CONFLICT")
+
+    def test_inputs_is_completed_head_scoped_to_consuming_lineage(self):
+        from company_harness_inputs import load_inputs
+        store2 = HarnessStore(self.root / "lineage-store", create=True)
+        store2.create_cycle({
+            "cycleId": "exp-res", "explorationId": "exp-scope", "sequenceNumber": 1,
+            "objective": "Exploration research", "workKind": "research", "artifactKind": "research",
+            "scope": ["bounded"], "completionOrHandoff": "note",
+        })
+        att = store2.begin_attempt("exp-res", "exp-att-1", {"dispatchId": "owned"})
+        ref = store2.bind_evidence("exp-res", "exp-doc", "exploration result", source={"attemptId": "exp-att-1"})
+        ev = {"evidenceId": ref["evidenceId"], "sha256": ref["sha256"]}
+        store2.submit(att["context"], "sub-exp", {"result": "completed", "unfinishedItems": [], "evidenceRefs": [ev], "primaryEvidenceId": ev["evidenceId"]})
+        store2.finish_attempt(att["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        store2.close_cycle("exp-res", "close-exp", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["exp-att-1"], "evidenceRefs": [ev], "checkedAt": runner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-exp")
+        # Under product scope, an exploration-only completed head is NOT a completed head for productId='product-1'.
+        prod_loaded = load_inputs(store2, {"productId": "product-1", "inputRefs": [ev], "prerequisiteRefs": []})
+        self.assertFalse(prod_loaded[0]["isCompletedHead"])
+        # Under its own exploration scope, it IS a completed head.
+        exp_loaded = load_inputs(store2, {"explorationId": "exp-scope", "inputRefs": [ev], "prerequisiteRefs": []})
+        self.assertTrue(exp_loaded[0]["isCompletedHead"])
+
 
 @unittest.skipUnless(sys.platform == "linux", "Linux host ownership and accounting")
 class RunnerTests(unittest.TestCase):
@@ -1046,6 +1100,26 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(r2["repeatedErrorCount"], 2)
             self.assertIn("Repeated identical rejection", r2["guidance"])
 
+        # Also when CORRECTIONS=3 and MAX_SAME_ERROR=2, the 2nd identical error escalates to 'human' immediately.
+        with tempfile.TemporaryDirectory(prefix="harness-same-err-") as tmp:
+            troot = Path(tmp)
+            (troot / "memories").mkdir()
+            shutil.copy2(ROOT / "memories/consensus.template.md", troot / "memories/consensus.md")
+            tstore = HarnessStore(troot, create=True)
+            cid2 = reserve_cycle(troot, "", "same-err-early", 1)["cycleId"]
+            runner.prepare(tstore, troot, cid2)
+            with patch.dict(os.environ, {"COMPANY_HARNESS_CORRECTIONS": "3", "COMPANY_HARNESS_MAX_SAME_ERROR": "2",
+                                         "AUTONOMOUS_COMPANY_LOCK_PID": str(os.getpid())}):
+                for idx in range(2):
+                    m = runner.begin_attempt(tstore, troot, cid2)
+                    self.addCleanup(shutil.rmtree, m["temporary"], ignore_errors=True)
+                    runner.write_fact(troot / m["collectRelative"], {**m["context"], "collected": True, "versions": {}})
+                    res = runner.finish_attempt(tstore, troot, m["context"]["attemptId"],
+                        {"status": "success", "exit_code": 0, "input_tokens": 5, "output_tokens": 2},
+                        {"cleanupFailed": False, "supervisorOwner": "owned"})
+                    self.assertEqual(res["action"], "retry" if idx == 0 else "human")
+                self.assertEqual(len(tstore.snapshot()["cycles"][-1]["attempts"]), 2)
+
     def test_usage_mirror_reports_self_coverage_when_tokens_measured(self):
         manifest, metadata = self.stopped_material(with_handoff=True)
         runner.finish_attempt(self.store, self.root, manifest["context"]["attemptId"], metadata,
@@ -1084,6 +1158,52 @@ class RunnerTests(unittest.TestCase):
         startup = subprocess.run([sys.executable, str(ROOT / "scripts/core/company_harness_runner.py"),
                                   "--root", str(self.root), "startup"], capture_output=True, text=True)
         self.assertEqual(startup.returncode, 0, startup.stderr)
+
+    def test_abort_unstarted_and_approve_recovery_resume_without_replaying_crash(self):
+        aborted = runner.abort_unstarted_cycle(self.store, self.root, self.cycle_id, "governance_admission_blocked")
+        self.assertEqual(aborted["outcome"], "failed")
+        self.assertEqual(runner.close_cycle(self.store, self.root, self.cycle_id, True)["outcome"], "failed")
+
+        # Seed prior completed cycle with validated nextContract handoff, then simulate crash on cycle 2 -> reconcile-crash -> approve-recovery.
+        with tempfile.TemporaryDirectory(prefix="harness-rec-approve-") as tmp:
+            troot = Path(tmp)
+            (troot / "memories").mkdir()
+            (troot / "scripts/core").mkdir(parents=True)
+            shutil.copy2(ROOT / "memories/consensus.template.md", troot / "memories/consensus.md")
+            shutil.copy2(ROOT / "scripts/core/consensus-guard.sh", troot / "scripts/core/consensus-guard.sh")
+            shutil.copy2(ROOT / "scripts/core/consensus-format.py", troot / "scripts/core/consensus-format.py")
+            shutil.copy2(ROOT / "scripts/core/project-context.py", troot / "scripts/core/project-context.py")
+            tstore = HarnessStore(troot, create=True)
+            id1 = reserve_cycle(troot, "", "good-cycle", 1)["cycleId"]
+            runner.prepare(tstore, troot, id1)
+            a1 = tstore.begin_attempt(id1, "good-att-1", {"dispatchId": "owned"})
+            doc1 = tstore.bind_evidence(id1, "ev-good", "good research note", source={"attemptId": "good-att-1"})
+            ev_good = {"evidenceId": doc1["evidenceId"], "sha256": doc1["sha256"]}
+            hoff_data = {"nextContract": {"objective": "Follow-up direction", "workKind": "direction", "scope": ["bounded"], "inputRefs": [ev_good], "prerequisiteRefs": [], "completionOrHandoff": "direction doc"}}
+            hoff1 = tstore.bind_evidence(id1, "hoff-good", json.dumps(hoff_data), source={"attemptId": "good-att-1"}, media_type="application/json")
+            ev_hoff = {"evidenceId": hoff1["evidenceId"], "sha256": hoff1["sha256"], "path": "docs/harness/hoff.json"}
+            tstore.submit(a1["context"], "sub-good", {"result": "completed", "unfinishedItems": [], "evidenceRefs": [ev_good, ev_hoff], "primaryEvidenceId": ev_good["evidenceId"], "handoffRef": ev_hoff})
+            tstore.finish_attempt(a1["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+            tstore.close_cycle(id1, "close-good", outcome="completed",
+                verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": ["good-att-1"], "evidenceRefs": [ev_good, ev_hoff], "checkedAt": runner.now()},
+                continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id="sub-good")
+            runner.sync_identity(troot, runner.row(tstore, id1))
+            exp_scope = {"productId": None, "explorationId": tstore.snapshot()["cycles"][0]["explorationId"]}
+            id2 = reserve_cycle(troot, "", "crashed-cycle", 2)["cycleId"]
+            tstore.create_cycle({
+                "cycleId": id2, "explorationId": exp_scope["explorationId"], "sequenceNumber": 2, "runCycleNumber": 2,
+                "objective": "Crashed step", "workKind": "direction", "artifactKind": "direction", "scope": ["dir"],
+                "inputRefs": [ev_good], "prerequisiteRefs": [], "completionOrHandoff": "dir doc",
+            })
+            tstore.begin_attempt(id2, "crashed-att-1", {"dispatchId": "owned"})
+            runner.reconcile_crash(tstore, troot)
+            with self.assertRaisesRegex(HarnessError, "CONTINUATION_BLOCKED"):
+                runner.reassess_continuation(tstore, troot, exp_scope)
+            runner.approve_recovery(tstore, troot, "rev-tok-123")
+            runner.reassess_continuation(tstore, troot, exp_scope)
+            planned = runner.next_contract(tstore, exp_scope, root=troot)
+            self.assertEqual(planned["workKind"], "direction")
+            self.assertEqual(planned["objective"], "Follow-up direction")
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'Live pre-dispatch ownership uses real Linux processes')
@@ -1667,11 +1787,13 @@ class AntiSpinAndTopicTests(unittest.TestCase):
 
     def test_auto_loop_harness_default_interval_is_5_and_honors_override(self):
         script = (ROOT / "scripts/core/auto-loop.sh").read_text(encoding="utf-8")
-        marker = 'if [ -z "${LOOP_INTERVAL+x}" ]; then'
+        marker = 'if [ -z "${LOOP_INTERVAL:-}" ]; then'
         start = script.index(marker)
         snippet = script[start:script.index("\nfi\n", start) + 4]
         for extra_env, expected in (
             ({"COMPANY_HARNESS_ENABLED": "1"}, "5"),
+            ({"COMPANY_HARNESS_ENABLED": "1", "LOOP_INTERVAL": ""}, "5"),
+            ({"COMPANY_HARNESS_ENABLED": "0", "LOOP_INTERVAL": ""}, "30"),
             ({"COMPANY_HARNESS_ENABLED": "0"}, "30"),
             ({"COMPANY_HARNESS_ENABLED": "1", "LOOP_INTERVAL": "0"}, "0"),
             ({"COMPANY_HARNESS_ENABLED": "1", "LOOP_INTERVAL": "17"}, "17"),
@@ -1680,6 +1802,11 @@ class AntiSpinAndTopicTests(unittest.TestCase):
             env.update(extra_env)
             out = subprocess.check_output(["bash", "-c", snippet + '\nprintf "%s" "$LOOP_INTERVAL"'], env=env, text=True)
             self.assertEqual(out, expected)
+        # Legacy soft-timeout remains enabled only when COMPANY_HARNESS_ENABLED != 1.
+        timeout_marker = 'elif [ "$CYCLE_TIMED_OUT" -eq 1 ]; then'
+        tstart = script.index(timeout_marker)
+        tsnippet = script[tstart:script.index("\n    elif [", tstart)]
+        self.assertIn('if [ "$COMPANY_HARNESS_ENABLED" != 1 ] && consensus_changed_since_backup && validate_consensus; then', tsnippet)
 
 
 if __name__ == "__main__":

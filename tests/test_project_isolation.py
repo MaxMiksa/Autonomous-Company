@@ -240,6 +240,71 @@ class ExplorationArtifactCollectionTests(unittest.TestCase):
             self.assertTrue(record["governanceViolationHeldBack"])
             self.assertIn("- tampered", (root / "memories/consensus.md").read_text())
 
+    def test_harness_governance_violation_holds_back_consensus_and_ignores_new_git_in_expected_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "harness-gov"
+            (root / "projects/sample").mkdir(parents=True)
+            (root / "projects/sample/value.txt").write_text("original")
+            (root / "projects/registry.tsv").write_text("name\tpath\tlifecycle\tcreated_at_utc\nsample\tprojects/sample\tlocal\t2026-10-02\n")
+            (root / "memories").mkdir()
+            consensus_text = "# Legacy\n\n## Current Phase\nBuilding\n\n## Human Overrides\n- keep-me\n\n## Priority Issues\n- None.\n"
+            (root / "memories/consensus.md").write_text(consensus_text)
+            with patch.dict(os.environ, {"COMPANY_HARNESS_ENABLED": "1", "AUTONOMOUS_COMPANY_ATTEMPT_ID": "att-gov-1"}):
+                for mode in ("deleted", "mutated"):
+                    with self.subTest(mode=mode):
+                        view = workspace.CompanyView(root, "projects/sample", f"gov-{mode}")
+                        self.addCleanup(shutil.rmtree, view.folder, ignore_errors=True)
+                        with patch.object(workspace, "TEMPLATES", ()):
+                            view.prepare()
+                        (view.workspace / "projects/sample/value.txt").write_text(f"rogue-{mode}")
+                        # Adding .git inside workspace before collect must still match pre-collect expected_versions.
+                        subprocess.run(["git", "-C", str(view.workspace / "projects/sample"), "init", "-q"], check=True)
+                        versions = {name: workspace.fingerprint(view.workspace / name) for name in ("projects", "docs", "memories")}
+                        target = view.workspace / "memories/consensus.md"
+                        if mode == "deleted":
+                            target.unlink()
+                            # Recompute memories digest only so post_submission_change reflects deletion vs expected_versions check separately.
+                            expected = None
+                        else:
+                            target.write_text(consensus_text.replace("- keep-me", "- tampered"))
+                            expected = {**versions, "memories": workspace.fingerprint(view.workspace / "memories")}
+                        view.expected_versions = expected
+                        view.collect()
+                        view.active_record.unlink(missing_ok=True)
+                        self.assertTrue(view.governance_violation)
+                        self.assertEqual(view.governance_reason, "human_override_mutated")
+                        self.assertFalse(view.post_submission_change)
+                        self.assertEqual((root / "memories/consensus.md").read_text(), consensus_text)
+                        self.assertEqual((root / "projects/sample/value.txt").read_text(), "original")
+                # Clean consensus + newly added .git preserves expected_versions match without false postSubmissionChange.
+                view_ok = workspace.CompanyView(root, "projects/sample", "gov-clean-git")
+                self.addCleanup(shutil.rmtree, view_ok.folder, ignore_errors=True)
+                with patch.object(workspace, "TEMPLATES", ()):
+                    view_ok.prepare()
+                subprocess.run(["git", "-C", str(view_ok.workspace / "projects/sample"), "init", "-q"], check=True)
+                view_ok.expected_versions = {name: workspace.fingerprint(view_ok.workspace / name) for name in ("projects", "docs", "memories")}
+                view_ok.collect()
+                view_ok.active_record.unlink(missing_ok=True)
+                self.assertFalse(view_ok.governance_violation)
+                self.assertFalse(view_ok.post_submission_change)
+
+    def test_legacy_consensus_deletion_propagates_empty_file_for_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "legacy-del"
+            (root / "projects/sample").mkdir(parents=True)
+            (root / "projects/registry.tsv").write_text("name\tpath\tlifecycle\tcreated_at_utc\nsample\tprojects/sample\tlocal\t2026-10-02\n")
+            (root / "memories").mkdir()
+            (root / "memories/consensus.md").write_text("# Legacy\n\n## Human Overrides\n- keep-me\n\n## Priority Issues\n- None.\n")
+            with patch.dict(os.environ, {"COMPANY_HARNESS_ENABLED": "0"}):
+                view = workspace.CompanyView(root, "projects/sample", "legacy-del-1")
+                self.addCleanup(shutil.rmtree, view.folder, ignore_errors=True)
+                with patch.object(workspace, "TEMPLATES", ()):
+                    view.prepare()
+                (view.workspace / "memories/consensus.md").unlink()
+                view.collect()
+            self.assertTrue(view.governance_violation)
+            self.assertEqual((root / "memories/consensus.md").read_bytes(), b"")
+
     def test_chunked_copy_and_fingerprint_handle_multichunk_regular_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "chunk-src"
