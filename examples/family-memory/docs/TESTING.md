@@ -3,10 +3,10 @@
 在产品目录运行。测试仅使用虚构人物与事件，不代表现实用户体验。
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
+pnpm run test:browser
 ```
 
 核心检查覆盖署名、互问、分歧、可追溯故事、撤回、私密数据边界及非法备份。真实 Chromium 检查覆盖四步可见操作、实际下载、回应草稿独立保存、打印内容、持久化、失败恢复、手机布局，以及页内确认的 Escape 取消和焦点回归。

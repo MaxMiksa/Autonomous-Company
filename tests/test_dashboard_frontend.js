@@ -696,3 +696,20 @@ test('fast all -> day -> all usage toggle resolves with valid all payload withou
   assert.equal(h.state.scopedUsage?.key, '[["entry-a","source-a",1],null,"all",""]');
   assert.equal(h.state.scopedUsage?.data?.usage?.total_tokens, 555);
 });
+
+test('fast all -> day -> all usage toggle marks stale on reused all failure instead of staying stuck', async () => {
+  const h = scopedUsageHarness();
+  const firstAll = h.refreshScopedUsage();
+  h.fields.get('usagePeriod').value = 'day';
+  h.fields.get('usageDate').value = '2026-10-01';
+  const dayReq = h.refreshScopedUsage();
+  h.fields.get('usagePeriod').value = 'all';
+  h.fields.get('usageDate').value = '';
+  const secondAll = h.refreshScopedUsage();
+  h.requests[1].resolve({ ...h.usage, period: 'day', startDate: '2026-10-01', endDate: '2026-10-01', usage: { total_tokens: 99 } });
+  await dayReq;
+  h.requests[0].reject(new Error('network error'));
+  await Promise.all([firstAll, secondAll]);
+  assert.equal(h.state.scopedUsage?.key, '[["entry-a","source-a",1],null,"all",""]');
+  assert.equal(h.state.scopedUsage?.stale, true);
+});

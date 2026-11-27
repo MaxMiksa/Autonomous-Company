@@ -334,6 +334,102 @@ class DeleteConcurrencyTests(ManagementTests):
             self.assertFalse(saved.get('detached'))
             self.assertEqual(saved['trashError']['code'], 'DELETE_FAILED')
 
+    def test_stale_deletion_recovers_after_restart_for_manual_sweep_and_already_deleted_receipt(self):
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        marker = {
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }
+        (root / '.autonomous-company-center.json').write_text(json.dumps(marker), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        # Simulate crashed prior process leaving stale deletionInProgress.
+        with self.store.transaction() as tx:
+            row = tx.get('entries', entry['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'crashed-proc'}
+            row['expiresAt'] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            tx.put('entries', entry['entryId'], row)
+        restarted = CenterManagement(self.store, self.catalog, self.runtime)
+        listing = restarted.trash()
+        self.assertEqual(listing['items'][0]['trashError']['code'], 'DELETE_INTERRUPTED')
+        self.assertNotIn('deletionInProgress', listing['items'][0])
+        evidence_zip = str(self.store.data_dir / 'deletion-evidence' / (source['runtimeId'] + '.zip'))
+        with patch.object(restarted, '_delete_directory', return_value=evidence_zip):
+            swept = restarted.sweep_trash(force=True)
+            self.assertTrue(swept['items'][0]['ok'])
+
+        # If disk deletion had already written succeeded receipt and removed dir before crash, trash() finalizes detach.
+        entry2_id = 'entry-receiptdone'
+        rid2, sid2 = 'runtime-receiptdone', 'source-receiptdone'
+        root2 = self.store.data_dir / 'runtimes' / rid2
+        root2.mkdir(parents=True, exist_ok=True)
+        (root2 / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry2_id, 'sourceId': sid2,
+            'runtimeId': rid2, 'operationId': 'op-receiptdone', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        with self.store.transaction() as tx:
+            tx.put('entries', entry2_id, dict(entryId=entry2_id, kind='exploration', preferredSourceId=sid2,
+                                              revision=1, trashed=True, trashedAt='2026-10-05T10:00:00+00:00',
+                                              archived=True, detached=False,
+                                              deletionInProgress={'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'dead'}))
+            tx.put('sources', sid2, dict(sourceId=sid2, entryId=entry2_id, runtimeId=rid2, root=str(root2), revision=1))
+            tx.put('runtimes', rid2, dict(runtimeId=rid2, entryId=entry2_id, sourceId=sid2, centerId=self.store.center_id,
+                                          root=str(root2), managed=True, frameworkRevision=FRAMEWORK_REVISION))
+        import shutil
+        shutil.rmtree(root2)
+        receipts_dir = self.store.data_dir / 'deletion-receipts'
+        receipts_dir.mkdir(exist_ok=True)
+        (receipts_dir / f'{rid2}.json').write_text(json.dumps({
+            'state': 'succeeded', 'filesDeleted': True, 'evidence': str(self.store.data_dir / 'deletion-evidence' / f'{rid2}.zip'),
+        }), encoding='utf-8')
+        restarted2 = CenterManagement(self.store, self.catalog, self.runtime)
+        self.assertEqual([item['entryId'] for item in restarted2.trash()['items']], [])
+        with self.store.transaction() as tx:
+            self.assertTrue(tx.get('entries', entry2_id)['detached'])
+
+    def test_in_flight_delete_blocks_discovery_and_commit_and_runs_preflight_lock_free(self):
+        import threading
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        (root / 'projects/p1/.git').mkdir(parents=True)
+        (root / 'projects/p1/README.md').write_text('# Demo\n', encoding='utf-8')
+        from product_identity import register_project
+        register_project(root, 'projects/p1')
+        (root / '.autonomous-company-center.json').write_text(json.dumps({
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': source['runtimeId'], 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        preflight_entered, preflight_release = threading.Event(), threading.Event()
+        evidence_zip = str(self.store.data_dir / 'deletion-evidence' / (source['runtimeId'] + '.zip'))
+
+        def slow_preflight(*args, **kwargs):
+            preflight_entered.set()
+            preflight_release.wait(timeout=5)
+            return {'quiescent': True}
+
+        candidate = self.catalog.probe({'root': str(root)})
+        anchor = {**source, 'root': str(root)}
+        with patch.object(self.runtime.adapter, 'query', side_effect=slow_preflight), \
+             patch.object(self.management, '_delete_directory', return_value=evidence_zip):
+            worker = threading.Thread(target=lambda: self.management.entry_action(
+                entry['entryId'], 'delete', {'confirmPermanent': True, 'expectedRevision': trashed['revision']}
+            ))
+            worker.start()
+            self.assertTrue(preflight_entered.wait(timeout=5))
+            # While slow adapter preflight runs lock-free, DB transactions succeed and registration/discovery block.
+            self.assertEqual(self.catalog._discover_products(anchor), [])
+            with self.assertRaises(CenterError) as err:
+                self.catalog.commit({'candidateId': candidate['candidateId'], 'candidateHash': candidate['candidateHash']})
+            self.assertEqual(err.exception.code, 'ACTION_IN_PROGRESS')
+            preflight_release.set()
+            worker.join(timeout=5)
+
+    def test_retention_rejects_mismatched_center_id(self):
+        with self.assertRaises(CenterError) as err:
+            self.management.retention({'retentionDays': 7, 'expectedRevision': 1, 'expectedCenterId': 'wrong-center'})
+        self.assertEqual(err.exception.code, 'REVISION_CONFLICT')
+
 
 if __name__ == '__main__':
     unittest.main()

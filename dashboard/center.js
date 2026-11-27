@@ -525,8 +525,10 @@ window.DashboardNavigation.register('center', (view) => {
         focusKey: `entry:${entry.entryId}:continue-menu`, action: () => openContinue(entry) });
     }
     if (entry.trashed) {
-      items.push({ label: message("restoreTrash"), focusKey: `entry:${entry.entryId}:restore-trash`, action: () => trashEntryAction(entry, "restore-trash") },
-        { label: message("deletePermanently"), danger: true, focusKey: `entry:${entry.entryId}:delete`, action: () => trashEntryAction(entry, "delete") });
+      const deleting = Boolean(entry.deletionInProgress);
+      const deletingReason = deleting ? message("actionPending") : "";
+      items.push({ label: message("restoreTrash"), disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:restore-trash`, action: () => trashEntryAction(entry, "restore-trash") },
+        { label: message("deletePermanently"), danger: true, disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:delete`, action: () => trashEntryAction(entry, "delete") });
     } else {
       items.push({ label: message("rename"), focusKey: `entry:${entry.entryId}:rename`, action: () => renameEntry(entry) },
         { label: message("manageSources"), focusKey: `entry:${entry.entryId}:manage`, action: () => openSourceManager(entry) },
@@ -548,7 +550,8 @@ window.DashboardNavigation.register('center', (view) => {
   function renderEntries() {
     const container = $("productRows");
     const entries = sortedEntries();
-    const signature = JSON.stringify([entries.map(rowSignature), state.language, state.stale, state.summary?.executionAvailable, state.query, state.filter, state.sort, state.sortDirection, state.roundFilter, state.otherExpanded, state.loading]);
+    const trashStatus = state.readParts.get("trash")?.failed ? "failed" : state.readParts.has("trash") ? "ok" : "pending";
+    const signature = JSON.stringify([entries.map(rowSignature), state.language, state.stale, state.summary?.executionAvailable, state.query, state.filter, state.sort, state.sortDirection, state.roundFilter, state.otherExpanded, state.loading, trashStatus]);
     if (signature === entriesSignature) return;
     entriesSignature = signature;
     const positions = UI.positions(container, '.product-row');
@@ -665,7 +668,7 @@ window.DashboardNavigation.register('center', (view) => {
     const executionAvailable = state.summary?.executionAvailable !== false;
     $("newWorkButton").disabled = state.stale || !executionAvailable;
     const trashPart = state.readParts.get("trash");
-    if ($("trashSettingsButton")) $("trashSettingsButton").disabled = state.stale || Boolean(trashPart?.failed) || (!trashPart && state.readParts.size > 0);
+    if ($("trashSettingsButton")) $("trashSettingsButton").disabled = state.stale || !trashPart || Boolean(trashPart.failed);
     $("newWorkButton").title = !executionAvailable ? message("executionUnavailable") : "";
     $("newWorkUnavailable").hidden = executionAvailable && !state.stale;
     $("newWorkUnavailable").textContent = state.stale ? message("staleActionsDisabled") : !executionAvailable ? message("executionUnavailable") : "";
@@ -1701,11 +1704,11 @@ window.DashboardNavigation.register('center', (view) => {
         if (state.centerId !== openedCenterId) { $("managementStatus").textContent = message("staleData"); return; }
         save.disabled = true; $("managementStatus").textContent = message("saving");
         try {
-          await write("/trash/settings", { retentionDays: Number(input.value), expectedRevision: openedRevision });
+          await write("/trash/settings", { retentionDays: Number(input.value), expectedRevision: openedRevision, expectedCenterId: openedCenterId });
           await refresh(); closeDialog($("managementDialog"));
         } catch (error) {
           if (error?.code === "REVISION_CONFLICT") {
-            await refresh();
+            await Promise.allSettled([refresh(), readPart("trash", "/trash")]);
             openedRevision = state.trash?.revision ?? openedRevision;
             input.value = state.trash?.retentionDays ?? input.value;
           }

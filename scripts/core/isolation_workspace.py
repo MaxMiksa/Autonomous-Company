@@ -754,8 +754,8 @@ def run_engine(root, project, engine, binary, prompt, model="", effort="", inter
                 hsub = next((s for s in reversed((hcycle or {}).get("submissions", [])) if s.get("attemptId") == view.attempt), None)
                 if hsub:
                     expected_versions = hsub.get("acceptanceVersions")
-            except Exception:
-                expected_versions = None
+            except Exception as error:
+                raise IsolationError(f"Could not verify accepted submission versions before collect: {error}") from error
         view.expected_versions = expected_versions
         view.collect()
         if harness:

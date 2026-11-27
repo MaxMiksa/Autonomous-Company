@@ -48,7 +48,7 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 历史原运行由框架工具登记验收，其私有记录不随此独立副本公开。独立开发检查使用 Node 原生测试和 Playwright 浏览器流程。操作、日期、费用、记录、备份、权限、搬迁、移动和键盘场景使用构造输入，不代表真人试用。
 
-浏览器测试依赖仅用于检查；产品本身没有运行依赖。在本目录执行 `npm ci`、`npx playwright install chromium`、`npm test`、`npm run test:browser`；复现说明见 [tests/README.md](tests/README.md)。原运行结果与回执留在历史运行，本文件不手工制造测试数或验收成功。
+浏览器测试依赖仅用于检查；产品本身没有运行依赖。在本目录执行 `pnpm install --frozen-lockfile`、`pnpm exec playwright install chromium`、`pnpm test`、`pnpm run test:browser`；复现说明见 [tests/README.md](tests/README.md)。原运行结果与回执留在历史运行，本文件不手工制造测试数或验收成功。
 
 公开依据与费用口径见 [SOURCE.md](SOURCE.md)。历史独立风险审查、原机会评估和失败工件保持原样，未随独立副本公开。
 

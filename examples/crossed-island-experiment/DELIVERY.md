@@ -45,10 +45,10 @@ python3 -m http.server 8000 --bind 127.0.0.1
 从本产品目录执行：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm run test:engine
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run test:engine
+pnpm run test:browser
 ```
 
 产品无需这些开发依赖即可使用。检查输出位于 `.auto-company`。原实验 `cards/`、`sample.json`、`experiment.py` 保留；实际浏览器入口为 `index.html`。

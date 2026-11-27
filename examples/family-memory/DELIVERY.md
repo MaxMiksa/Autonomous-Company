@@ -43,10 +43,10 @@ npm start
 开发检查在本目录执行，不需要 Auto Company 运行环境。全部输入采用虚构人物和事件。
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
+pnpm run test:browser
 ```
 
 `npm test` 检查核心流程与恢复隐私；浏览器检查会自行启动本机页面，覆盖下载、打印内容、回应草稿、恢复、撤回、键盘确认及手机布局。可用 `FAMILY_MEMORY_BROWSER` 指定已有 Chromium。详细说明见 [docs/TESTING.md](docs/TESTING.md)。

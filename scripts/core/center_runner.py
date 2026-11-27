@@ -1514,7 +1514,7 @@ def source_control(manifest_path):
         return {"ok": True, "pauseAfterCycle": result}
     if action not in {"review_recovery", "confirm_recovery"}:
         raise ValueError("unsupported_control")
-    with execution_lock(marker):
+    with execution_lock(marker) as (slot_fd, _gate):
         previous_path = owner_dir(marker) / "owner.json"
         if previous_path.exists():
             previous = read_json(previous_path)
@@ -1547,10 +1547,16 @@ def source_control(manifest_path):
             if budget.returncode or control_path(root, ".auto-loop-budget-paused").exists():
                 raise ValueError("budget_pause")
             if action == "review_recovery":
-                if control_path(root, ".autonomous-company/harness.sqlite3").exists():
+                recovery_env = {
+                    **environment,
+                    "AUTONOMOUS_COMPANY_RECOVERY_SLOT_FD": str(slot_fd),
+                    "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
+                    "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
+                }
+                if control_path(root, ".autonomous-company/company-harness.sqlite3").exists():
                     subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
                         "--root", str(root), "reconcile-crash", "--reason", "center_review_recovery"],
-                        cwd=root, env=environment, capture_output=True, text=True, timeout=30, check=True)
+                        cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
                 command = subprocess.run(["bash", str(root / "scripts/core/consensus-guard.sh"), "recover"],
                     cwd=root, env=environment, capture_output=True, text=True, timeout=15)
                 if command.returncode not in {0, 42} or control_path(root, "memories/.consensus-cycle-pending").exists():
@@ -1597,11 +1603,17 @@ def source_control(manifest_path):
             context = execution_context(root, manifest.get("productId"), check_git=True)
             if not context["valid"]:
                 raise ValueError(context["reason"])
-            if control_path(root, ".autonomous-company/harness.sqlite3").exists():
+            if control_path(root, ".autonomous-company/company-harness.sqlite3").exists():
+                recovery_env = {
+                    **environment,
+                    "AUTONOMOUS_COMPANY_RECOVERY_SLOT_FD": str(slot_fd),
+                    "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
+                    "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
+                }
                 subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
                     "--root", str(root), "approve-recovery", "--review-token", review["reviewToken"],
                     "--reason", "center_human_confirmed"],
-                    cwd=root, env=environment, capture_output=True, text=True, timeout=30, check=True)
+                    cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
             confirmation = {**review, "confirmedAt": now(), "productCodeReviewed": True, "externalEffectsReviewed": True}
             atomic_json(control_path(root, REVIEW_FILE), confirmation)
             control_path(root, ".auto-loop-paused").unlink()

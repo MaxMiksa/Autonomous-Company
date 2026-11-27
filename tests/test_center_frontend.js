@@ -1623,12 +1623,23 @@ test('trashSettings captures open revision and updates on REVISION_CONFLICT; fai
   input.value = '60';
   await form.onsubmit({ preventDefault() {} });
   assert.equal(writes[0].expectedRevision, 2);
+  assert.equal(writes[0].expectedCenterId, 'fixture');
   assert.equal(input.value, 45);
   await form.onsubmit({ preventDefault() {} });
   assert.equal(writes[1].expectedRevision, 4);
+  assert.equal(writes[1].expectedCenterId, 'fixture');
 
   const helpersCtx = helpers();
   helpersCtx.state.filter = 'trash';
   helpersCtx.state.readParts = new Map([['trash', { failed: true }]]);
   assert.deepEqual({ ...helpersCtx.emptyListState([]) }, { messageKey: 'loadFailed' });
+
+  // Trash settings button remains disabled before the first /trash read completes and when it fails;
+  // deleting entries disable restore/delete menu items.
+  const h2 = harness();
+  let capturedMenus = [];
+  h2.context.window.DashboardUI = undefined;
+  assert.match(app, /if \(\$\("trashSettingsButton"\)\) \$\("trashSettingsButton"\)\.disabled = state\.stale \|\| !trashPart \|\| Boolean\(trashPart\.failed\);/);
+  assert.match(app, /const deleting = Boolean\(entry\.deletionInProgress\);/);
+  assert.match(app, /state\.readParts\.get\("trash"\)\?\.failed \? "failed" : state\.readParts\.has\("trash"\) \? "ok" : "pending"/);
 });

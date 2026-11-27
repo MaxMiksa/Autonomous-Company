@@ -362,6 +362,18 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(st['stagnationLevel'], 'warning')
         self.assertIn('workKind=visual_exploration directly', st['advisory'])
 
+    def test_oscillating_passed_changes_required_passed_on_same_head_does_not_advance(self):
+        from company_harness_quality import progression_state
+        identity = {'productId': 'p'}
+        direction, _, _ = self.store.artifact('d-osc', 'direction')
+        self.store.reviewed(direction, ['definition'], verdict='passed')
+        self.store.reviewed(direction, ['definition'], verdict='changes_required')
+        self.store.reviewed(direction, ['definition'], verdict='passed')
+        self.store.artifact('res-extra', 'research')
+        st = progression_state(self.store, identity)
+        self.assertEqual(st['consecutiveNonAdvancing'], 3)
+        self.assertEqual(st['stagnationLevel'], 'warning')
+
 
 if __name__ == '__main__':
     unittest.main()

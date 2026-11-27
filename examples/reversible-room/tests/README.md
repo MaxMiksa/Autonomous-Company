@@ -5,10 +5,10 @@
 在产品目录执行：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
+pnpm run test:browser
 ```
 
 `playwright.config.js` 自动启动和停止只监听本机的测试服务器，Windows 使用 `python`，其他平台使用 `python3`。默认端口为 `41739`，可以通过 `REVERSIBLE_ROOM_TEST_PORT` 调整。不依赖原运行目录或外部临时安装。

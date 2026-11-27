@@ -744,6 +744,25 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(source_att['sourceId'], self.source)
         page = self.catalog.log_page(self.entry, attempt['attemptId'], query)
         self.assertTrue(page['ok'])
+        log_file = self.root / 'logs' / (attempt['attemptId'] + '.log')
+        log_file.write_bytes(b'abcdefghijklm')
+        segments = []
+        offset = 0
+        revision = None
+        while True:
+            q = {**query, 'offset': offset, 'limit': 5}
+            if revision is not None:
+                q['revision'] = revision
+            chunk = self.catalog.log_page(self.entry, attempt['attemptId'], q)
+            self.assertTrue(chunk['ok'])
+            segments.append(__import__('base64').b64decode(chunk['bytesBase64']))
+            revision = chunk['revision']
+            if chunk['eof']:
+                self.assertEqual(chunk['nextOffset'], 13)
+                break
+            offset = chunk['nextOffset']
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(b''.join(segments), b'abcdefghijklm')
         with self.assertRaises(CenterError) as err:
             self.catalog.projection.resolve_log_target(self.entry, 'foreign', query)
         self.assertEqual(err.exception.status, 404)

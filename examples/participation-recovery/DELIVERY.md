@@ -61,10 +61,10 @@ npm start
 开发检查在本目录执行，不需要 Auto Company 运行环境：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
+pnpm run test:browser
 ```
 
 浏览器检查自行启动本机页面。核心与恢复检查覆盖等价时间、实际内容更新、历史证据与双确认；浏览器检查覆盖真实录入、同地址更新、独立路径不受影响、下载、导入恢复与窄屏布局。测试输入均为构造数据，结果不能代替现实活动履约。测试输出在本目录 `.auto-company/`，修改后请重新执行有关检查。

@@ -144,6 +144,14 @@ class BridgeTests(unittest.TestCase):
         res = self.store.submit(self.context, "dup-submit", {"result": "completed", "unfinishedItems": [], "evidenceRefs": [dup_a, dup_b]})
         self.assertEqual(res["status"], "rejected")
         self.assertEqual(res["errorCode"], "ID_CONFLICT")
+        bound = self.store.bind_evidence("formal-cycle", "bound-id-1", "original bytes",
+                                         source={"attemptId": "attempt-one", "path": "docs/orig.md"})
+        res_path_conflict = self.store.submit(self.context, "bound-path-conflict", {
+            "result": "completed", "unfinishedItems": [],
+            "evidenceRefs": [{"evidenceId": bound["evidenceId"], "sha256": bound["sha256"], "path": "docs/other.md"}],
+        })
+        self.assertEqual(res_path_conflict["status"], "rejected")
+        self.assertEqual(res_path_conflict["errorCode"], "ID_CONFLICT")
 
     def test_inputs_is_completed_head_scoped_to_consuming_lineage(self):
         from company_harness_inputs import load_inputs

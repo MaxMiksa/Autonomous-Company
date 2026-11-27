@@ -19,9 +19,9 @@ QA 将真实浏览器测试放在 `tests/`，覆盖核心操作、图片构图�
 在产品目录准备开发检查（运行产品本身无需安装这些开发依赖）：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
 ```
 
 如已提供本机 Chromium，可使用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/绝对路径/chromium npm test`，省去浏览器下载。Linux 浏览器缺少系统库时，按 Playwright 的安装提示补齐。

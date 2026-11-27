@@ -97,7 +97,7 @@ python examples/create_demo.py .auto-company/example-inputs
 
 ## 开发验证
 
-本目录运行 `python -m unittest discover -s tests -v`，覆盖数据库、HTTP 和真实浏览器上传/导出。浏览器部分需要 Node.js、`npm ci` 安装的 Playwright 开发依赖以及 `npx playwright install chromium` 安装的测试浏览器；也可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chrome/Chromium。日常验收只需要 Python 和浏览器。
+本目录运行 `python -m unittest discover -s tests -v`，覆盖数据库、HTTP 和真实浏览器上传/导出。浏览器部分需要 Node.js、`pnpm install --frozen-lockfile` 安装的 Playwright 开发依赖以及 `pnpm exec playwright install chromium` 安装的测试浏览器；也可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chrome/Chromium。日常验收只需要 Python 和浏览器。
 
 检查使用独立构造的普通 SQLite 与 GeoPackage 几何字节证据、本机 HTTP、真实 Chromium 文件与目录选择。自动化产物保存到 `.auto-company/browser-evidence/`；独立展示副本不附带原运行私有登记或模型日志。
 

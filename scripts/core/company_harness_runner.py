@@ -57,6 +57,37 @@ def host_admission(root, starting=False):
         raise HarnessError("HOST_PAUSED")
 
 
+def recovery_admission(root):
+    marker_file = Path(root).resolve() / ".autonomous-company-center.json"
+    if not marker_file.exists() and not marker_file.is_symlink():
+        return
+    import fcntl
+    from center_runner import lock_free, marker_for, owner_dir, read_json, same_process
+    marker = marker_for(root)
+    if (os.environ.get("AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID") != marker.get("centerId")
+            or os.environ.get("AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID") != marker.get("runtimeId")):
+        raise HarnessError("OWNER_MISMATCH", "recoveryAdmission")
+    raw_fd = os.environ.get("AUTONOMOUS_COMPANY_RECOVERY_SLOT_FD", "")
+    if not raw_fd.isdecimal():
+        raise HarnessError("OWNER_MISMATCH", "recoveryAdmission")
+    slot = owner_dir(marker) / "slot.lock"
+    try:
+        descriptor = int(raw_fd)
+        if (os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino) != (slot.stat().st_dev, slot.stat().st_ino):
+            raise HarnessError("OWNER_MISMATCH", "recoveryAdmission")
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        raise HarnessError("OWNER_MISMATCH", "recoveryAdmission") from error
+    if lock_free(slot):
+        raise HarnessError("OWNER_MISMATCH", "recoveryAdmission")
+    owner_path = owner_dir(marker) / "owner.json"
+    if owner_path.exists():
+        previous = read_json(owner_path)
+        if (previous.get("state") != "terminal" or same_process(previous.get("runner"))
+                or same_process(previous.get("child"))):
+            raise HarnessError("WRITERS_UNCONFIRMED", "recoveryAdmission")
+
+
 def policy():
     result = {}
     for name, default in (("CORRECTIONS", 2), ("RECOVERY_ATTEMPTS", 2), ("RECOVERY_SECONDS", 300), ("CLOSE_SECONDS", 60), ("MAX_SAME_ERROR", 2)):
@@ -858,29 +889,36 @@ def abort_unstarted_cycle(store, root, cycle_id, reason="governance_admission_bl
 
 def approve_recovery(store, root, review_token, reason="human_recovery_approved"):
     """Record operator confirmation after reconcile-crash so an interrupted identity can plan a new contract."""
-    host_admission(root)
+    recovery_admission(root)
     if not review_token or not isinstance(review_token, str):
         raise HarnessError("INVALID_FIELD", "reviewToken")
     cycles = store.snapshot()["cycles"]
     if any(c["protocolState"] != "closed" for c in cycles):
         raise HarnessError("UNFINISHED_HARNESS", detail="Reconcile open cycles before confirming recovery")
     approved = []
+    next_summary = None
     if cycles:
         latest = cycles[-1]
         if latest["outcome"] == "interrupted":
             if any(not a.get("writersStopped") for a in latest["attempts"]):
                 raise HarnessError("WRITERS_UNCONFIRMED")
+            basis = {"operatorConfirmed": True, "reviewToken": review_token, "reason": reason}
+            decision = {
+                "allowed": True,
+                "reason": "human_recovery_approved",
+                "basis": basis,
+                "checkedAt": now(),
+            }
+            store.set_continuation_decision(latest["cycleId"], decision)
+            scope = {"productId": latest.get("productId"), "explorationId": latest.get("explorationId")}
+            planned = next_contract(store, scope, root=root, project=latest["contract"].get("project") or "")
+            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
             store.set_continuation_decision(
                 latest["cycleId"],
-                {
-                    "allowed": True,
-                    "reason": "human_recovery_approved",
-                    "basis": {"operatorConfirmed": True, "reviewToken": review_token, "reason": reason},
-                    "checkedAt": now(),
-                },
+                {**decision, "basis": {**basis, "boundNextContract": next_summary}},
             )
             approved.append(latest["cycleId"])
-    return {"approvedCycles": approved, "reason": reason}
+    return {"approvedCycles": approved, "reason": reason, "nextContract": next_summary}
 
 
 def recover_stopped_cycles(store, root):
@@ -921,7 +959,7 @@ def recover_stopped_cycles(store, root):
 
 def reconcile_crash(store, root, reason="operator_crash_reconcile"):
     """Close proven-stopped orphaned Harness cycles after an unclean host crash."""
-    host_admission(root)
+    recovery_admission(root)
     reconciled = []
     for cycle in store.snapshot()["cycles"]:
         if cycle["protocolState"] == "closed":

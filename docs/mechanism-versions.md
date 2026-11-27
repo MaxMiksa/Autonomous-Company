@@ -14,7 +14,6 @@
 | `mechanism/harness-v2.2-b2` | `e9d4891` | Phase B2：B1 + A1 + Dashboard 稳定性基线 | `pnpm@12.16.1` + Node `24.11.1` 统一、Dashboard 运行时/前端稳定性修复、精选移植 F10 / F11-ext / F13 / F32 | `_cached_capabilities` 缓存空结果/恢复态问题于下一版修复；适合评测纯前端/中心增强 |
 | `mechanism/harness-v2.2-a2` | `322dc62` | Phase A2：防空转治理与轻量选题收敛版 | `progression_state()` 停滞追踪、`SPIN_GUARD` / `REDUNDANT_REVIEW`、`reviewTargets` 解耦、首轮智能入口、CLI 速查、`LOOP_INTERVAL=5` 默认、暂缓商业验证的 2–3 候选收敛漏斗，顺带修复 `_cached_capabilities` fail-closed | 待经独立真实模型（`terra high`）端到端长跑对比历史空转数据 |
 | `mechanism/harness-v2.2-c` | `e3cd209` | Phase C：全量交付整合快照（22 示例分级） | 汇总机制对比谱系、22 个公开示例实测分级清单与整合收口文档（整合 B1+A1+B2+A2+C） | 已完成 `terra/high` 4 轮实测；对应裁剪前 22 项快照 |
-| `mechanism/harness-v2.2-release` | `main` HEAD（基于 `e9b5231`） | 正式发布版（19 精选示例 + 全量评审修复） | 按确认移除 3 个 Tier-3 轻量示例（保留 19 项），并闭环 `gpt-6.2-sol / xhigh` 全部 P0–P3 评审意见后合并发布上线 | 生产发布基线；历史 22 项仍在 `mechanism/harness-v2.2-c` 可追溯 |
 
 ## 回溯与对照操作命令
 

@@ -36,7 +36,7 @@ harness_close_cycle() {
 
 harness_run_cycle() {
     local base_prompt="$1" original_log="$cycle_log" original_timeout="$CYCLE_TIMEOUT_SECONDS"
-    local original_sandbox="$CODEX_SANDBOX_MODE" attempt_fields attempt_timeout recovery ready tries action guard_status admit_status gov_reason
+    local original_sandbox="$CODEX_SANDBOX_MODE" attempt_fields attempt_timeout recovery ready tries action guard_status admit_status gov_reason abort_reason="attempt_preparation_failed"
     python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" prepare --cycle "$CURRENT_PRODUCT_CYCLE_ID" >/dev/null || cleanup 1 harness_contract_invalid
     HARNESS_FINAL_ACTION="human"
     HARNESS_GOVERNANCE_BLOCKED=0
@@ -52,14 +52,11 @@ harness_run_cycle() {
         if [ "$guard_status" -ne 0 ]; then
             HARNESS_GOVERNANCE_BLOCKED=1
             HARNESS_FINAL_ACTION=human
-            if [ ! -e "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_PRODUCT_CYCLE_ID.result.json" ]; then
-                python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" abort-unstarted \
-                    --cycle "$CURRENT_PRODUCT_CYCLE_ID" --reason "governance_admission_blocked" >/dev/null \
-                    || cleanup 1 harness_contract_invalid
-            fi
+            abort_reason="governance_admission_blocked"
             break
         fi
         if ! attempt_fields=$(python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" attempt --cycle "$CURRENT_PRODUCT_CYCLE_ID"); then
+            abort_reason="attempt_preparation_failed"
             break
         fi
         read -r CURRENT_HARNESS_ATTEMPT attempt_timeout recovery <<< "$attempt_fields"
@@ -136,6 +133,11 @@ $harness_prompt"
     export CODEX_SANDBOX_MODE
     cycle_log="$original_log"
     unset AUTONOMOUS_COMPANY_ATTEMPT_ID COMPANY_HARNESS_MANIFEST
+    if [ ! -e "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_PRODUCT_CYCLE_ID.result.json" ]; then
+        python3 "$HARNESS_TOOL" --root "$PROJECT_DIR" abort-unstarted \
+            --cycle "$CURRENT_PRODUCT_CYCLE_ID" --reason "$abort_reason" >/dev/null \
+            || cleanup 1 harness_contract_invalid
+    fi
     # No provider-level success is allowed to stand in for protocol success.
     local final_outcome
     final_outcome=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["outcome"])' "$PROJECT_DIR/.autonomous-company/harness/$CURRENT_PRODUCT_CYCLE_ID.result.json")

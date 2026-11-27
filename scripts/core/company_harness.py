@@ -435,6 +435,9 @@ class HarnessStore:
                 raise HarnessError("EVIDENCE_MISSING", ref["evidenceId"])
             if evidence["sha256"] != ref["sha256"]:
                 raise HarnessError("EVIDENCE_VERSION_MISMATCH", ref["evidenceId"])
+            existing_path = (evidence.get("source") or {}).get("path")
+            if ref.get("path") and existing_path and existing_path != ref["path"]:
+                raise HarnessError("ID_CONFLICT", ref["evidenceId"])
 
     def finish_attempt(self, context, actual_result, *, writers_stopped, observation):
         """Host supervisor must authenticate the execution tree, not just its PID."""

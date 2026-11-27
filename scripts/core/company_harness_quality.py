@@ -196,8 +196,6 @@ def _advancing_flags(cycles):
                             if gate not in unlocked:
                                 unlocked.add(gate)
                                 advances = True
-                        else:
-                            unlocked.discard(gate)
         flags.append(advances)
     return flags
 

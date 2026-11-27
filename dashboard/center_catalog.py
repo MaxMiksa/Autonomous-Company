@@ -228,6 +228,32 @@ class CenterCatalog:
             raise CenterError('SOURCE_CHANGED', 'Source changed after inspection; probe again.', 409)
         return candidate
 
+    @staticmethod
+    def _root_is_deleting(tx, root_str):
+        try:
+            target = os.path.normcase(str(Path(root_str).resolve()))
+        except OSError:
+            return False
+        deleting = [row for row in tx.list('entries') if not row.get('detached') and row.get('deletionInProgress')]
+        if not deleting:
+            return False
+        deleting_ids = {row['entryId'] for row in deleting}
+        for row in deleting:
+            for item in row.get('deletionTargetRoots') or []:
+                try:
+                    if os.path.normcase(str(Path(item).resolve())) == target:
+                        return True
+                except OSError:
+                    continue
+        for source in tx.list('sources'):
+            if source.get('entryId') in deleting_ids and not source.get('detached') and source.get('root'):
+                try:
+                    if os.path.normcase(str(Path(source['root']).resolve())) == target:
+                        return True
+                except OSError:
+                    continue
+        return False
+
     def commit(self, body):
         key = body.get('idempotencyKey')
         body_hash = digest(body)
@@ -253,6 +279,8 @@ class CenterCatalog:
                     if prior['hash'] != body_hash:
                         raise CenterError('IDEMPOTENCY_CONFLICT', 'This key has different input.', 409)
                     return prior['result']
+            if self._root_is_deleting(tx, candidate['root']):
+                raise CenterError('ACTION_IN_PROGRESS', 'This directory is being permanently deleted.', 409)
             for item in candidate['items']:
                 if item['itemId'] not in selected:
                     continue
@@ -925,6 +953,8 @@ class CenterCatalog:
             if expected != source.get('revision'):
                 raise CenterError('REVISION_CONFLICT', 'Source changed; reload it.', 409)
             self._idle(tx, source['entryId'])
+            if self._root_is_deleting(tx, candidate['root']):
+                raise CenterError('ACTION_IN_PROGRESS', 'This directory is being permanently deleted.', 409)
             if source.get('runtimeId') and (tx.get('runtimes', source['runtimeId']) or {}).get('managed'):
                 raise CenterError('MANAGED_SOURCE', 'Release managed sources before reconnecting.', 409)
             item = next((item for item in candidate['items'] if item['identityFingerprint'] == source.get('identityFingerprint')), None)
@@ -1055,7 +1085,10 @@ class CenterCatalog:
             discovered = []
             with self.store.transaction() as tx:
                 current_anchor = tx.get('sources', anchor['sourceId'])
-                if not current_anchor or current_anchor.get('detached') or current_anchor.get('root') != anchor['root']:
+                anchor_entry = tx.get('entries', current_anchor['entryId']) if current_anchor else None
+                if (not current_anchor or current_anchor.get('detached') or current_anchor.get('root') != anchor['root']
+                        or not anchor_entry or anchor_entry.get('detached') or anchor_entry.get('trashed')
+                        or anchor_entry.get('deletionInProgress') or self._root_is_deleting(tx, current_anchor['root'])):
                     return []
                 for identity, row, metadata in candidates:
                     if any(entry.get('productId') == identity for entry in tx.list('entries')):

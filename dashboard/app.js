@@ -241,7 +241,7 @@ window.DashboardNavigation.register('journal', (view) => {
       state.scopedUsage = usage; renderUsage(); renderSidebar();
     } catch (error) {
       if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
-      if (ticket.generation === projection.generation && token === state.usageToken && key === usageKey(usageSelection(), state.data)) {
+      if (ticket.generation === projection.generation && key === usageKey(usageSelection(), state.data)) {
         if (state.scopedUsage?.key === key) state.scopedUsage.stale = true;
         else state.scopedUsage = { key, data: null, stale: true };
         renderUsage();

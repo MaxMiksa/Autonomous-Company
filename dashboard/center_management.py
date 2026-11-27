@@ -28,6 +28,9 @@ class CenterManagement:
     def __init__(self, store, catalog, runtime):
         self.store, self.catalog, self.runtime = store, catalog, runtime
         self._maintenance_lock = threading.Lock()
+        self._active_lock = threading.Lock()
+        self._active_deletions = set()
+        self._instance_id = uid('mgmt')
         self._last_sweep = 0
 
     @staticmethod
@@ -46,8 +49,86 @@ class CenterManagement:
         if callable(invalidate):
             invalidate(runtime_id)
 
+    def _is_live_deletion(self, entry):
+        token = entry.get('deletionInProgress')
+        if not token:
+            return False
+        with self._active_lock:
+            return (isinstance(token, dict) and token.get('instanceId') == self._instance_id
+                    and entry['entryId'] in self._active_deletions)
+
+    def _finalize_detached(self, tx, entry, *, deletion_scope, evidence, sources=None):
+        entry_id = entry['entryId']
+        deleted_at = now()
+        entry.update(detached=True, deletedAt=deleted_at, deletionEvidence=evidence,
+                     deletionScope=deletion_scope, revision=entry['revision'] + 1)
+        entry.pop('deletionInProgress', None)
+        entry.pop('deletionTargetRoots', None)
+        entry.pop('trashError', None)
+        if sources is None:
+            sources = [row for row in tx.list('sources') if row['entryId'] == entry_id and not row.get('detached')]
+        for source in sources:
+            source.update(detached=True, deletedAt=deleted_at, revision=source.get('revision', 0) + 1)
+            tx.put('sources', source['sourceId'], source)
+        self._event(tx, entry_id, 'delete', deletionScope=deletion_scope, deletionEvidence=evidence)
+        tx.put('entries', entry_id, entry)
+
+    def _record_delete_failure(self, tx, entry, code, message, *, event_action='delete_failed', bump_revision=True):
+        entry_id = entry['entryId']
+        receipts = [self._delete_receipt(row['runtimeId']) for row in tx.list('sources')
+                    if row['entryId'] == entry_id and row.get('runtimeId')]
+        entry.update(trashError={'code': code, 'message': message, 'at': now()},
+                     partialDeletion=any(row.get('rootMoved') or row.get('cleanupStarted') for row in receipts) or any(
+                         (self.store.data_dir / 'trash-files' / row['runtimeId']).exists() for row in tx.list('sources')
+                         if row['entryId'] == entry_id and row.get('runtimeId')),
+                     deletionReceipts=receipts,
+                     deletionEvidence=[row['evidence'] for row in receipts if row.get('evidence')])
+        if bump_revision:
+            entry['revision'] += 1
+        self._event(tx, entry_id, event_action, errorCode=code, deletionReceipts=receipts)
+        tx.put('entries', entry_id, entry)
+
+    def _reconcile_stale_deletion(self, tx, entry, *, bump_revision=True):
+        if not entry.get('deletionInProgress') or self._is_live_deletion(entry):
+            return False
+        entry.pop('deletionInProgress', None)
+        entry.pop('deletionTargetRoots', None)
+        sources = [row for row in tx.list('sources') if row['entryId'] == entry['entryId'] and not row.get('detached')]
+        owned_runtime_ids = []
+        for source in sources:
+            rid = source.get('runtimeId')
+            if not rid:
+                continue
+            runtime = tx.get('runtimes', rid)
+            expected = self.store.data_dir / 'runtimes' / rid
+            if runtime and runtime.get('managed') and Path(source['root']) == expected and runtime.get('root') == source['root']:
+                owned_runtime_ids.append((rid, expected))
+        if owned_runtime_ids:
+            receipts = []
+            all_deleted = True
+            for rid, expected in owned_runtime_ids:
+                receipt = self._delete_receipt(rid)
+                receipts.append(receipt)
+                if (expected.exists() or (self.store.data_dir / 'trash-files' / rid).exists()
+                        or receipt.get('state') != 'succeeded' or not receipt.get('filesDeleted')):
+                    all_deleted = False
+                    break
+            if all_deleted:
+                evidence = [r['evidence'] for r in receipts if r.get('evidence')]
+                self._finalize_detached(tx, entry, deletion_scope='managed_files', evidence=evidence, sources=sources)
+                return True
+        self._record_delete_failure(
+            tx, entry, 'DELETE_INTERRUPTED',
+            'Previous deletion was interrupted; retry permanent deletion.',
+            event_action='delete_interrupted', bump_revision=bump_revision,
+        )
+        return False
+
     def trash(self):
         with self.store.transaction() as tx:
+            for row in tx.list('entries'):
+                if row.get('trashed') and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
+                    self._reconcile_stale_deletion(tx, row, bump_revision=True)
             settings = tx.get('management', 'trash') or {'retentionDays': 30, 'revision': 1}
             entries = [self.catalog._entry_view(tx, row) for row in tx.list('entries')
                        if row.get('trashed') and not row.get('detached')]
@@ -57,6 +138,11 @@ class CenterManagement:
         days = body.get('retentionDays')
         if type(days) is not int or not 1 <= days <= 3650:
             raise CenterError('INVALID_RETENTION', 'Retention must be 1 to 3650 days.')
+        expected_center = body.get('expectedCenterId')
+        if expected_center is not None and not isinstance(expected_center, str):
+            raise CenterError('INVALID_REQUEST', 'Center ID must be a string.')
+        if expected_center is not None and expected_center != self.store.center_id:
+            raise CenterError('REVISION_CONFLICT', 'Center changed; reload it.', 409)
         with self.store.transaction() as tx:
             settings = tx.get('management', 'trash') or {'retentionDays': 30, 'revision': 1}
             self._expected(body, settings)
@@ -138,9 +224,12 @@ class CenterManagement:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
-            if entry.get('deletionInProgress'):
+            if self._is_live_deletion(entry):
                 raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
+            if entry.get('deletionInProgress'):
+                if self._reconcile_stale_deletion(tx, entry, bump_revision=False):
+                    raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
             if action == 'rename':
                 entry['customDisplayName'] = self._name(body.get('displayName'))
             elif action == 'trash':
@@ -290,90 +379,192 @@ class CenterManagement:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def _idle_db(self, tx, entry):
+        self.catalog._idle(tx, entry['entryId'])
+        sources = [row for row in tx.list('sources') if row['entryId'] == entry['entryId'] and not row.get('detached')]
+        checks = []
+        for source in sources:
+            runtime = tx.get('runtimes', source.get('runtimeId')) if source.get('runtimeId') else None
+            if runtime and runtime.get('managed'):
+                if (runtime.get('centerId') != self.store.center_id or runtime.get('entryId') != entry['entryId']
+                        or runtime.get('sourceId') != source['sourceId']):
+                    raise CenterError('OWNER_CONFLICT', 'Source ownership does not match this center.', 409)
+                if not self.runtime.adapter.available:
+                    raise CenterError('OWNERSHIP_UNCONFIRMED', 'Connect the execution domain to verify that the project has stopped.', 409)
+                checks.append((dict(source), dict(runtime)))
+        return sources, checks
+
+    def _verify_idle_io(self, entry, checks, fs_provenance):
+        by_source = {item['source']['sourceId']: item.get('frameworkRevision') for item in fs_provenance}
+        for source, _runtime in checks:
+            revision = by_source.get(source['sourceId'])
+            check = (self.runtime.adapter.query('disposal-preflight', root=source['root'], center_id=self.store.center_id,
+                                                expected_framework_revision=revision)
+                     if revision else self.runtime.adapter.query('preflight', root=source['root'], center_id=self.store.center_id,
+                                                                allow_protected='1', require_context='0'))
+            receipt = self._delete_receipt(source['runtimeId'])
+            recovery = ((not Path(source['root']).exists() or receipt.get('cleanupStarted'))
+                        and all(receipt.get('marker', {}).get(key) == value for key, value in {
+                            'centerId': self.store.center_id, 'runtimeId': source['runtimeId'],
+                            'entryId': entry['entryId'], 'sourceId': source['sourceId']}.items()))
+            if not check.get('quiescent') and not entry.get('partialDeletion') and not recovery:
+                raise CenterError('ENTRY_BUSY', 'Source ownership or active processes require attention.', 409,
+                                  {'reason': check.get('reason')})
+
+    def _owned_directory_db(self, tx, entry, source):
+        runtime_id = source.get('runtimeId')
+        runtime = tx.get('runtimes', runtime_id) if runtime_id else None
+        if not runtime or not runtime.get('managed'):
+            return None
+        expected_raw = self.store.data_dir / 'runtimes' / runtime_id
+        if Path(source['root']) != expected_raw or runtime.get('root') != source['root']:
+            return None
+        if any(runtime.get(key) != value for key, value in {'centerId': self.store.center_id, 'entryId': entry['entryId'],
+                                                           'sourceId': source['sourceId'], 'runtimeId': runtime_id}.items()):
+            raise CenterError('OWNER_CONFLICT', 'Original runtime ownership cannot be verified.', 409)
+        expected = expected_raw.resolve()
+        expected.relative_to(self.store.data_dir)
+        if any(row.get('sourceId') != source['sourceId'] and not row.get('detached')
+               and (row.get('runtimeId') == runtime_id or Path(row.get('root', '')).resolve() == expected) for row in tx.list('sources')):
+            raise CenterError('SHARED_RUNTIME', 'Other registered projects still use this directory.', 409)
+        revision = runtime.get('frameworkRevision')
+        if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+            raise CenterError('FRAMEWORK_PROVENANCE_UNVERIFIED', 'The original framework version and creation record cannot be verified.', 409)
+        operations = [dict(row) for row in tx.list('operations') if row.get('kind') == 'exploration']
+        return {'source': dict(source), 'runtime': dict(runtime), 'expectedRaw': expected_raw,
+                'expected': expected, 'frameworkRevision': revision, 'operations': operations}
+
+    def _verify_owned_directory_fs(self, entry, item):
+        source, runtime = item['source'], item['runtime']
+        runtime_id = source['runtimeId']
+        expected_raw, expected = item['expectedRaw'], item['expected']
+        for part in (expected_raw, *expected_raw.parents):
+            if linked_path(part):
+                raise CenterError('UNSAFE_SOURCE', 'Linked managed directories cannot be deleted.', 409)
+        target = root_path(source['root']) if expected_raw.exists() else expected
+        if target != expected:
+            return None
+        receipt = self._delete_receipt(runtime_id)
+        if not expected.exists() and not (self.store.data_dir / 'trash-files' / runtime_id).exists() and (receipt.get('rootMoved') or receipt.get('cleanupStarted') or receipt.get('filesDeleted')):
+            marker = receipt.get('fullMarker', {})
+            if any(marker.get(key) != value for key, value in {'centerId': self.store.center_id, 'runtimeId': runtime_id,
+                                                             'entryId': entry['entryId'], 'sourceId': source['sourceId']}.items()):
+                raise CenterError('OWNER_CONFLICT', 'Deletion receipt ownership cannot be verified.', 409)
+            return expected
+        marker_path = expected / MARKER
+        if not expected.exists() and (entry.get('partialDeletion') or receipt.get('marker', {}).get('runtimeId') == runtime_id):
+            marker_path = self.store.data_dir / 'trash-files' / runtime_id / MARKER
+            target = marker_path.parent
+        if linked_path(marker_path) or marker_path.is_file() and marker_path.stat().st_size > 65536:
+            raise CenterError('OWNER_CONFLICT', 'Managed directory marker is unavailable.', 409)
+        marker = json.loads(marker_path.read_text(encoding='utf-8')) if marker_path.is_file() else receipt.get('fullMarker', {})
+        if any(marker.get(key) != value for key, value in {'centerId': self.store.center_id, 'runtimeId': runtime_id,
+                                                           'entryId': entry['entryId'], 'sourceId': source['sourceId']}.items()):
+            raise CenterError('OWNER_CONFLICT', 'Managed directory marker has changed.', 409)
+        operation = next((row for row in item['operations'] if row.get('operationId') == marker.get('operationId')
+                          and all((row.get('reserved') or {}).get(key) == marker.get(key) for key in ('runtimeId', 'entryId', 'sourceId'))), None)
+        if not operation:
+            raise CenterError('OWNER_CONFLICT', 'This directory was not created by this center.', 409)
+        attempt = marker.get('preparationAttempt')
+        revision = item['frameworkRevision']
+        if (operation.get('frameworkRevision') != revision
+                or attempt != runtime.get('preparationAttempt') or attempt != operation.get('preparationAttempt')
+                or attempt is not None and (not isinstance(attempt, str) or not re.fullmatch(r'attempt_[0-9a-f]{32}', attempt))):
+            raise CenterError('FRAMEWORK_PROVENANCE_UNVERIFIED', 'The original framework version and creation record cannot be verified.', 409)
+        stack = [target]
+        while stack:
+            folder = stack.pop()
+            for child in folder.iterdir():
+                if linked_path(child):
+                    raise CenterError('UNSAFE_SOURCE', 'Remove linked files before permanently deleting this directory.', 409)
+                if child.is_dir():
+                    stack.append(child)
+        return expected
+
     def _delete(self, entry_id, body):
         if body.get('confirmPermanent') is not True:
             raise CenterError('CONFIRMATION_REQUIRED', 'Confirm permanent deletion.', 409)
         failure = None
         runtime_ids = []
-        plan = []
+        owned_items = []
+        idle_checks = []
+        external_managed = False
+        reserved = False
         entry_snapshot = None
         with self.catalog._source_refresh_lock, self.store.transaction() as tx:
             entry = tx.get('entries', entry_id)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
-            if entry.get('deletionInProgress'):
+            if self._is_live_deletion(entry):
                 raise CenterError('ACTION_IN_PROGRESS', 'Permanent deletion is already in progress.', 409)
             self._expected(body, entry)
-            if not entry.get('trashed'):
-                raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
-            try:
-                sources = self._idle(tx, entry)
-                runtime_ids = [source['runtimeId'] for source in sources if source.get('runtimeId')]
-                targets = [(source, self._owned_directory(tx, entry, source)) for source in sources]
-                if any(target is None and source.get('runtimeId') and
-                       (tx.get('runtimes', source['runtimeId']) or {}).get('managed') for source, target in targets):
-                    raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
-                for source, target in targets:
-                    if target:
-                        plan.append((dict(source), target, self._disposal_provenance(tx, entry, source)))
-                if plan:
-                    entry['deletionInProgress'] = True
-                    entry['revision'] += 1
-                    tx.put('entries', entry_id, entry)
-                    entry_snapshot = dict(entry)
-                else:
-                    entry.update(detached=True, deletedAt=now(), deletionEvidence=[],
-                                 deletionScope='center_registration', revision=entry['revision'] + 1)
-                    entry.pop('trashError', None)
+            if entry.get('deletionInProgress'):
+                if self._reconcile_stale_deletion(tx, entry, bump_revision=False):
+                    detached_view = dict(entry)
+                    runtime_ids = [row['runtimeId'] for row in tx.list('sources') if row['entryId'] == entry_id and row.get('runtimeId')]
+                    reserved = False
+                    entry_snapshot = detached_view
+                elif not entry.get('trashed'):
+                    raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
+            if not entry_snapshot:
+                if not entry.get('trashed'):
+                    raise CenterError('ENTRY_NOT_TRASHED', 'Move the project to the recycle bin before permanently deleting it.', 409)
+                try:
+                    sources, idle_checks = self._idle_db(tx, entry)
+                    runtime_ids = [source['runtimeId'] for source in sources if source.get('runtimeId')]
                     for source in sources:
-                        source.update(detached=True, deletedAt=entry['deletedAt'], revision=source.get('revision', 0) + 1)
-                        tx.put('sources', source['sourceId'], source)
-                    self._event(tx, entry_id, 'delete', deletionScope='center_registration', deletionEvidence=[])
-                    tx.put('entries', entry_id, entry)
-                    entry_snapshot = dict(entry)
-            except (CenterError, OSError, ValueError) as error:
-                failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
-                receipts = [self._delete_receipt(row['runtimeId']) for row in tx.list('sources')
-                            if row['entryId'] == entry_id and row.get('runtimeId')]
-                entry.update(trashError={'code': failure.code, 'message': failure.message, 'at': now()},
-                             partialDeletion=any(row.get('rootMoved') or row.get('cleanupStarted') for row in receipts) or any(
-                                 (self.store.data_dir / 'trash-files' / row['runtimeId']).exists() for row in tx.list('sources')
-                                 if row['entryId'] == entry_id and row.get('runtimeId')),
-                             deletionReceipts=receipts,
-                             deletionEvidence=[row['evidence'] for row in receipts if row.get('evidence')], revision=entry['revision'] + 1)
-                self._event(tx, entry_id, 'delete_failed', errorCode=failure.code, deletionReceipts=receipts)
-                tx.put('entries', entry_id, entry)
-        if plan and failure is None:
+                        item = self._owned_directory_db(tx, entry, source)
+                        if item is not None:
+                            owned_items.append(item)
+                        elif source.get('runtimeId') and (tx.get('runtimes', source['runtimeId']) or {}).get('managed'):
+                            external_managed = True
+                    if owned_items or idle_checks:
+                        target_roots = sorted(
+                            {str(item['expected']) for item in owned_items}
+                            | {str(Path(s['root']).resolve()) for s in sources if s.get('root')}
+                        )
+                        with self._active_lock:
+                            self._active_deletions.add(entry_id)
+                        reserved = True
+                        entry['deletionInProgress'] = {'startedAt': now(), 'instanceId': self._instance_id}
+                        entry['deletionTargetRoots'] = target_roots
+                        entry['revision'] += 1
+                        tx.put('entries', entry_id, entry)
+                        entry_snapshot = dict(entry)
+                    elif external_managed:
+                        raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
+                    else:
+                        self._finalize_detached(tx, entry, deletion_scope='center_registration', evidence=[], sources=sources)
+                        entry_snapshot = dict(entry)
+                except (CenterError, OSError, ValueError) as error:
+                    failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
+                    self._record_delete_failure(tx, entry, failure.code, failure.message)
+        if reserved:
             evidence = []
             try:
-                for source, target, framework_revision in plan:
-                    evidence.append(self._delete_directory(target, source, entry_snapshot, framework_revision))
-            except (CenterError, OSError, ValueError) as error:
-                failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
-            with self.catalog._source_refresh_lock, self.store.transaction() as tx:
-                entry = tx.get('entries', entry_id)
-                entry.pop('deletionInProgress', None)
-                if failure is None:
-                    entry.update(detached=True, deletedAt=now(), deletionEvidence=evidence,
-                                 deletionScope='managed_files', revision=entry['revision'] + 1)
-                    entry.pop('trashError', None)
-                    sources = [row for row in tx.list('sources') if row['entryId'] == entry_id and not row.get('detached')]
-                    for source in sources:
-                        source.update(detached=True, deletedAt=entry['deletedAt'], revision=source.get('revision', 0) + 1)
-                        tx.put('sources', source['sourceId'], source)
-                    self._event(tx, entry_id, 'delete', deletionScope='managed_files', deletionEvidence=evidence)
-                    entry_snapshot = dict(entry)
-                else:
-                    receipts = [self._delete_receipt(row['runtimeId']) for row in tx.list('sources')
-                                if row['entryId'] == entry_id and row.get('runtimeId')]
-                    entry.update(trashError={'code': failure.code, 'message': failure.message, 'at': now()},
-                                 partialDeletion=any(row.get('rootMoved') or row.get('cleanupStarted') for row in receipts) or any(
-                                     (self.store.data_dir / 'trash-files' / row['runtimeId']).exists() for row in tx.list('sources')
-                                     if row['entryId'] == entry_id and row.get('runtimeId')),
-                                 deletionReceipts=receipts,
-                                 deletionEvidence=[row['evidence'] for row in receipts if row.get('evidence')], revision=entry['revision'] + 1)
-                    self._event(tx, entry_id, 'delete_failed', errorCode=failure.code, deletionReceipts=receipts)
-                tx.put('entries', entry_id, entry)
+                try:
+                    for item in owned_items:
+                        self._verify_owned_directory_fs(entry_snapshot, item)
+                    self._verify_idle_io(entry_snapshot, idle_checks, owned_items)
+                    if external_managed:
+                        raise CenterError('MANAGED_SOURCE', 'Release management of the external directory before removing its registration.', 409)
+                    for item in owned_items:
+                        evidence.append(self._delete_directory(item['expected'], item['source'], entry_snapshot, item['frameworkRevision']))
+                except (CenterError, OSError, ValueError) as error:
+                    failure = error if isinstance(error, CenterError) else CenterError('DELETE_FAILED', 'Directory cleanup failed; the recycle bin record is retained.', 409)
+                with self.catalog._source_refresh_lock, self.store.transaction() as tx:
+                    entry = tx.get('entries', entry_id)
+                    entry.pop('deletionInProgress', None)
+                    entry.pop('deletionTargetRoots', None)
+                    if failure is None:
+                        scope = 'managed_files' if owned_items else 'center_registration'
+                        self._finalize_detached(tx, entry, deletion_scope=scope, evidence=evidence)
+                        entry_snapshot = dict(entry)
+                    else:
+                        self._record_delete_failure(tx, entry, failure.code, failure.message)
+            finally:
+                with self._active_lock:
+                    self._active_deletions.discard(entry_id)
         for runtime_id in runtime_ids:
             self._invalidate_runtime(runtime_id)
         if failure:
@@ -389,6 +580,9 @@ class CenterManagement:
             self._last_sweep = time.monotonic()
             stamp = datetime.now(timezone.utc)
             with self.store.transaction() as tx:
+                for row in tx.list('entries'):
+                    if row.get('trashed') and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
+                        self._reconcile_stale_deletion(tx, row, bump_revision=True)
                 entries = [row for row in tx.list('entries') if row.get('trashed') and not row.get('detached')
                            and not row.get('deletionInProgress')
                            and datetime.fromisoformat(row['expiresAt']) <= stamp]
