@@ -71,7 +71,7 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
         return {"remainingSeconds": remaining, "timePhase": phase}
 
     def dispatch(self, request):
-        from company_harness_quality import artifact_state
+        from company_harness_quality import artifact_state, progression_state
         if not isinstance(request, dict) or set(request) - {"token", "action", "id", "payload"}:
             raise HarnessError("INVALID_REQUEST")
         token = request.get("token")
@@ -97,10 +97,9 @@ class Bridge(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServe
             except HarnessError:
                 status["writeAllowed"] = False
             if cycle:
-                status["artifactHeads"] = artifact_state(
-                    self.store,
-                    {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")},
-                )
+                scope = {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")}
+                status["artifactHeads"] = artifact_state(self.store, scope)
+                status["progressionState"] = progression_state(self.store, scope)
             status["cycle"] = {key: cycle.get(key) for key in ("cycleId", "contract", "objective", "workKind", "protocolState", "outcome", "time", "activeAttemptId", "report")} if cycle else None
             return status
         if action == "publish_progress":

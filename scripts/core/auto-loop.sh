@@ -31,7 +31,7 @@
 #   OPENAI_COMPATIBLE_MODEL=...     # Required model (MODEL also accepted)
 #   OPENAI_COMPATIBLE_ALLOW_INSECURE_HTTP=1
 #                               # Explicit opt-in for non-loopback plain HTTP
-#   LOOP_INTERVAL=30            # Seconds between cycles (default: 30)
+#   LOOP_INTERVAL=30            # Seconds between cycles (default: 30, or 5 when COMPANY_HARNESS_ENABLED=1)
 #   CYCLE_TIMEOUT_SECONDS=1800  # Max seconds per cycle before force-kill
 #   CYCLE_TERM_GRACE_SECONDS=5  # Grace after TERM before KILL
 #   CYCLE_KILL_WAIT_SECONDS=5   # Max wait to confirm the killed tree is gone
@@ -92,7 +92,13 @@ CLAUDE_BIN="${CLAUDE_BIN:-}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-bypassPermissions}"
 CODEX_BIN="${CODEX_BIN:-}"
 CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-danger-full-access}"
-LOOP_INTERVAL="${LOOP_INTERVAL:-30}"
+if [ -z "${LOOP_INTERVAL+x}" ]; then
+    if [ "$COMPANY_HARNESS_ENABLED" = 1 ]; then
+        LOOP_INTERVAL=5
+    else
+        LOOP_INTERVAL=30
+    fi
+fi
 CYCLE_TIMEOUT_SECONDS="${CYCLE_TIMEOUT_SECONDS:-1800}"
 CYCLE_TERM_GRACE_SECONDS="${CYCLE_TERM_GRACE_SECONDS:-5}"
 CYCLE_KILL_WAIT_SECONDS="${CYCLE_KILL_WAIT_SECONDS:-5}"

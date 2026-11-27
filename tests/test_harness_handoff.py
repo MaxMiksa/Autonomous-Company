@@ -217,6 +217,34 @@ class HandoffTests(unittest.TestCase):
             with patch.object(helper.os, 'fsync', side_effect=OSError('interrupted')), self.assertRaises(OSError):
                 self.run_plan()
 
+    def test_review_targets_selector_compiles_review_requirement_and_validates_kind(self):
+        bg, _ = material('docs/result.md')
+        entry = self.add_input('direction.md', b'Proposed product direction', 'dir-1')
+        self.store.bind_evidence('cycle', 'dir-1', 'Proposed product direction')
+        plan = {
+            'contract': {
+                'objective': 'Review proposed direction only',
+                'workKind': 'review',
+                'scope': ['review direction'],
+                'completionOrHandoff': 'verdict',
+            },
+            'inputs': [{'primary': True}],
+            'prerequisites': [],
+            'reviewTargets': [{'input': 'direction.md'}],
+        }
+        res = self.run_plan(plan)
+        compiled = json.loads(self.output().read_text())['nextContract']
+        expected_target = {'evidenceId': entry['evidenceId'], 'sha256': entry['sha256']}
+        expected_bg = {'evidenceId': bg['evidenceId'], 'sha256': bg['sha256']}
+        self.assertEqual(compiled['reviewRequirement'], {'independent': True, 'targetRefs': [expected_target]})
+        self.assertEqual(compiled['inputRefs'], [expected_bg, expected_target])
+        self.assertEqual(res['inputCount'], 2)
+
+        bad_kind = deepcopy(plan)
+        bad_kind['contract']['workKind'] = 'research'
+        with self.assertRaisesRegex(ValueError, 'reviewTargets'):
+            self.run_plan(bad_kind)
+
 
 if __name__ == '__main__':
     unittest.main()

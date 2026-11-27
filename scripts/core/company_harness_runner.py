@@ -67,14 +67,73 @@ def policy():
     return result
 
 
-def next_contract(store, identity):
+_EMPTY_OVERRIDE_TOKENS = {"", "(none)", "- (none)", "none", "- none", "无", "- 无", "-（无）", "（无）", "n/a", "- n/a", "-"}
+
+
+def _has_explicit_human_override(root):
+    if root is None:
+        return False
+    consensus_path = safe_path(root, "memories/consensus.md")
+    if not consensus_path.is_file():
+        return False
+    lines = consensus_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    in_section = False
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if stripped.startswith("## "):
+            if in_section:
+                break
+            if stripped == "## Human Overrides":
+                in_section = True
+            continue
+        if in_section and stripped.lower() not in _EMPTY_OVERRIDE_TOKENS:
+            return True
+    return False
+
+
+def _initial_proposal(root=None, project=""):
+    override = os.environ.get("COMPANY_HARNESS_INITIAL_WORK_KIND", "").strip()
+    if override:
+        if override not in {"objective_selection", "research", "direction"}:
+            raise HarnessError("INVALID_CONFIG", "COMPANY_HARNESS_INITIAL_WORK_KIND")
+        kind = override
+    elif root is not None and _has_explicit_human_override(root):
+        kind = "direction"
+    elif root is not None and project:
+        kind = "research"
+    else:
+        kind = "objective_selection"
+    if kind == "direction":
+        return {
+            "objective": "Establish the authorized product direction and bounded MVP scope from Human Overrides, then propose its independent review.",
+            "workKind": "direction", "timeClass": "regular",
+            "scope": ["commit concrete product direction and bounded scope from Human Overrides"],
+            "inputRefs": [], "completionOrHandoff": "Versioned direction document ready for independent review",
+            "prerequisiteRefs": [], "reviewRequirement": None,
+        }
+    if kind == "research":
+        return {
+            "objective": "Assess current state of the active project and identify the highest-value next deliverable, then propose its concrete nextContract.",
+            "workKind": "research", "timeClass": "regular",
+            "scope": ["assess active project state and select concrete next deliverable"],
+            "inputRefs": [], "completionOrHandoff": "Concise research note with nextContract for the next milestone",
+            "prerequisiteRefs": [], "reviewRequirement": None,
+        }
+    return {
+        "objective": "Select one authorized primary deliverable (for blank exploration, propose one bounded 2-3 candidate research comparison to commit a winner) and submit its nextContract; do not implement it in this cycle.",
+        "workKind": "objective_selection", "timeClass": "regular",
+        "scope": ["select the next primary outcome only"],
+        "inputRefs": [], "completionOrHandoff": "Readable proposal for one next primary deliverable",
+        "prerequisiteRefs": [], "reviewRequirement": None,
+    }
+
+
+def next_contract(store, identity, *, root=None, project=""):
     from company_harness_quality import prepare_contract, _belongs
     snapshot = store.snapshot()
     applicable = [c for c in snapshot["cycles"] if _belongs(c, identity)]
     if not applicable:
-        proposal = {"objective": "Select one authorized primary deliverable and submit its nextContract; do not implement it in this cycle.",
-            "workKind": "objective_selection", "timeClass": "regular", "scope": ["select the next primary outcome only"], "inputRefs": [],
-            "completionOrHandoff": "Readable proposal for one next primary deliverable", "prerequisiteRefs": [], "reviewRequirement": None}
+        proposal = _initial_proposal(root=root, project=project)
     else:
         previous = applicable[-1]
         if previous["protocolState"] != "closed" or not previous["continuationDecision"].get("allowed"):
@@ -96,7 +155,7 @@ def prepare(store, root, cycle_id):
         raise HarnessError("IDENTITY_UNCONFIRMED")
     scope = {"productId": identity.get("productId"), "explorationId": identity.get("explorationId")}
     reassess_continuation(store, root, scope)
-    proposal = next_contract(store, scope)
+    proposal = next_contract(store, scope, root=root, project=identity.get("project") or "")
     proposal.update(targetRangeSeconds=[180, 300] if proposal["timeClass"] == "regular" else None,
                     targetSeconds=300 if proposal["timeClass"] == "regular" else 600,
                     capabilities={"adapter": "codex", "liveTimeReminder": False, "receiptTimeReminder": True,
@@ -183,7 +242,7 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "Use --handoff RELATIVE_JSON_PATH for a file containing {nextContract:{objective,workKind,timeClass,scope,inputRefs,completionOrHandoff,prerequisiteRefs,reviewRequirement}}. "
     prompt += "Evidence is versioned by actual SHA256 bytes. Read receipts; fix rejected requests within the same deadline. "
     prompt += "Choose a single primary result using --primary PATH_OR_EVIDENCE_ID when providing multiple non-handoff materials; the client selects a unique non-handoff result automatically. "
-    prompt += "For a review cycle, --payload JSON must include review:{targetRefs:EXACT_CONTRACT_INPUT_REFS,verdict:passed|changes_required|unverifiable,issues:[],qualityApplicability:[WORK_KINDS]}; the host binds actual independent reviewer identity. "
+    prompt += "For a review cycle, --payload JSON must include review:{targetRefs:EXACT_REVIEW_TARGET_REFS,verdict:passed|changes_required|unverifiable,issues:[],qualityApplicability:[WORK_KINDS]}; use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs if unset) and the host binds actual independent reviewer identity. "
     prompt += "qualityApplicability names the DOWNSTREAM workKinds this reviewed version is sufficient to enter, not the reviewed artifact kind. For example, a passed direction review enabling definition uses [\"definition\"], not [\"direction\"]. Name only the downstream scopes actually assessed; this does not approve their future outputs or waive other prerequisites. "
     prompt += "After accepted submit, stop ALL business writes and exit immediately; do not wait for closed. Lost ACK: reuse the same submission ID/content or query status. "
     prompt += "Do not invoke cycle_reports.py or create another deliverable/cycle. All teammate/tool work shares this deadline."
@@ -193,20 +252,30 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
     prompt += "\nUse the READ-ONLY immutable input versions listed in /run/autonomous-company/harness-inputs/index.json. "
     prompt += "Each entry maps evidenceId/SHA256/mediaType/sourceOutcome/isCompletedHead to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
     handoff_path = protocol_handoff_path(attempt_id) if recovery else "docs/harness/" + attempt_id + "-handoff.json"
+    prompt += "\nCLI Quick Reference (do not inspect company_harness_client.py source or run --help; use these exact commands):"
+    prompt += "\n- Status: python3 /workspace/scripts/core/company_harness_client.py status"
+    prompt += "\n- Progress: python3 /workspace/scripts/core/company_harness_client.py publish_progress --id prog-1 --payload logs/prog.json"
+    prompt += "\n- Compile handoff: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md"
+    prompt += "\n- Submit: python3 /workspace/scripts/core/company_harness_client.py submit --id sub-1 --result completed --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + " --payload logs/submit.json"
     prompt += "\nPrefer the deterministic handoff helper instead of hand-copying hashes. Write logs/next-plan.json with "
     prompt += '{"contract":{"objective":"YOUR NEXT OUTCOME","workKind":"research","timeClass":"regular","scope":["AUTHORIZED SCOPE"],"completionOrHandoff":"USABLE RESULT","reviewRequirement":null},"inputs":[],"prerequisites":[]}. '
-    prompt += 'Choose the actual workKind/scope. Select historical refs as {"input":"EXACT file FROM index.json"}, listed local attachments as {"evidence":"docs/result-data.json"}, or the current primary as {"primary":true}. '
+    prompt += 'Choose the actual workKind/scope (for review with read-only background inputs, optionally list only reviewed items in "reviewTargets":[...]). Select historical refs as {"input":"EXACT file FROM index.json"}, listed local attachments as {"evidence":"docs/result-data.json"}, or the current primary as {"primary":true}. '
     prompt += "The primary is automatically the first input. For a current independent review needed by the next stage, explicitly put {\"primary\":true} in prerequisites; host closure still decides applicability. "
     prompt += "Run: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md (add --evidence PATH for attachments). "
     prompt += "Use your actual primary path. The helper returns handoffPath=" + handoff_path + "; submit separately with --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + ". "
-    prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.inputRefs exactly; verdict/issues/applicability require actual independent assessment. "
+    prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs) exactly; verdict/issues/applicability require actual independent assessment. "
     prompt += "Serialize generation and submission. After accepted, never rerun the helper; query status or replay the original submit ID/content. The original handwritten handoff remains supported."
-    from company_harness_quality import ARTIFACTS, REQUIRED, artifact_state
+    from company_harness_quality import ARTIFACTS, REQUIRED, artifact_state, progression_state
     prompt += "\nAllowed workKind values: " + ", ".join([*ARTIFACTS, "revision"]) + ". revision also requires revisesKind naming its artifact kind. "
     prompt += "Typed prerequisites (each requires current version inputRefs plus independent-review prerequisiteRefs): " + json.dumps(REQUIRED) + ". "
     prompt += "Review/research/revision can recur; these are admission conditions, not a fixed cycle sequence."
-    heads_summary = artifact_state(store, {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")})
+    scope = {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")}
+    heads_summary = artifact_state(store, scope)
+    prog_summary = progression_state(store, scope)
     prompt += "\nCurrent artifact head status (partial cycles NEVER create a completed head; if a required artifactKind has no completed head, propose its original production workKind to finish the gap and submit completed—never propose review or revision): " + json.dumps(heads_summary, ensure_ascii=False)
+    prompt += "\nCurrent progression & anti-spin state: " + json.dumps(prog_summary, ensure_ascii=False)
+    if prog_summary.get("advisory"):
+        prompt += "\nANTI-SPIN ADVISORY: " + prog_summary["advisory"]
     previous_result = host_path(root, cycle_id + ".result.json")
     if previous_result.exists():
         prompt += "\nPrior attempt's deterministic feedback (correct within this SAME deliverable): " + json.dumps(read_fact(previous_result), ensure_ascii=False)
@@ -869,12 +938,12 @@ def main():
         from product_identity import get_identity
         identity = get_identity(root, args.product)
         if identity is None and not store.snapshot()["cycles"]:
-            print(json.dumps({"initial": "objective_selection"}))
+            print(json.dumps({"initial": _initial_proposal(root=root, project=args.product)["workKind"]}))
             return 0
         scope = {"productId": identity["id"] if identity and identity["kind"] == "product" else None,
             "explorationId": (identity["id"] if identity["kind"] == "exploration" else identity.get("explorationId")) if identity else None}
         reassess_continuation(store, root, scope)
-        print(json.dumps(next_contract(store, scope)))
+        print(json.dumps(next_contract(store, scope, root=root, project=identity.get("project") if identity else args.product)))
     elif args.action == "prepare":
         print(json.dumps(prepare(store, root, args.cycle)))
     elif args.action == "attempt":

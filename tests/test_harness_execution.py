@@ -1564,5 +1564,123 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tok
                     process.wait(timeout=15)
 
 
+@unittest.skipUnless(sys.platform == "linux", "Linux host bridge and shell checks")
+class AntiSpinAndTopicTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="harness-a2-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "memories").mkdir()
+        shutil.copy2(ROOT / "memories/consensus.template.md", self.root / "memories/consensus.md")
+        self.store = HarnessStore(self.root, create=True)
+
+    def test_initial_contract_smart_entry_for_human_override_active_project_and_env(self):
+        scope = {"productId": None, "explorationId": "exp-a2"}
+        self.assertEqual(runner.next_contract(self.store, scope, root=self.root)["workKind"], "objective_selection")
+        self.assertEqual(runner.next_contract(self.store, scope, root=self.root, project="projects/demo")["workKind"], "research")
+
+        consensus = self.root / "memories/consensus.md"
+        consensus.write_text(
+            consensus.read_text().replace("- (none)", "- Build an offline Markdown diagram studio"),
+            encoding="utf-8",
+        )
+        self.assertEqual(runner.next_contract(self.store, scope, root=self.root)["workKind"], "direction")
+
+        with patch.dict(os.environ, {"COMPANY_HARNESS_INITIAL_WORK_KIND": "research"}):
+            self.assertEqual(runner.next_contract(self.store, scope, root=self.root)["workKind"], "research")
+        with patch.dict(os.environ, {"COMPANY_HARNESS_INITIAL_WORK_KIND": "invalid_kind"}):
+            with self.assertRaisesRegex(HarnessError, "INVALID_CONFIG"):
+                runner.next_contract(self.store, scope, root=self.root)
+
+    def test_bridge_status_exposes_progression_state_and_submit_enforces_anti_spin(self):
+        identity = reserve_cycle(self.root, "", "a2-bridge", 1)
+        cid = identity["cycleId"]
+        runner.prepare(self.store, self.root, cid)
+        with self.store._transaction() as tx:
+            c0 = self.store._cycle(tx, cid)
+            c0["contract"].update(workKind="objective_selection", artifactKind="objective")
+            c0["workKind"] = "objective_selection"
+            self.store._save_cycle(tx, c0)
+        attempt = self.store.begin_attempt(cid, "a2-att-1", {"dispatchId": "owned"})
+        ws = self.root / "ws"
+        for folder in ("docs/harness", "projects", "memories"):
+            (ws / folder).mkdir(parents=True, exist_ok=True)
+        res_file = ws / "docs/sel.md"
+        res_file.write_text("selected research topic", encoding="utf-8")
+        res_ref = {"evidenceId": "sel-doc", "path": "docs/sel.md", "sha256": hashlib.sha256(res_file.read_bytes()).hexdigest()}
+        hoff_file = ws / "docs/harness/handoff.json"
+        hoff_file.write_text(json.dumps({
+            "nextContract": {
+                "objective": "Chain another selection", "workKind": "objective_selection",
+                "scope": ["still picking"], "completionOrHandoff": "picked",
+                "inputRefs": [], "prerequisiteRefs": [],
+            }
+        }), encoding="utf-8")
+        hoff_ref = {"evidenceId": "hoff-doc", "path": "docs/harness/handoff.json", "sha256": hashlib.sha256(hoff_file.read_bytes()).hexdigest()}
+        sock = self.root / "a2-bridge.sock"
+        with running_bridge(sock, self.store, attempt["context"], "a2-token") as server:
+            with patch.object(server, "live_workspace", return_value=ws):
+                st = request("status", socket_path=sock, token="a2-token")
+                self.assertIn("progressionState", st)
+                self.assertEqual(st["progressionState"]["stagnationLevel"], "none")
+                self.assertEqual(st["progressionState"]["nextMilestone"], "direction")
+
+                rejected = request("submit", "bad-spin", {
+                    "result": "completed", "unfinishedItems": [], "evidenceRefs": [res_ref, hoff_ref],
+                    "primaryEvidenceId": "sel-doc", "handoffRef": hoff_ref,
+                }, socket_path=sock, token="a2-token")
+                self.assertEqual(rejected["status"], "rejected")
+                self.assertEqual(rejected["errorCode"], "SPIN_GUARD")
+                self.assertIn("objective_selection", rejected.get("detail", ""))
+
+    def test_attempt_prompt_includes_cli_quick_ref_and_progression_advisory(self):
+        exp = "exp-prompt"
+        for seq in range(1, 4):
+            cid = f"res-cycle-{seq}"
+            self.store.create_cycle({
+                "cycleId": cid, "explorationId": exp, "sequenceNumber": seq,
+                "objective": f"Research {seq}", "workKind": "research", "artifactKind": "research",
+                "scope": ["bounded"], "completionOrHandoff": "note",
+            })
+            att = self.store.begin_attempt(cid, f"att-{seq}", {"dispatchId": "owned"})
+            ref = self.store.bind_evidence(cid, f"ev-{seq}", f"content {seq}", source={"attemptId": f"att-{seq}"})
+            ev = {"evidenceId": ref["evidenceId"], "sha256": ref["sha256"]}
+            self.store.submit(att["context"], f"sub-{seq}", {"result": "completed", "unfinishedItems": [], "evidenceRefs": [ev], "primaryEvidenceId": ev["evidenceId"]})
+            self.store.finish_attempt(att["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+            self.store.close_cycle(cid, f"close-{seq}", outcome="completed",
+                verification={"writersStopped": True, "submittedVersionUnchanged": True, "attemptResults": [f"att-{seq}"], "evidenceRefs": [ev], "checkedAt": runner.now()},
+                continuation_decision={"allowed": True, "reason": "handoff_validated", "basis": {"governance": "verified"}, "checkedAt": runner.now()}, submission_id=f"sub-{seq}")
+
+        target_cid = "cycle-warn"
+        self.store.create_cycle({
+            "cycleId": target_cid, "explorationId": exp, "sequenceNumber": 4, "runCycleNumber": 4,
+            "objective": "Converge topic", "workKind": "research", "artifactKind": "research",
+            "scope": ["converge"], "completionOrHandoff": "direction",
+        })
+        manifest = runner.begin_attempt(self.store, self.root, target_cid)
+        self.addCleanup(shutil.rmtree, manifest["temporary"], ignore_errors=True)
+        prompt = runner.read_fact(runner.host_path(self.root, manifest["context"]["attemptId"] + ".prompt.json"))["prompt"]
+        self.assertIn("CLI Quick Reference", prompt)
+        self.assertIn("Current progression & anti-spin state:", prompt)
+        self.assertIn("ANTI-SPIN ADVISORY: STAGNATION (warning)", prompt)
+        self.assertIn("Compare 2-3 bounded feasible candidates", prompt)
+
+    def test_auto_loop_harness_default_interval_is_5_and_honors_override(self):
+        script = (ROOT / "scripts/core/auto-loop.sh").read_text(encoding="utf-8")
+        marker = 'if [ -z "${LOOP_INTERVAL+x}" ]; then'
+        start = script.index(marker)
+        snippet = script[start:script.index("\nfi\n", start) + 4]
+        for extra_env, expected in (
+            ({"COMPANY_HARNESS_ENABLED": "1"}, "5"),
+            ({"COMPANY_HARNESS_ENABLED": "0"}, "30"),
+            ({"COMPANY_HARNESS_ENABLED": "1", "LOOP_INTERVAL": "0"}, "0"),
+            ({"COMPANY_HARNESS_ENABLED": "1", "LOOP_INTERVAL": "17"}, "17"),
+        ):
+            env = {k: v for k, v in os.environ.items() if k != "LOOP_INTERVAL"}
+            env.update(extra_env)
+            out = subprocess.check_output(["bash", "-c", snippet + '\nprintf "%s" "$LOOP_INTERVAL"'], env=env, text=True)
+            self.assertEqual(out, expected)
+
+
 if __name__ == "__main__":
     unittest.main()

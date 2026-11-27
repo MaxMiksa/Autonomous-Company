@@ -37,9 +37,12 @@ def unique(refs):
 
 
 def compile_plan(plan, primary, inputs, local):
-    if (not isinstance(plan, dict) or set(plan) != {'contract', 'inputs', 'prerequisites'}
+    if (not isinstance(plan, dict)
+            or not ({'contract', 'inputs', 'prerequisites'} <= set(plan))
+            or set(plan) - {'contract', 'inputs', 'prerequisites', 'reviewTargets'}
             or not isinstance(plan['contract'], dict) or set(plan['contract']) - FIELDS
-            or not isinstance(plan['inputs'], list) or not isinstance(plan['prerequisites'], list)):
+            or not isinstance(plan['inputs'], list) or not isinstance(plan['prerequisites'], list)
+            or ('reviewTargets' in plan and not isinstance(plan['reviewTargets'], list))):
         raise ValueError('PLAN_FIELDS')
     contract = deepcopy(plan['contract'])
     for field in ('objective', 'completionOrHandoff'):
@@ -67,7 +70,14 @@ def compile_plan(plan, primary, inputs, local):
             raise ValueError('SELECTOR: ' + str(selector))
         return reference(table[value])
 
-    contract['inputRefs'] = unique([reference(primary)] + [resolve(x) for x in plan['inputs']])
+    resolved_targets = []
+    if plan.get('reviewTargets'):
+        if kind != 'review':
+            raise ValueError('PLAN_FIELD: reviewTargets')
+        resolved_targets = unique([resolve(x) for x in plan['reviewTargets']])
+        contract['reviewRequirement'] = {'independent': True, 'targetRefs': resolved_targets}
+
+    contract['inputRefs'] = unique([reference(primary)] + resolved_targets + [resolve(x) for x in plan['inputs']])
     contract['prerequisiteRefs'] = unique([resolve(x) for x in plan['prerequisites']])
     refs = unique(contract['inputRefs'] + contract['prerequisiteRefs'])
     if len(refs) > MAX_INPUTS:
@@ -133,7 +143,11 @@ def generate(plan_path, primary, evidence, *, input_directory=INPUT_DIRECTORY):
     if not isinstance(index, list):
         raise ValueError('INPUT_INDEX')
     # Only selected immutable materials contribute bytes; never copy history into docs.
-    selectors = plan.get('inputs', []) + plan.get('prerequisites', []) if isinstance(plan, dict) and isinstance(plan.get('inputs'), list) and isinstance(plan.get('prerequisites'), list) else []
+    if isinstance(plan, dict) and isinstance(plan.get('inputs'), list) and isinstance(plan.get('prerequisites'), list):
+        raw_targets = plan.get('reviewTargets') if isinstance(plan.get('reviewTargets'), list) else []
+        selectors = plan['inputs'] + plan['prerequisites'] + raw_targets
+    else:
+        selectors = []
     selected = [s['input'] for s in selectors if isinstance(s, dict) and set(s) == {'input'} and isinstance(s['input'], str)]
     for name in dict.fromkeys(selected):
         entries = [x for x in index if isinstance(x, dict) and x.get('file') == name]

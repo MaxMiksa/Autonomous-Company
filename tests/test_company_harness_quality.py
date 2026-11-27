@@ -237,6 +237,114 @@ class QualityTests(unittest.TestCase):
         value = prepare_contract(self.store, self.proposal('visual_exploration', [definition], [passed]), {'productId': 'p'})
         self.assertEqual(value['workKind'], 'visual_exploration')
 
+    def test_progression_state_tracks_milestones_and_stagnation_levels(self):
+        from company_harness_quality import progression_state
+        identity = {'productId': 'p'}
+        self.assertEqual(progression_state(self.store, identity)['stagnationLevel'], 'none')
+        for idx in range(3):
+            self.store.artifact(f'res-{idx}', 'research')
+        warn = progression_state(self.store, identity)
+        self.assertEqual(warn['stagnationLevel'], 'warning')
+        self.assertEqual(warn['consecutiveNonAdvancing'], 3)
+        self.assertEqual(warn['consecutiveSameWorkKind'], {'workKind': 'research', 'count': 3})
+        self.assertIn('no direction head', warn['advisory'])
+
+        for idx in range(3, 5):
+            self.store.artifact(f'res-{idx}', 'research')
+        crit = progression_state(self.store, identity)
+        self.assertEqual(crit['stagnationLevel'], 'critical')
+        self.assertEqual(crit['cyclesSinceLastMilestone'], 5)
+
+        direction, _, _ = self.store.artifact('dir-1', 'direction')
+        after_dir = progression_state(self.store, identity)
+        self.assertEqual(after_dir['highestMilestone'], 'direction')
+        self.assertEqual(after_dir['nextMilestone'], 'definition')
+        self.assertEqual(after_dir['consecutiveNonAdvancing'], 0)
+        self.assertEqual(after_dir['stagnationLevel'], 'none')
+
+        for idx in range(3):
+            self.store.artifact(f'val-{idx}', 'validation')
+        need_rev = progression_state(self.store, identity)
+        self.assertEqual(need_rev['stagnationLevel'], 'warning')
+        self.assertIn('workKind=review', need_rev['advisory'])
+
+        self.store.reviewed(direction, ['definition'])
+        after_rev = progression_state(self.store, identity)
+        self.assertEqual(after_rev['consecutiveNonAdvancing'], 0)
+        self.assertEqual(after_rev['cyclesSinceLastMilestone'], 4)
+        self.assertEqual(after_rev['stagnationLevel'], 'warning')
+        self.assertIn('workKind=definition directly', after_rev['advisory'])
+
+    def test_spin_guard_rejects_back_to_back_completed_objective_selection(self):
+        identity = {'productId': 'p'}
+        self.store.artifact('obj-1', 'objective')
+        self.store.cycles[-1]['contract']['workKind'] = 'objective_selection'
+        self.store.cycles[-1]['workKind'] = 'objective_selection'
+        with self.assertRaisesRegex(HarnessError, 'SPIN_GUARD'):
+            prepare_contract(self.store, self.proposal('objective_selection'), identity)
+        self.assertEqual(prepare_contract(self.store, self.proposal('research'), identity)['workKind'], 'research')
+        self.assertEqual(prepare_contract(self.store, self.proposal('direction'), identity)['workKind'], 'direction')
+        self.store.cycles[-1]['outcome'] = 'partial'
+        self.assertEqual(prepare_contract(self.store, self.proposal('objective_selection'), identity)['workKind'], 'objective_selection')
+
+    def test_spin_guard_rejects_review_on_review_and_redundant_passed_reviews(self):
+        identity = {'productId': 'p'}
+        res, _, _ = self.store.artifact('res-1', 'research')
+        rev, _ = self.store.reviewed(res, ['direction'])
+        with self.assertRaisesRegex(HarnessError, 'SPIN_GUARD'):
+            prepare_contract(self.store, self.proposal('review', [rev]), identity)
+        with self.assertRaisesRegex(HarnessError, 'REDUNDANT_REVIEW'):
+            prepare_contract(self.store, self.proposal('review', [res]), identity)
+
+        d1, _, _ = self.store.artifact('dir-1', 'direction')
+        self.store.reviewed(d1, ['definition'])
+        # Missing 'experience' consumer approval, so reviewing d1 again is still allowed.
+        self.assertEqual(prepare_contract(self.store, self.proposal('review', [d1]), identity)['workKind'], 'review')
+        self.store.reviewed(d1, ['definition', 'experience'])
+        with self.assertRaisesRegex(HarnessError, 'REDUNDANT_REVIEW'):
+            prepare_contract(self.store, self.proposal('review', [d1]), identity)
+
+        # Superseded by changes_required or producing a new head re-enables review.
+        self.store.reviewed(d1, ['definition'], verdict='changes_required')
+        self.assertEqual(prepare_contract(self.store, self.proposal('review', [d1]), identity)['workKind'], 'review')
+        d2, _, _ = self.store.artifact('dir-2', 'direction')
+        self.assertEqual(prepare_contract(self.store, self.proposal('review', [d2]), identity)['workKind'], 'review')
+
+    def test_decoupled_review_target_refs_allows_background_inputs(self):
+        identity = {'productId': 'p'}
+        bg, _, _ = self.store.artifact('bg-1', 'research')
+        target, _, _ = self.store.artifact('d-1', 'direction')
+        outside, _, _ = self.store.artifact('other-1', 'research')
+        with self.assertRaisesRegex(HarnessError, 'INVALID_FIELD'):
+            prepare_contract(
+                self.store,
+                self.proposal('review', [bg, target], reviewRequirement={'targetRefs': [outside]}),
+                identity,
+            )
+        contract = prepare_contract(
+            self.store,
+            self.proposal('review', [bg, target], reviewRequirement={'targetRefs': [target]}),
+            identity,
+        )
+        self.assertEqual(contract['inputRefs'], [bg, target])
+        self.assertEqual(contract['reviewRequirement'], {'independent': True, 'targetRefs': [target]})
+
+        rev_doc, rev_cycle, submission = self.store.artifact('rev-1', 'review')
+        rev_cycle['contract'].update(contract)
+        submission['payload']['review'] = {
+            'targetRefs': [bg, target],
+            'verdict': 'passed',
+            'issues': [],
+            'qualityApplicability': ['definition'],
+        }
+        with self.assertRaisesRegex(HarnessError, 'INVALID_REVIEW'):
+            close_review(self.store, rev_cycle, submission)
+        submission['payload']['review']['targetRefs'] = [target]
+        quality = close_review(self.store, rev_cycle, submission)
+        self.assertEqual(len(quality), 1)
+        self.assertEqual(quality[0]['targetRef'], target)
+        self.assertEqual(quality[0]['artifactKind'], 'direction')
+
 
 if __name__ == '__main__':
     unittest.main()

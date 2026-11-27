@@ -29,6 +29,13 @@ PRODUCER_FOR_ARTIFACT = {
     'delivery': 'delivery',
 }
 
+MILESTONE_ORDER = ('direction', 'definition', 'visual_direction', 'prototype', 'implementation', 'delivery')
+GATED_ARTIFACTS = {artifact for reqs in REQUIRED.values() for artifact in reqs}
+DOWNSTREAM_CONSUMERS = {
+    artifact: tuple(work_kind for work_kind, reqs in REQUIRED.items() if artifact in reqs)
+    for artifact in GATED_ARTIFACTS
+}
+
 
 def _ref(value):
     if (not isinstance(value, dict) or not isinstance(value.get('evidenceId'), str)
@@ -165,6 +172,163 @@ def artifact_state(store, identity, *, pending_cycle=None, pending_quality=None)
     return {'heads': heads, 'latest': latest, 'incomplete': incomplete}
 
 
+def _is_advancing_cycle(cycle):
+    if cycle.get('outcome') != 'completed':
+        return False
+    if cycle['contract'].get('artifactKind') in MILESTONE_ORDER:
+        return True
+    if cycle['contract'].get('workKind') == 'review':
+        for record in cycle.get('qualityApplicability', []):
+            artifact_kind = record.get('artifactKind')
+            if (record.get('verdict') == 'passed'
+                    and artifact_kind in GATED_ARTIFACTS
+                    and any(wk in DOWNSTREAM_CONSUMERS.get(artifact_kind, ()) for wk in record.get('workKinds', []))):
+                return True
+    return False
+
+
+def _latest_passed_review(cycles, artifact_kind, head_ref, consumer_work_kind):
+    records = [
+        record
+        for cycle in cycles if cycle.get('outcome') == 'completed'
+        for record in cycle.get('qualityApplicability', [])
+        if record.get('artifactKind') == artifact_kind
+        and record.get('targetRef') == head_ref
+        and consumer_work_kind in record.get('workKinds', [])
+    ]
+    return bool(records and records[-1].get('verdict') == 'passed')
+
+
+def progression_state(store, identity, *, pending_cycle=None, pending_quality=None):
+    """Summarize milestone progression, consecutive non-advancing streaks, and anti-spin advice."""
+    cycles = _closed(store, identity, pending_cycle, pending_quality)
+    state = artifact_state(store, identity, pending_cycle=pending_cycle, pending_quality=pending_quality)
+    heads = state['heads']
+    highest_milestone = None
+    for milestone in MILESTONE_ORDER:
+        if milestone in heads:
+            highest_milestone = milestone
+    if highest_milestone is None:
+        next_milestone = 'direction'
+    elif highest_milestone == 'delivery':
+        next_milestone = 'refinement'
+    else:
+        next_milestone = MILESTONE_ORDER[MILESTONE_ORDER.index(highest_milestone) + 1]
+
+    cycles_since_milestone = 0
+    for cycle in reversed(cycles):
+        if cycle.get('outcome') == 'completed' and cycle['contract'].get('artifactKind') in MILESTONE_ORDER:
+            break
+        cycles_since_milestone += 1
+
+    consecutive_non_advancing = 0
+    for cycle in reversed(cycles):
+        if _is_advancing_cycle(cycle):
+            break
+        consecutive_non_advancing += 1
+
+    consecutive_same_work_kind = None
+    if cycles:
+        last_wk = cycles[-1]['contract'].get('workKind')
+        same_count = 0
+        for cycle in reversed(cycles):
+            if cycle['contract'].get('workKind') != last_wk:
+                break
+            same_count += 1
+        consecutive_same_work_kind = {'workKind': last_wk, 'count': same_count}
+
+    consecutive_partial = {}
+    for item in state['incomplete']:
+        ak = item['artifactKind']
+        partial_count = 0
+        for cycle in reversed(cycles):
+            if cycle['contract'].get('artifactKind') == ak and cycle.get('outcome') == 'partial':
+                partial_count += 1
+            elif cycle['contract'].get('artifactKind') == ak:
+                break
+        consecutive_partial[ak] = partial_count
+
+    if consecutive_non_advancing >= 5 or cycles_since_milestone >= 6:
+        stagnation_level = 'critical'
+    elif consecutive_non_advancing >= 3 or cycles_since_milestone >= 4:
+        stagnation_level = 'warning'
+    else:
+        stagnation_level = 'none'
+
+    advisory = None
+    if stagnation_level != 'none':
+        if state['incomplete']:
+            producers = ', '.join(item['requiredProductionWorkKind'] for item in state['incomplete'])
+            advisory = (
+                f'STAGNATION ({stagnation_level}): incomplete partial artifact(s) blocking progress; '
+                f'finish via original production workKind ({producers}) and submit completed.'
+            )
+        elif highest_milestone is None:
+            advisory = (
+                f'STAGNATION ({stagnation_level}): {consecutive_non_advancing} consecutive non-advancing cycles '
+                'with no direction head. Compare 2-3 bounded feasible candidates now and propose '
+                'workKind=direction for the strongest winner (commercial validation is deferred), or record a concrete blocker.'
+            )
+        else:
+            missing_heads = [ak for ak in REQUIRED.get(next_milestone, ()) if ak not in heads]
+            if missing_heads:
+                producers = ', '.join(PRODUCER_FOR_ARTIFACT.get(ak, ak) for ak in missing_heads)
+                advisory = (
+                    f'STAGNATION ({stagnation_level}): {next_milestone} is missing completed prerequisite head(s) '
+                    f'({", ".join(missing_heads)}); produce via workKind={producers}.'
+                )
+            else:
+                missing_reviews = [
+                    ak for ak in REQUIRED.get(next_milestone, ())
+                    if not _latest_passed_review(
+                        cycles, ak,
+                        {'evidenceId': heads[ak]['evidenceId'], 'sha256': heads[ak]['sha256']},
+                        next_milestone,
+                    )
+                ]
+                if missing_reviews:
+                    advisory = (
+                        f'STAGNATION ({stagnation_level}): completed head(s) ({", ".join(missing_reviews)}) '
+                        f'lack a passed independent review covering {next_milestone}; propose workKind=review targeting only those head(s).'
+                    )
+                else:
+                    advisory = (
+                        f'STAGNATION ({stagnation_level}): prerequisites for {next_milestone} are already satisfied; '
+                        f'propose workKind={next_milestone} directly instead of repeating research or review.'
+                    )
+
+    return {
+        'closedCycles': len(cycles),
+        'highestMilestone': highest_milestone,
+        'nextMilestone': next_milestone,
+        'cyclesSinceLastMilestone': cycles_since_milestone,
+        'consecutiveNonAdvancing': consecutive_non_advancing,
+        'consecutiveSameWorkKind': consecutive_same_work_kind,
+        'consecutivePartialByArtifact': consecutive_partial,
+        'stagnationLevel': stagnation_level,
+        'advisory': advisory,
+    }
+
+
+def _target_already_satisfied(cycles, target_ref, producer_artifact):
+    records = [
+        record
+        for cycle in cycles if cycle.get('outcome') == 'completed'
+        for record in cycle.get('qualityApplicability', [])
+        if record.get('targetRef') == target_ref
+    ]
+    if not records:
+        return False
+    consumers = DOWNSTREAM_CONSUMERS.get(producer_artifact, ())
+    if not consumers:
+        return records[-1].get('verdict') == 'passed'
+    for work_kind in consumers:
+        matching = [record for record in records if work_kind in record.get('workKinds', [])]
+        if not matching or matching[-1].get('verdict') != 'passed':
+            return False
+    return True
+
+
 def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_quality=None):
     """Validate a proposal; dispatch must recheck after any prospective closure."""
     if not isinstance(identity, dict) or not (identity.get('productId') or identity.get('explorationId')):
@@ -189,6 +353,13 @@ def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_q
             or time_class == 'development' and not development):
         raise HarnessError('INVALID_FIELD', 'timeClass')
     cycles = _closed(store, identity, pending_cycle, pending_quality)
+    if (kind == 'objective_selection' and cycles
+            and cycles[-1]['contract'].get('workKind') == 'objective_selection'
+            and cycles[-1].get('outcome') == 'completed'):
+        raise HarnessError(
+            'SPIN_GUARD', 'workKind',
+            'previous cycle already completed objective_selection; propose an actionable workKind (research, direction, definition, etc.) instead of chaining objective_selection',
+        )
     for field in ('inputRefs', 'prerequisiteRefs'):
         if not isinstance(proposal.get(field, []), list):
             raise HarnessError('INVALID_FIELD', field)
@@ -262,14 +433,45 @@ def prepare_contract(store, proposal, identity, *, pending_cycle=None, pending_q
                     f"covering {kind}; run workKind=review on it first"
                 )
             raise HarnessError('REVIEW_REQUIRED', artifact_kind, detail)
-    if kind == 'review' and not inputs:
-        raise HarnessError('EVIDENCE_MISSING', 'inputRefs')
+    review_targets = None
+    if kind == 'review':
+        if not inputs:
+            raise HarnessError('EVIDENCE_MISSING', 'inputRefs')
+        req_cfg = proposal.get('reviewRequirement')
+        if req_cfg is not None:
+            if not isinstance(req_cfg, dict):
+                raise HarnessError('INVALID_FIELD', 'reviewRequirement')
+            raw_targets = req_cfg.get('targetRefs')
+            if raw_targets is not None:
+                if not isinstance(raw_targets, list) or not raw_targets:
+                    raise HarnessError('INVALID_FIELD', 'reviewRequirement', 'targetRefs must be a non-empty list')
+                normalized = [_ref(ref) for ref in raw_targets]
+                review_targets = [ref for idx, ref in enumerate(normalized) if ref not in normalized[:idx]]
+                if any(ref not in inputs for ref in review_targets):
+                    raise HarnessError(
+                        'INVALID_FIELD', 'reviewRequirement',
+                        'every reviewRequirement.targetRefs entry must also appear in inputRefs',
+                    )
+        if review_targets is None:
+            review_targets = [ref for idx, ref in enumerate(inputs) if ref not in inputs[:idx]]
+        target_producers = [_evidence(store, ref, cycles)[1] for ref in review_targets]
+        if all(producer['contract'].get('artifactKind') == 'review' for producer in target_producers):
+            raise HarnessError(
+                'SPIN_GUARD', 'inputRefs',
+                'cannot propose review solely on prior review artifact(s); act on the verdict or propose the next production workKind',
+            )
+        if all(_target_already_satisfied(cycles, ref, producer['contract'].get('artifactKind'))
+               for ref, producer in zip(review_targets, target_producers)):
+            raise HarnessError(
+                'REDUNDANT_REVIEW', 'inputRefs',
+                'target version(s) already have passed independent review(s) covering all required downstream stages; advance to the next production workKind instead of repeating review',
+            )
     result = {key: deepcopy(proposal[key]) for key in (
         'objective', 'workKind', 'scope', 'completionOrHandoff', 'reviewRequirement', 'revisesKind') if key in proposal}
     result.update(timeClass=time_class, artifactKind=artifact, inputRefs=inputs,
                   prerequisiteRefs=prerequisites)
     if kind == 'review':
-        result['reviewRequirement'] = {'independent': True, 'targetRefs': inputs}
+        result['reviewRequirement'] = {'independent': True, 'targetRefs': review_targets}
     return result
 
 
@@ -291,7 +493,9 @@ def close_review(store, cycle, submission):
     if not isinstance(review.get('targetRefs'), list):
         raise HarnessError('INVALID_REVIEW', 'targetRefs')
     targets = [_ref(ref) for ref in review['targetRefs']]
-    expected = [_ref(ref) for ref in cycle['contract'].get('inputRefs', [])]
+    req_targets = (cycle['contract'].get('reviewRequirement') or {}).get('targetRefs')
+    expected_source = req_targets if isinstance(req_targets, list) and req_targets else cycle['contract'].get('inputRefs', [])
+    expected = [_ref(ref) for ref in expected_source]
     if not targets or targets != expected:
         raise HarnessError('INVALID_REVIEW', 'targetRefs')
     if not isinstance(review.get('issues'), list) or any(
