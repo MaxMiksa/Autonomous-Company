@@ -914,6 +914,9 @@ window.DashboardNavigation.register('center', (view) => {
       state.lastSuccessAt = state.observedAt;
     }
     if (state.revision === null) state.stale = true;
+    if (!state.stale && !state.refreshing && state.timerDelay > 5000 && view.active && state.autoRefresh) {
+      clearTimeout(state.timer); state.timerDelay = 5000; state.timer = setTimeout(refresh, 5000);
+    }
   }
   function installReadPart(kind, data, metadata, generation, seq) {
     if (!view.active || generation !== state.writeGeneration) return;
@@ -991,7 +994,13 @@ window.DashboardNavigation.register('center', (view) => {
         readPart('trash', '/trash');
         await entries;
       } finally {
-        state.refreshing = null; clearTimeout(state.timer); if (view.active && state.autoRefresh) state.timer = setTimeout(refresh, state.stale ? 15000 : 5000);
+        state.refreshing = null; clearTimeout(state.timer);
+        if (view.active && state.autoRefresh) {
+          state.timerDelay = state.stale ? 15000 : 5000;
+          state.timer = setTimeout(refresh, state.timerDelay);
+        } else {
+          state.timerDelay = 0;
+        }
       }
     })();
     state.refreshing = promise; return promise;

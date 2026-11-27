@@ -695,6 +695,20 @@ window.DashboardNavigation.register('journal', (view) => {
     const signature = JSON.stringify([cycle, current, state.language, state.detailErrors?.has(cycle.id)]);
     const cached = cycleNodes.get(cycle.id);
     if (cached?.signature === signature) return cached.row;
+    if (cached && cached.current === current && cached.language === state.language && cached.status === cycle.status && cached.row.isConnected && cached.content) {
+      const nextTitle = cycleTitle(cycle);
+      cached.titleText.textContent = nextTitle; cached.titleText.title = nextTitle;
+      const bodyNodes = [metadata(cycle), reportSurface(cycle, current)];
+      if (state.detailErrors?.has(cycle.id)) {
+        const error = element('p', 'status-failed', message('detailReadFailed'));
+        const retry = element('button', 'text-button', message('retryRead')); retry.type = 'button'; retry.dataset.focusKey = `detail-retry:${cycle.id}`;
+        retry.addEventListener('click', () => loadCycleDetail(cycle.id, true));
+        error.append(retry); bodyNodes.push(error);
+      }
+      cached.content.replaceChildren(...bodyNodes);
+      cached.signature = signature;
+      return cached.row;
+    }
     const row = bindDisclosure(element('details', `history-row cycle-row${current ? ' current-cycle' : ''}`), `cycle:${cycle.id}`, current);
     if (current) { row.setAttribute('aria-current', 'step'); row.setAttribute('aria-labelledby', 'cycleTitle'); }
     row.dataset.cycleId = cycle.id;
@@ -733,7 +747,7 @@ window.DashboardNavigation.register('journal', (view) => {
       error.append(retry); content.append(error);
     }
     row.append(summary, content);
-    cycleNodes.set(cycle.id, { signature, row });
+    cycleNodes.set(cycle.id, { signature, row, content, titleText, current, language: state.language, status: cycle.status });
     let observedOpen = row.open;
     row.addEventListener('toggle', () => {
       const opening = row.open && !observedOpen; observedOpen = row.open;
