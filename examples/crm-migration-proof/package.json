@@ -1,1 +1,19 @@
-{"name":"crm-migration-proof","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test tests/engine.test.js","test:browser":"node --test tests/browser.test.js","start":"node serve.cjs 8765"},"devDependencies":{"playwright":"1.63.0"}}
+{
+  "name": "crm-migration-proof",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/engine.test.js",
+    "test:browser": "node --test tests/browser.test.js",
+    "start": "node serve.cjs 8765"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  },
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
+  "packageManager": "pnpm@12.16.1"
+}

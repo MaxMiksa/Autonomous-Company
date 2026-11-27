@@ -70,8 +70,38 @@ class CenterCatalog:
         self.managed_observer = None
         self.execution_query = None
         self.path_resolver = None
+        from center_projection import CenterProjection
+        self.projection = CenterProjection(self)
 
     def _snapshot(self, source, reader, **kwargs):
+        overlay = kwargs.pop('projection_overlay', False)
+        harness, scope = None, None
+        if overlay:
+            reader.projection_version = 2
+            from company_harness import HarnessStore
+            from harness_projection import _in_scope
+            store = HarnessStore(reader.root)
+            index = store.snapshot(catalog=True)
+            # Catalog observation establishes authority even when no detail API
+            # has ever been read. A genuinely changed binding is checked by the
+            # same scope/root identity rules as the journal.
+            with self.store.transaction() as tx:
+                prior = tx.get('projection_bindings', source['sourceId'])
+            root_info = reader.root.stat()
+            same_binding = prior and prior['bindingFingerprint'] == digest([str(reader.root), root_info.st_dev, root_info.st_ino,
+                source['kind'], source.get('productId'), source.get('explorationId'), reader.scope.project])
+            if same_binding and prior.get('authorityEpoch') and not index.get('projectionEpoch'):
+                raise CenterError('HARNESS_UNAVAILABLE', 'Authoritative Harness records are missing.', 503)
+            scope = {'productId': reader.scope.product_id, 'explorationId': reader.scope.exploration_id,
+                     'includeExploration': True}
+            cycles = [cycle for cycle in index['cycles'] if _in_scope(cycle, scope)]
+            if cycles:
+                cycles.sort(key=lambda cycle: cycle['sequenceNumber'], reverse=True)
+                records, warnings = self.projection.ledger(reader, source)
+                inventory, legacy = self.projection.inventory(reader, {**index, 'cycles': cycles}, records)
+                ids = [cycle['id'] for cycle in inventory[:20]]
+                harness = store.snapshot(ids, compact=True)
+                kwargs.update(cycle_ids=set(ids), include_events=False, ledger_records=(legacy, warnings))
         managed, config = False, None
         if source.get('runtimeId'):
             with self.store.transaction() as tx:
@@ -88,8 +118,20 @@ class CenterCatalog:
         else:
             status = self.readonly_observer.status(reader)
         observation = scoped_observation(reader, status)
-        active = status if managed and config is not None or observation and observation.get('currentCycleId') else None
+        active = status if managed and config is not None or observation and (
+            observation.get('currentCycleId') or observation.get('state') == 'paused' and observation.get('scoped')) else None
         data = reader.snapshot(status=active, runtime_config=config, **kwargs)
+        if harness:
+            from harness_projection import project_cycles
+            data['cycles'] = project_cycles(data['cycles'], harness, scope)
+            data['cycles'].sort(key=lambda cycle: cycle.get('sequenceNumber') or cycle.get('number') or 0, reverse=True)
+            for cycle in data['cycles']:
+                if cycle.get('harnessVersion'):
+                    cycle['active'] = bool(data['runtime'].get('active') and data['runtime'].get('currentCycleId') == cycle['id'])
+                    if cycle.get('status') in {'running', 'correcting', 'recovering'} and not cycle['active']:
+                        cycle['status'] = 'unknown'
+        if overlay:
+            data['_harnessAuthority'] = index.get('projectionEpoch')
         data['readOnly'] = bool(data.get('readOnly')) or not managed
         return data, observation
 
@@ -115,7 +157,8 @@ class CenterCatalog:
             metadata = scoped.project()
             items.append({'itemId': identity, 'kind': row['kind'], 'productId': identity if row['kind'] == 'product' else None,
                           'explorationId': identity if row['kind'] == 'exploration' else row.get('explorationId'),
-                          'project': project, 'displayName': metadata['displayName'], 'description': metadata['description'],
+                          'project': project, 'projectDirPresent': bool(project and (root / project).is_dir()),
+                          'displayName': metadata['displayName'], 'description': metadata['description'],
                           'identityFingerprint': digest({'id': identity, 'kind': row['kind']}),
                           'cycleEvidence': {key: digest(value) for key, value in state['cycles'].items() if value['identityId'] == identity},
                           'linkedProductId': row.get('linkedProductId'), 'cycleCount': row['lastCycleNumber']})
@@ -186,6 +229,31 @@ class CenterCatalog:
             raise CenterError('SOURCE_CHANGED', 'Source changed after inspection; probe again.', 409)
         return candidate
 
+    @staticmethod
+    def _root_is_deleting(tx, root_str):
+        try:
+            target = Path(os.path.normcase(str(Path(root_str).resolve())))
+        except OSError:
+            return False
+        deleting = [row for row in tx.list('entries') if not row.get('detached') and row.get('deletionInProgress')]
+        if not deleting:
+            return False
+        deleting_ids = {row['entryId'] for row in deleting}
+        roots = []
+        for row in deleting:
+            roots.extend(row.get('deletionTargetRoots') or [])
+        for source in tx.list('sources'):
+            if source.get('entryId') in deleting_ids and not source.get('detached') and source.get('root'):
+                roots.append(source['root'])
+        for item in roots:
+            try:
+                cand = Path(os.path.normcase(str(Path(item).resolve())))
+            except OSError:
+                continue
+            if target == cand or target.is_relative_to(cand) or cand.is_relative_to(target):
+                return True
+        return False
+
     def commit(self, body):
         key = body.get('idempotencyKey')
         body_hash = digest(body)
@@ -204,16 +272,22 @@ class CenterCatalog:
         if not isinstance(selected, list) or not selected or any(not isinstance(item, str) or item not in {row['itemId'] for row in candidate['items']} for item in selected):
             raise CenterError('INVALID_INPUT', 'Select inspected candidate items.')
         results = []
-        with self.store.transaction() as tx:
+        with self._source_refresh_lock, self.store.transaction() as tx:
             if key:
                 prior = tx.get('idempotency', 'import:' + str(key))
                 if prior:
                     if prior['hash'] != body_hash:
                         raise CenterError('IDEMPOTENCY_CONFLICT', 'This key has different input.', 409)
                     return prior['result']
+            if self._root_is_deleting(tx, candidate['root']):
+                raise CenterError('ACTION_IN_PROGRESS', 'This directory is being permanently deleted.', 409)
+            if not Path(candidate['root']).is_dir():
+                raise CenterError('SOURCE_CHANGED', 'Directory is no longer available; probe again.', 409)
             for item in candidate['items']:
                 if item['itemId'] not in selected:
                     continue
+                if item.get('projectDirPresent') and item.get('project') and not (Path(candidate['root']) / item['project']).is_dir():
+                    raise CenterError('SOURCE_CHANGED', 'Directory is no longer available; probe again.', 409)
                 entries, sources = tx.list('entries'), tx.list('sources')
                 duplicate = next((row for row in sources if os.path.normcase(row['root']) == os.path.normcase(candidate['root'])
                                   and row.get('identityFingerprint') == item['identityFingerprint'] and not row.get('detached')), None)
@@ -227,6 +301,8 @@ class CenterCatalog:
                 entry = next((row for row in entries if not row.get('detached') and
                               ((item['productId'] and row.get('productId') == item['productId']) or
                                (item['kind'] == 'exploration' and row.get('explorationId') == item['explorationId'] and row['kind'] == 'exploration'))), None)
+                if entry and entry.get('deletionInProgress'):
+                    raise CenterError('ACTION_IN_PROGRESS', 'This project is currently being permanently deleted.', 409)
                 # Additional copies can only be registered as read-only sources.
                 # Conflicting cycle IDs remain explicit and cannot gain authority.
                 conflicts = []
@@ -354,7 +430,7 @@ class CenterCatalog:
             if identity:
                 source['identityFingerprint'] = digest({'id': identity, 'kind': source['kind']})
                 source['cycleEvidence'] = {key: digest(value) for key, value in state['cycles'].items() if value['identityId'] == identity}
-            snapshot, observation = self._snapshot(source, reader)
+            snapshot, observation = self._snapshot(source, reader, projection_overlay=True)
             cycles = snapshot['cycles']
             latest = cycles[0] if cycles else {}
             latest_work = self._latest_work(snapshot['cycles'], source['kind'], latest)
@@ -385,6 +461,9 @@ class CenterCatalog:
                           'thumbnailCapturedAt': (capture.get('latestSuccess') or {}).get('capturedAt'),
                           'thumbnailStale': bool(capture.get('currentVersion') and capture['currentVersion'] != (capture.get('latestSuccess') or {}).get('version')),
                           'latestCycleStatus': latest.get('status', 'unknown'),
+                          'latestHarnessVersion': latest.get('harnessVersion'),
+                          'latestProtocolState': latest.get('protocolState'),
+                          'latestCycleActiveConfirmed': latest.get('active') is True,
                           'productLanguage': snapshot['languageState'].get('productLanguage'),
                           'productLanguageStatus': snapshot['languageState'].get('productLanguageStatus', 'unknown'),
                           'languagePeriodId': snapshot['languageState'].get('languagePeriodId'),
@@ -415,6 +494,7 @@ class CenterCatalog:
                             current_entry.update(changes)
                             current_entry['revision'] += 1
                             tx.put('entries', entry['entryId'], current_entry)
+            self.projection.binding(source, reader, snapshot.get('_harnessAuthority'))
             return source
         except (CenterError, OSError, ValueError, TypeError, KeyError, RecursionError, OverflowError) as error:
             with self.store.transaction() as tx:
@@ -453,10 +533,11 @@ class CenterCatalog:
         if source and source.get('entryId') != entry['entryId']:
             raise CenterError('SOURCE_NOT_FOUND', 'Source does not belong to this entry.', 404)
         projection = tx.get('projections', source.get('sourceId')) or {}
+        binding = tx.get('projection_bindings', source.get('sourceId')) or {}
         capabilities = dict(source.get('capabilities', {}))
-        if entry.get('archived') or source.get('availability') != 'available':
+        if entry.get('archived') or entry.get('trashed') or source.get('availability') != 'available':
             capabilities.update(execute=False, preview=False, capture=False)
-        reason = 'ENTRY_ARCHIVED' if entry.get('archived') else 'SOURCE_UNAVAILABLE' if source.get('availability') != 'available' else 'READ_ONLY_SOURCE'
+        reason = 'ENTRY_TRASHED' if entry.get('trashed') else 'ENTRY_ARCHIVED' if entry.get('archived') else 'SOURCE_UNAVAILABLE' if source.get('availability') != 'available' else 'READ_ONLY_SOURCE'
         direction = entry.get('direction') or ''
         if not direction and entry['kind'] == 'exploration':
             operation = next((row for row in tx.list('operations')
@@ -464,13 +545,14 @@ class CenterCatalog:
             direction = (operation or {}).get('input', {}).get('direction') or ''
         direction_summary = ' '.join(direction.split())[:160]
         short_id = entry['entryId'][-8:]
-        display_name = projection.get('displayName') or entry.get('displayName')
-        if entry['kind'] == 'exploration':
+        display_name = entry.get('customDisplayName') or projection.get('displayName') or entry.get('displayName')
+        if entry['kind'] == 'exploration' and not entry.get('customDisplayName'):
             display_name = direction_summary or ('Exploration · ' + short_id)
         return {**entry, **projection, 'displayName': display_name, 'direction': direction,
                 'directionSummary': direction_summary, 'shortId': short_id,
                 'sourceId': source.get('sourceId'), 'runtimeId': source.get('runtimeId'),
                 'sourceRevision': source.get('sourceRevision'), 'availability': source.get('availability', 'unknown'),
+                'sourceBindingVersion': binding.get('sourceBindingVersion'),
                 'capabilities': capabilities, 'capabilityReasons': {key: reason for key in ('execute', 'preview', 'capture') if not capabilities.get(key)}, 'executionSummary': {'state': 'unknown' if source.get('runtimeId') or source.get('availability') != 'available' else 'read_only', 'reason': 'read_only_source'},
                 'iconUrl': '/api/center/v1/entries/' + quote(entry['entryId']) + '/resources/' + quote(projection['iconResourceId']) + '?sourceId=' + quote(source['sourceId'])
                 if projection.get('iconResourceId') and source.get('availability') == 'available' else None,
@@ -483,6 +565,7 @@ class CenterCatalog:
             return entry
         try:
             _, _, reader = self.resolve_source(entry['entryId'], entry.get('sourceId'))
+            reader.projection_version = 2
             entry['readonlyObservation'] = scoped_observation(reader, self.readonly_observer.status(reader))
         except (CenterError, OSError, ValueError, TypeError, KeyError, RecursionError):
             entry['readonlyObservation'] = None
@@ -495,12 +578,13 @@ class CenterCatalog:
         if len(search) > 500:
             raise CenterError('INVALID_INPUT', 'Search is too long.')
         filter_value, sort_value = query.get('filter', 'active'), query.get('sort', 'activity')
-        if filter_value not in {'active', 'all', 'archived', 'product', 'exploration', 'legacy', 'reference'} or sort_value not in {'activity', 'name'}:
+        if filter_value not in {'active', 'all', 'archived', 'trash', 'product', 'exploration', 'legacy', 'reference'} or sort_value not in {'activity', 'name'}:
             raise CenterError('INVALID_INPUT', 'Unsupported catalog filter or sort.')
         query_hash = digest([search, filter_value, sort_value])
         with self.store.transaction() as tx:
             items = [self._entry_view(tx, row) for row in tx.list('entries') if not row.get('detached')]
-        items = [row for row in items if (filter_value != 'active' or not row.get('archived') and row['kind'] in {'product', 'legacy'})
+        items = [row for row in items if (filter_value == 'trash') == bool(row.get('trashed'))
+                 and (filter_value != 'active' or not row.get('archived') and row['kind'] in {'product', 'legacy'})
                  and (filter_value != 'archived' or row.get('archived'))
                  and (filter_value not in {'product', 'exploration', 'legacy', 'reference'} or row['kind'] == filter_value)
                  and (not search or search in ' '.join(str(row.get(key) or '') for key in
@@ -525,6 +609,7 @@ class CenterCatalog:
                 continue
             try:
                 _, _, reader = self.resolve_source(row['entryId'], row.get('sourceId'))
+                reader.projection_version = 2
                 observable.append((row, reader))
             except (CenterError, OSError, ValueError, TypeError, KeyError, RecursionError):
                 row['readonlyObservation'] = None
@@ -556,6 +641,10 @@ class CenterCatalog:
 
     def journal(self, entry_id, query=None):
         query = query or {}
+        if str(query.get('projectionVersion', '1')) == '2':
+            return self.projection.journal(entry_id, query)
+        if str(query.get('projectionVersion', '1')) != '1':
+            raise CenterError('PROJECTION_UNSUPPORTED', 'Unsupported journal projection version.', 422)
         entry, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
         data, observation = self._snapshot(source, reader)
         data['readonlyObservation'] = observation
@@ -618,6 +707,8 @@ class CenterCatalog:
 
     def usage(self, entry_id, query=None):
         query = query or {}
+        if str(query.get('projectionVersion', '1')) == '2':
+            return self.projection.usage(entry_id, query)
         entry, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
         snapshot = reader.snapshot()
         include = query.get('includeExploration') in {True, 'true', '1'}
@@ -657,7 +748,9 @@ class CenterCatalog:
                 'coverageStart': timestamps[0] if timestamps else None, 'coverageEnd': timestamps[-1] if timestamps else None,
                 'warnings': snapshot['warnings']}
 
-    def record(self, entry_id, record_id, source_id=None):
+    def record(self, entry_id, record_id, source_id=None, query=None):
+        if query and str(query.get('projectionVersion', '1')) == '2':
+            return self.projection.journal(entry_id, query, record_id=record_id)
         entry, source, reader = self.resolve_source(entry_id, source_id)
         if not isinstance(record_id, str) or not CYCLE_ID.fullmatch(record_id):
             raise CenterError('RECORD_NOT_FOUND', 'Record is unavailable.', 404)
@@ -669,7 +762,58 @@ class CenterCatalog:
         row.update(entryId=entry_id, sourceId=source['sourceId'], sourceRevision=source['sourceRevision'])
         return row
 
-    def resource(self, entry_id, resource_id, source_id=None):
+    def log_page(self, entry_id, cycle_id, query=None):
+        query = query or {}
+        if set(query) - {'sourceId', 'offset', 'limit', 'revision', 'projectionVersion', 'sourceBindingVersion', 'projectionEpoch'}:
+            raise CenterError('INVALID_INPUT', 'Unsupported log range query.')
+        if str(query.get('projectionVersion', '1')) == '2':
+            source, reader = self.projection.resolve_log_target(entry_id, cycle_id, query)
+        else:
+            self.record(entry_id, cycle_id, query.get('sourceId'), query=query)
+            _, source, reader = self.resolve_source(entry_id, query.get('sourceId'))
+        limit = bounded_int(query.get('limit'), 128 * 1024, 128 * 1024)
+        try:
+            offset = int(query.get('offset', 0))
+            if offset < 0 or isinstance(query.get('offset'), bool):
+                raise ValueError()
+        except (ValueError, TypeError) as error:
+            raise CenterError('INVALID_INPUT', 'Log offset must be a nonnegative integer.') from error
+        with self.store.transaction() as tx:
+            runtime = tx.get('runtimes', source.get('runtimeId')) if source.get('runtimeId') else None
+        domain_log = bool(source.get('runtimeId')) and not (runtime and runtime.get('managed') is False)
+        if domain_log:
+            if not callable(self.execution_query):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log reader is unavailable.', 503)
+            raw = self.execution_query(source['sourceId'], 'log', path='logs/' + cycle_id + '.log', offset=offset, limit=limit)
+            if raw.get('ok') is not True or not isinstance(raw.get('bytesBase64'), str):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log could not be read.', 503)
+            if query.get('revision') and query['revision'] != raw.get('revision'):
+                raise CenterError('LOG_CHANGED', 'Log changed; restart loading from the beginning.', 409)
+            result = {
+                'ok': True,
+                'offset': raw['offset'],
+                'nextOffset': raw['nextOffset'],
+                'totalBytes': raw['totalBytes'],
+                'eof': raw['eof'],
+                'revision': raw['revision'],
+                'bytesBase64': raw['bytesBase64'],
+            }
+        else:
+            try:
+                status = self.readonly_observer.status(reader) if str(query.get('projectionVersion', '1')) != '2' else None
+                result = reader.log_page(cycle_id, offset, limit, status=status,
+                                         preverified=(str(query.get('projectionVersion', '1')) == '2'))
+                if query.get('revision') and query['revision'] != result['revision']:
+                    raise CenterError('LOG_CHANGED', 'Log changed; restart loading from the beginning.', 409)
+            except (ValueError, TypeError) as error:
+                raise CenterError('INVALID_INPUT', 'Log offset must be a nonnegative integer.') from error
+            except OSError as error:
+                raise CenterError('RESOURCE_NOT_FOUND', 'Recorded log was not retained.', 404) from error
+        return {**result, 'entryId': entry_id, 'sourceId': source['sourceId'], 'cycleId': cycle_id}
+
+    def resource(self, entry_id, resource_id, source_id=None, query=None):
+        if query and str(query.get('projectionVersion', '1')) == '2':
+            return self.projection.resource(entry_id, resource_id, query)
         entry, source, reader = self.resolve_source(entry_id, source_id)
         if source['kind'] == 'reference' and resource_id == 'reference-readme':
             item = next((row for row in source.get('registeredDocuments', []) if row['id'] == resource_id), None)
@@ -719,10 +863,33 @@ class CenterCatalog:
             return reader.media_resource(source['productId'], resource_id[6:])
         raise CenterError('RESOURCE_NOT_FOUND', 'Resource does not belong to this entry.', 404)
 
+    def _read_log(self, source, reader, identity):
+        with self.store.transaction() as tx:
+            runtime = tx.get('runtimes', source.get('runtimeId')) if source.get('runtimeId') else None
+        if source.get('runtimeId') and not (runtime and runtime.get('managed') is False):
+            if not callable(self.execution_query):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log reader is unavailable.', 503)
+            result = self.execution_query(source['sourceId'], 'log', path='logs/' + identity + '.log', offset=0, limit=1)
+            size = result.get('totalBytes', result.get('size'))
+            if result.get('ok') is not True or type(size) is not int or size < 0:
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log could not be verified.', 503)
+            offset = max(0, size - 128 * 1024)
+            result = self.execution_query(source['sourceId'], 'log', path='logs/' + identity + '.log', offset=offset, limit=128 * 1024)
+            if result.get('ok') is not True or not isinstance(result.get('content'), str):
+                raise CenterError('CONTEXT_UNAVAILABLE', 'Execution-domain log could not be read.', 503)
+            raw = result['content']
+            return (raw.partition('\n')[2] if offset else raw).encode('utf-8'), 'text/plain; charset=utf-8'
+        try:
+            raw, truncated = reader.read('logs/' + identity + '.log', 128 * 1024, tail=True)
+        except (OSError, ValueError) as error:
+            raise CenterError('RESOURCE_NOT_FOUND', 'Attempt log was not retained.', 404) from error
+        return (raw.partition('\n')[2] if truncated else raw).encode('utf-8'), 'text/plain; charset=utf-8'
+
     def _idle(self, tx, entry_id):
         if any(row.get('entryId') == entry_id and row.get('state') not in TERMINAL for row in tx.list('requests')):
             raise CenterError('ENTRY_BUSY', 'This entry has an open request.', 409)
-        if any(row.get('entryId') == entry_id and row.get('state') in {'preparing', 'running', 'pending', 'attention'} for row in tx.list('operations')):
+        if any((row.get('entryId') == entry_id or (row.get('reserved') or {}).get('entryId') == entry_id)
+               and row.get('state') in {'preparing', 'running', 'pending', 'attention'} for row in tx.list('operations')):
             raise CenterError('ENTRY_BUSY', 'This entry has an active operation.', 409)
 
     def entry_action(self, entry_id, action, body):
@@ -776,7 +943,7 @@ class CenterCatalog:
                         raise CenterError('IDEMPOTENCY_CONFLICT', 'This key has different input.', 409)
                     return prior['result']
         candidate = self._candidate(body)
-        with self.store.transaction() as tx:
+        with self._source_refresh_lock, self.store.transaction() as tx:
             if key:
                 prior = tx.get('idempotency', key)
                 if prior:
@@ -784,14 +951,23 @@ class CenterCatalog:
                         raise CenterError('IDEMPOTENCY_CONFLICT', 'This key has different input.', 409)
                     return prior['result']
             source = tx.get('sources', source_id)
-            if not source:
+            if not source or source.get('detached'):
                 raise CenterError('SOURCE_NOT_FOUND', 'Source is unavailable.', 404)
+            entry = tx.get('entries', source['entryId'])
+            if not entry or entry.get('detached'):
+                raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
+            if entry.get('deletionInProgress'):
+                raise CenterError('ACTION_IN_PROGRESS', 'This project is currently being permanently deleted.', 409)
             expected = body.get('expectedRevision')
             if expected is not None and (type(expected) is not int or not 0 <= expected <= 9007199254740991):
                 raise CenterError('INVALID_REQUEST', 'Expected revision must be an integer.')
             if expected != source.get('revision'):
                 raise CenterError('REVISION_CONFLICT', 'Source changed; reload it.', 409)
             self._idle(tx, source['entryId'])
+            if self._root_is_deleting(tx, candidate['root']):
+                raise CenterError('ACTION_IN_PROGRESS', 'This directory is being permanently deleted.', 409)
+            if not Path(candidate['root']).is_dir():
+                raise CenterError('SOURCE_CHANGED', 'Directory is no longer available; probe again.', 409)
             if source.get('runtimeId') and (tx.get('runtimes', source['runtimeId']) or {}).get('managed'):
                 raise CenterError('MANAGED_SOURCE', 'Release managed sources before reconnecting.', 409)
             item = next((item for item in candidate['items'] if item['identityFingerprint'] == source.get('identityFingerprint')), None)
@@ -834,7 +1010,8 @@ class CenterCatalog:
             refreshed = 0
             for source in selected:
                 paths = ['', '.auto-loop-state', '.auto-loop.pid', 'logs/usage.jsonl.pending', '.autonomous-company', '.autonomous-company/product-state.json', '.autonomous-company/product-state.transaction.json',
-                         '.autonomous-company/product-state.lock', '.autonomous-company.local', 'projects/registry.tsv', 'logs/usage.jsonl', 'logs', 'logs/artifacts']
+                         '.autonomous-company/product-state.lock', '.autonomous-company/company-harness.sqlite3',
+                         '.autonomous-company/company-harness.sqlite3-wal', '.autonomous-company.local', 'projects/registry.tsv', 'logs/usage.jsonl', 'logs', 'logs/artifacts']
                 if source.get('project'):
                     paths += [source['project'], source['project'] + '/.autonomous-company/identity.json', source['project'] + '/.autonomous-company-project.json', source['project'] + '/.autonomous-company/media.json']
                 if source.get('productId'):
@@ -861,6 +1038,7 @@ class CenterCatalog:
                     # The background reader keeps observation freshness current.
                     try:
                         _, _, reader = self.resolve_source(source['entryId'], source['sourceId'])
+                        reader.projection_version = 2
                         observation = scoped_observation(reader, self.readonly_observer.status(reader))
                         with self.store.transaction() as tx:
                             projection = tx.get('projections', source['sourceId'])
@@ -920,7 +1098,10 @@ class CenterCatalog:
             discovered = []
             with self.store.transaction() as tx:
                 current_anchor = tx.get('sources', anchor['sourceId'])
-                if not current_anchor or current_anchor.get('detached') or current_anchor.get('root') != anchor['root']:
+                anchor_entry = tx.get('entries', current_anchor['entryId']) if current_anchor else None
+                if (not current_anchor or current_anchor.get('detached') or current_anchor.get('root') != anchor['root']
+                        or not anchor_entry or anchor_entry.get('detached') or anchor_entry.get('trashed')
+                        or anchor_entry.get('deletionInProgress') or self._root_is_deleting(tx, current_anchor['root'])):
                     return []
                 for identity, row, metadata in candidates:
                     if any(entry.get('productId') == identity for entry in tx.list('entries')):

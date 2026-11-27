@@ -74,7 +74,8 @@ class WorkReportCollectionTests(unittest.TestCase):
         original = source.read_bytes()
         original_state = (root / ".autonomous-company/product-state.json").read_bytes()
         (view.workspace / "projects/sample/value.txt").write_text("candidate")
-        (view.workspace / "memories/consensus.md").write_text("Updated consensus")
+        updated_consensus = "# Consensus\n\n## Current Phase\nUpdated\n\n## Human Overrides\n- keep\n\n## Priority Issues\n- none\n"
+        (view.workspace / "memories/consensus.md").write_text(updated_consensus)
         session = view.home / ".codex/sessions/session.jsonl"
         session.parent.mkdir(parents=True)
         session.write_text("retained session")
@@ -84,7 +85,7 @@ class WorkReportCollectionTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
         self.assertFalse((root / "logs" / source.name).exists())
         self.assertEqual((root / "projects/sample/value.txt").read_text(), "candidate")
-        self.assertEqual((root / "memories/consensus.md").read_text(), "Updated consensus")
+        self.assertEqual((root / "memories/consensus.md").read_text(), updated_consensus)
         # Collection may serialize unchanged state with different whitespace.
         self.assertEqual(read_state(root), json.loads(original_state))
         record = json.loads((view.store / "last-run.json").read_text())

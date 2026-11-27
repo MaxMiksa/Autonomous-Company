@@ -84,6 +84,7 @@
     // Only fixed application assets execute; scripts in fetched markup are inert.
     parsed.querySelectorAll('script').forEach(node => node.remove());
     await Promise.all([asset(kind === 'center' ? '/center.css' : '/styles.css', 'style'), asset(kind === 'center' ? '/center-i18n.js' : '/i18n.js')]);
+    if (kind === 'journal') await asset('/projection.js');
     await asset(kind === 'center' ? '/center.js' : '/app.js');
     return parsed.body;
   }

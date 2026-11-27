@@ -59,28 +59,29 @@ Cache hits also count toward these limits. Free tier images include a "snapog.de
 ## Local Development
 
 ### Prerequisites
-- Node.js 18+, npm
-- Wrangler (`npm install -g wrangler`)
+- Node.js 24.11.1 (see `.node-version`; supported development range: 24.11.1–24.x)
+- pnpm 12.16.1, matching `packageManager` in `package.json`
+- Wrangler 3 is installed locally from the lockfile; no global Wrangler is needed
 - A Cloudflare account with Workers access
 
 ### Setup
 
 ```bash
 cd projects/snapog
-npm install
+pnpm install --frozen-lockfile
 
 # 1. Create D1 database
-wrangler d1 create snapog-db
+pnpm exec wrangler d1 create snapog-db
 # Copy the returned database_id into wrangler.toml [d1_databases]
 
 # 2. Apply migrations locally
-npm run db:local
+pnpm run db:local
 
 # 3. Create R2 bucket (local R2 is simulated)
 # No setup needed for local dev — wrangler simulates R2
 
 # 4. Start dev server
-npm run dev
+pnpm run dev
 ```
 
 Open http://127.0.0.1:8787
@@ -99,7 +100,7 @@ curl "http://127.0.0.1:8787/og?title=Hello+World&key=sk_your_key" --output og.pn
 ### Typecheck
 
 ```bash
-npm run typecheck
+pnpm run typecheck
 ```
 
 ## Deployment
@@ -108,17 +109,17 @@ Deploy to resources you control after reviewing the prototype's authentication a
 
 ```bash
 # 1. Create remote D1 database
-wrangler d1 create snapog-db
+pnpm exec wrangler d1 create snapog-db
 # Update wrangler.toml with the database_id
 
 # 2. Apply migrations to remote
-npm run db:remote
+pnpm run db:remote
 
 # 3. Create R2 bucket
-wrangler r2 bucket create snapog-og-cache
+pnpm exec wrangler r2 bucket create snapog-og-cache
 
 # 4. Deploy
-wrangler deploy
+pnpm run deploy
 ```
 
 ## Tech Stack

@@ -372,7 +372,7 @@ adapter_log_start() {
         export "$secret_name"
     done
     python3 "$ENGINE_ADAPTER_DIR/center_runner.py" stream-log --root "$PROJECT_DIR" \
-        --input-path "$capture" --relative-path "logs/${AUTONOMOUS_COMPANY_CYCLE_ID}.log" &
+        --input-path "$capture" --relative-path "logs/${AUTONOMOUS_COMPANY_ATTEMPT_ID:-$AUTONOMOUS_COMPANY_CYCLE_ID}.log" &
     ADAPTER_LOG_PID=$!
     while true; do
         if [ -f "$capture.ready" ] && [ ! -L "$capture.ready" ]; then

@@ -1,8 +1,19 @@
 {
-  "name":"rest-rhythm",
-  "version":"1.0.0",
-  "private":true,
-  "type":"module",
-  "scripts":{"test":"node --test tests/core.test.js","test:browser":"playwright test","start":"python -m http.server 8080 --bind 127.0.0.1"},
-  "devDependencies":{"@playwright/test":"1.63.0"}
+  "name": "rest-rhythm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/core.test.js",
+    "test:browser": "playwright test",
+    "start": "python -m http.server 8080 --bind 127.0.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  },
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
+  "packageManager": "pnpm@12.16.1"
 }

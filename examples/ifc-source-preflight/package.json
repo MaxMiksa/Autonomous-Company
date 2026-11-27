@@ -3,6 +3,15 @@
   "private": true,
   "version": "1.0.0",
   "description": "量源复核本地浏览器工作台的端到端检查",
-  "scripts": {"test:browser": "playwright test"},
-  "devDependencies": {"@playwright/test": "1.63.0"}
+  "scripts": {
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  },
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
+  "packageManager": "pnpm@12.16.1"
 }

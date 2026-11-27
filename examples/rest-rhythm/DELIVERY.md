@@ -57,10 +57,10 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory .
 `core.js` 是纯编排与 JSON 校验，`app.js` 负责编辑、状态保存与导出。`index.html` / `styles.css` 负责界面。在本产品目录执行：
 
 ```sh
-npm ci
-npx playwright install chromium
-npm test
-npm run test:browser
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test
+pnpm run test:browser
 ```
 
 浏览器检查使用 Playwright Chromium。Windows 测试服务器使用 `python`，其他平台使用 `python3`；不依赖原运行路径或临时安装目录。离线环境需预先具备对应浏览器，Linux 还需浏览器系统库。安装依赖不等于检查通过；本产品运行不需要测试依赖。构造输入测试不证明实际旅行或恢复效果。

@@ -1257,6 +1257,42 @@ class CenterCatalogTests(unittest.TestCase):
         selected = self.catalog.entry_action(item['entryId'], 'source-selection', {'expectedRevision': 1, 'sourceId': item['sourceId']})
         self.assertEqual(selected['preferredSourceId'], item['sourceId'])
 
+    def test_idle_blocks_reserved_entry_operations_and_log_page_enforces_revision_and_domain(self):
+        row = self.cycle()
+        item, = self.import_root()
+        with self.store.transaction() as tx:
+            tx.put('operations', 'op-reserved', {'operationId': 'op-reserved', 'kind': 'exploration', 'state': 'preparing', 'reserved': {'entryId': item['entryId']}})
+            with self.assertRaises(CenterError) as error:
+                self.catalog._idle(tx, item['entryId'])
+            self.assertEqual(error.exception.code, 'ENTRY_BUSY')
+
+        first = self.catalog.log_page(item['entryId'], row['cycleId'], {'offset': 0, 'limit': 5})
+        second = self.catalog.log_page(item['entryId'], row['cycleId'], {'offset': first['nextOffset'], 'limit': 128 * 1024, 'revision': first['revision']})
+        self.assertTrue(second['eof'])
+        self.assertEqual(first['bytesBase64'] and second['totalBytes'], len('projects/one private log'.encode('utf-8')))
+        import base64
+        decoded = base64.b64decode(first['bytesBase64']) + base64.b64decode(second['bytesBase64'])
+        self.assertEqual(decoded.decode('utf-8'), 'projects/one private log')
+        with self.assertRaises(CenterError) as changed:
+            self.catalog.log_page(item['entryId'], row['cycleId'], {'offset': 0, 'limit': 5, 'revision': '0:0'})
+        self.assertEqual(changed.exception.code, 'LOG_CHANGED')
+
+        # Managed source uses execution_query and checks revision conflict consistently
+        with self.store.transaction() as tx:
+            src = tx.get('sources', item['sourceId'])
+            src['runtimeId'] = 'runtime-log-test'
+            tx.put('sources', item['sourceId'], src)
+            tx.put('runtimes', 'runtime-log-test', {'runtimeId': 'runtime-log-test', 'managed': True})
+        self.catalog.execution_query = lambda sid, q, **kw: {
+            'ok': True, 'offset': 0, 'nextOffset': 4, 'totalBytes': 4, 'eof': True,
+            'revision': '4:1', 'bytesBase64': base64.b64encode(b'test').decode('ascii'),
+        }
+        managed = self.catalog.log_page(item['entryId'], row['cycleId'], {'offset': 0, 'limit': 1024})
+        self.assertEqual(managed['totalBytes'], 4)
+        with self.assertRaises(CenterError) as conflict:
+            self.catalog.log_page(item['entryId'], row['cycleId'], {'offset': 0, 'limit': 1024, 'revision': '9:9'})
+        self.assertEqual(conflict.exception.code, 'LOG_CHANGED')
+
 
 
 if __name__ == '__main__':

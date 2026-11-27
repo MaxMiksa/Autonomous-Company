@@ -18,8 +18,86 @@ sys.path.insert(0, str(ROOT / "scripts/core"))
 sys.path.insert(0, str(ROOT / "dashboard"))
 from runtime_events import Recorder, observed_config
 from runtime_artifacts import base_record, save, fingerprint
-from journal_data import JournalSource
+from journal_data import JournalSource, ProductScope
+from product_identity import reserve_cycle, update_cycle
 from observability_data import artifact_projection, cycle_events, registered_artifacts, preview_available
+
+
+class ExplorationCheckProjectionTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.cycle = reserve_cycle(self.root, "", "exploration-check", 1)
+        self.source = JournalSource(self.root, scope=ProductScope(
+            kind="exploration", exploration_id=self.cycle["explorationId"]))
+
+    def check(self, **changes):
+        with patch.dict(os.environ, {"AUTONOMOUS_COMPANY_CYCLE_ID": self.cycle["cycleId"]}):
+            record = base_record("", "check", self.root)
+        record.update(state="completed", exitCode=3, reportStatus="unavailable")
+        record.update(changes)
+        save(self.root, record)
+        return record
+
+    def test_scoped_exploration_check_binds_original_identity_and_cycle(self):
+        check = self.check()
+        result = artifact_projection(self.source)
+        self.assertEqual(result["status"], "recorded")
+        item, = result["items"]
+        self.assertEqual(item["id"], check["id"])
+        self.assertEqual(item["cycleId"], self.cycle["cycleId"])
+        self.assertEqual(item["productId"], self.cycle["explorationId"])
+        self.assertEqual(item["associationStatus"], "bound")
+        self.assertEqual(item["exitCode"], 3)
+        self.assertEqual(item["countsStatus"], "unavailable")
+        self.assertFalse(item["available"])
+        update_cycle(self.root, self.cycle["cycleId"], "failed")
+        self.assertEqual(artifact_projection(self.source)["items"][0]["id"], check["id"])
+        cycle, = self.source.snapshot()["cycles"]
+        self.assertEqual(cycle["id"], self.cycle["cycleId"])
+        self.assertEqual(cycle["latestCheck"]["id"], check["id"])
+        self.assertEqual(cycle["latestCheck"]["exitCode"], 3)
+
+    def test_empty_project_requires_explicit_exploration_scope(self):
+        self.check()
+        sources = [JournalSource(self.root),
+                   JournalSource(self.root, scope=ProductScope(kind="exploration", exploration_id="f" * 32)),
+                   JournalSource(self.root, scope=ProductScope(kind="legacy"))]
+        for source in sources:
+            with self.subTest(scope=source.scope):
+                self.assertEqual(artifact_projection(source)["items"], [])
+
+    def test_other_identity_cycle_and_noncheck_artifacts_are_not_associated(self):
+        changes = ({"cycleId": "cycle-unknown"}, {"productId": "f" * 32}, {"productId": None},
+                   {"project": "projects/other"}, {"kind": "document"},
+                   {"kind": "preview", "state": "running", "url": "http://127.0.0.1:1/", "token": "a" * 32})
+        with patch("observability_data.preview_available") as preview:
+            for change in changes:
+                self.check(**change)
+            self.assertEqual(artifact_projection(self.source)["items"], [])
+            preview.assert_not_called()
+
+    def test_empty_project_never_advertises_framework_root_resources(self):
+        secret = self.root / "private.txt"
+        secret.write_text("private operator data")
+        for relative in ("private.txt", "/private.txt", "../private.txt", ".autonomous-company/product-state.json"):
+            with self.subTest(path=relative):
+                check = self.check(path=relative, sha256=fingerprint(secret), reportStatus="fresh",
+                                   tests={"tests": 1, "failures": 0, "errors": 0, "skipped": 0})
+                item = next(row for row in artifact_projection(self.source)["items"] if row["id"] == check["id"])
+                self.assertFalse(item["available"])
+                self.assertNotIn("path", item)
+                self.assertNotIn("url", item)
+                self.assertNotIn("tests", item)
+                with self.assertRaises(ValueError):
+                    self.source.document(relative)
+
+    def test_record_identity_must_match_artifact_filename(self):
+        check = self.check()
+        path = self.root / "logs/artifacts" / (check["id"] + ".json")
+        path.rename(path.with_name("f" * 32 + ".json"))
+        self.assertEqual(artifact_projection(self.source)["items"], [])
 
 
 class ObservabilityTests(unittest.TestCase):

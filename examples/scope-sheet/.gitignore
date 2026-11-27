@@ -1,6 +1,0 @@
-# Local secrets and generated output
-.env
-.env.*
-dist/
-build/
-.auto-company/

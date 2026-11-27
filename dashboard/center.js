@@ -6,11 +6,11 @@ window.DashboardNavigation.register('center', (view) => {
   const $ = (id) => document.getElementById(id);
   const API = "/api/center/v1";
   const OPEN_STATES = new Set(["queued", "starting", "running", "stopping", "attention", "preparing"]);
-  const CATALOG_FILTERS = ["all", "running", "queued", "attention", "archived", "exploration", "reference", "read_only", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping"];
+  const CATALOG_FILTERS = ["all", "running", "queued", "attention", "archived", "trash", "exploration", "reference", "read_only", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping"];
   const TERMINAL_STATES = new Set(["ended", "failed", "canceled"]);
   const state = {
     language: "zh-CN", revision: null, apiRevision: null, apiCenterId: null, centerId: null, observedAt: null,
-    summary: null, entries: [], requests: [], operations: [], preferences: null, preferencesRevision: null, preferencesToken: 0,
+    summary: null, entries: [], trash: { retentionDays: 30, revision: 1, items: [] }, requests: [], operations: [], preferences: null, preferencesRevision: null, preferencesToken: 0,
     query: "", filter: "all", loading: true, stale: false, refreshing: null,
     writeGeneration: 0, refreshGeneration: 0, environmentToken: 0, environment: null,
     refreshToken: 0, dialogToken: 0, timer: null, menuEntryId: null, historyVisible: false,
@@ -21,6 +21,7 @@ window.DashboardNavigation.register('center', (view) => {
     autoRefresh: true,
     otherExpanded: false,
     sort: "activity", sortDirection: "desc", roundFilter: "all", previewMode: "screenshot",
+    readParts: new Map(), pendingParts: new Map(), stagedParts: new Map(), partSeq: new Map(),
   };
 
   const VIEW_STATE_KEY = "autonomous-company:center:view:v1";
@@ -55,7 +56,7 @@ window.DashboardNavigation.register('center', (view) => {
       if (CATALOG_FILTERS.includes(saved.filter)) state.filter = saved.filter;
       if (["activity", "name", "work", "status", "round"].includes(saved.sort)) state.sort = saved.sort;
       if (["asc", "desc"].includes(saved.sortDirection)) state.sortDirection = saved.sortDirection;
-      if (["all", "completed", "running", "failed", "pending", "interrupted", "completed_with_timeout", "paused", "unknown", "not_started", "startup_unconfirmed", "no_rounds"].includes(saved.roundFilter)) state.roundFilter = saved.roundFilter;
+      if (["all", "completed", "running", "correcting", "validating", "closing", "recovering", "handoff", "failed", "pending", "interrupted", "completed_with_timeout", "paused", "unknown", "not_started", "startup_unconfirmed", "no_rounds"].includes(saved.roundFilter)) state.roundFilter = saved.roundFilter;
       if (Number.isFinite(saved.scroll) && saved.scroll >= 0) state.restoreScroll = saved.scroll;
       $("productSearch").value = state.query;
     } catch (_) {}
@@ -111,7 +112,8 @@ window.DashboardNavigation.register('center', (view) => {
   async function api(path, options = {}, timeout = 30000, snapshot = null) {
     const controller = new AbortController();
     const request = view.request(controller, options);
-    const timer = setTimeout(() => controller.abort(), timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeout);
     try {
       const response = await fetch(`${API}${path}`, { cache: "no-store", ...options, signal: controller.signal });
       let payload;
@@ -132,6 +134,11 @@ window.DashboardNavigation.register('center', (view) => {
       // Partial refreshes cannot publish metadata for the data still on screen.
       if (!snapshot) { state.apiCenterId = target.centerId; state.apiRevision = target.revision; }
       return payload.data;
+    } catch (error) {
+      if (timedOut && error?.name === "AbortError") {
+        throw new APIError({ code: "REQUEST_TIMEOUT", messageKey: "requestFailed" }, 0);
+      }
+      throw error;
     } finally { clearTimeout(timer); request.done(); }
   }
 
@@ -156,6 +163,11 @@ window.DashboardNavigation.register('center', (view) => {
       PRODUCT_LANGUAGE_LOCKED: "productLanguageLocked", PRODUCT_REGISTRATION_INVALID: "productRegistrationInvalid", UNRESOLVED_P1: "unresolvedP1",
       RECOVERY_REQUIRED: "recoveryRequired", INVALID_CONFIG: "invalidConfig", INVALID_PREFERENCE: "invalidConfig", INVALID_TEMPLATE: "templateNameInvalid", TEMPLATE_NOT_FOUND: "selectTemplateFirst", TEMPLATE_NAME_CONFLICT: "templateNameConflict",
       INVALID_BATCH: "workBatchLimit", INVALID_DIRECTION: "fieldInvalid", INVALID_REQUEST: "invalidConfig", INVALID_INPUT: "fieldInvalid",
+      ENTRY_NOT_FOUND: "entryNotFound", ENTRY_BUSY: "entryBusy", INVALID_NAME: "nameInvalid", INVALID_RETENTION: "retentionInvalid",
+      ENTRY_TRASHED: "entryTrashed", ENTRY_NOT_TRASHED: "entryNotTrashed", PARTIAL_DELETE: "partialDelete",
+      MANAGED_SOURCE: "managedSourceTrash", DELETE_FAILED: "deleteFailed", OWNER_CONFLICT: "ownerConflict",
+      OWNERSHIP_UNCONFIRMED: "ownershipUnconfirmed", ACTIVE_OWNER_REQUIRED: "activeOwnerRequired",
+      PAUSE_REQUEST_ALREADY_COMPLETED: "pauseRequestCompleted",
     };
     const key = map[error?.code] || (error?.messageKey && window.CENTER_MESSAGES.en[error.messageKey] ? error.messageKey : null);
     return key ? message(key, error.params) : text(error?.message) || message("unknownError");
@@ -178,7 +190,11 @@ window.DashboardNavigation.register('center', (view) => {
     if (!Number.isFinite(blockedAt) || blockedAt > currentTime) return "";
     return "unresolved_p1";
   }
+  function completedCyclePause(record) {
+    return text(record?.state).toLowerCase() === "ended" && record?.terminalReason === "pause_after_cycle";
+  }
   function requestDisplayState(request, currentTime = Date.now()) {
+    if (completedCyclePause(request)) return "paused";
     const value = requestState(request);
     if (!["starting", "running", "stopping"].includes(value)) return value;
     if (!requestIsFresh(request, currentTime)) return "unknown";
@@ -190,6 +206,7 @@ window.DashboardNavigation.register('center', (view) => {
   function entryState(entry, currentTime = Date.now()) {
     if (entry?.archived) return "archived";
     const summary = execution(entry); const value = text(summary.state).toLowerCase();
+    if (completedCyclePause(summary)) return "paused";
     if (value === "read_only") return readonlyObservationState(entry, currentTime) || "unknown";
     if (["blocked", "running", "starting", "stopping"].includes(value)) {
       const request = (state.summary?.currentRequests || [state.summary?.currentRequest]).find((item) => item?.entryId === entry.entryId);
@@ -248,6 +265,7 @@ window.DashboardNavigation.register('center', (view) => {
     const value = text(reason);
     if (value === "user_stop") return message("requestedStop");
     if (value === "user_cancel") return message("requestedCancel");
+    if (value === "pause_after_cycle") return message("completedCyclePause");
     return /^(?:PRODUCT_REGISTRATION_INVALID|CONTEXT_UNAVAILABLE|GOVERNANCE_PAUSE|BUDGET_PAUSE|STOP_UNCONFIRMED|UNRESOLVED_P1|FRAMEWORK_UNVERIFIED|PREPARATION_FAILED)$/i.test(value) ? capabilityReason(value) : value || message("unknownError");
   }
   function queueWaitReason() {
@@ -275,7 +293,7 @@ window.DashboardNavigation.register('center', (view) => {
   }
 
   function normalizeCounts() {
-    const counts = { all: state.entries.filter((entry) => !entry.archived && inProjectList(entry)).length, running: 0, queued: 0, attention: 0, archived: 0 };
+    const counts = { all: state.entries.filter((entry) => !entry.archived && inProjectList(entry)).length, running: 0, queued: 0, attention: 0, archived: 0, trash: state.trash?.items?.length || 0 };
     for (const entry of state.entries) {
       const value = entryState(entry);
       if (value === "archived") counts.archived += 1;
@@ -289,13 +307,14 @@ window.DashboardNavigation.register('center', (view) => {
 
   function filteredEntries() {
     const query = state.query.toLocaleLowerCase(state.language);
-    return state.entries.filter((entry) => {
+    return (state.filter === "trash" ? state.trash?.items || [] : state.entries).filter((entry) => {
       const value = entryState(entry);
       const filterMatch = state.filter === "all" ? !entry.archived && inProjectList(entry)
         : state.filter === "running" ? inProjectList(entry) && ["running", "starting", "stopping"].includes(value)
         : state.filter === "queued" ? inProjectList(entry) && value === "queued"
         : state.filter === "attention" ? inProjectList(entry) && ["blocked", "attention", "failed", "unknown"].includes(value)
         : state.filter === "archived" ? entry.archived === true
+        : state.filter === "trash" ? entry.trashed === true
         : state.filter === "exploration" ? entry.kind === "exploration" && !entry.archived
         : state.filter === "reference" ? entry.kind === "reference" && !entry.archived
         : state.filter === "read_only" ? inProjectList(entry) && !entry.archived && execution(entry).state === "read_only"
@@ -310,6 +329,11 @@ window.DashboardNavigation.register('center', (view) => {
 
   function emptyListState(entries = filteredEntries()) {
     if (entries.length) return null;
+    if (state.filter === "trash") {
+      const trashPart = state.readParts.get("trash");
+      if (trashPart?.failed) return { messageKey: "loadFailed" };
+      if (!trashPart && (state.loading || state.readParts.size > 0)) return { messageKey: "loading" };
+    }
     if (state.stale && !state.entries.length) return { messageKey: "loadFailed" };
     if (state.query || state.filter !== "all" || state.roundFilter !== "all") return { messageKey: "noMatches", actionKey: "clearFilters", target: "all" };
     const hasProduct = state.entries.some((entry) => !entry.archived && ["product", "legacy"].includes(entry.kind));
@@ -395,7 +419,7 @@ window.DashboardNavigation.register('center', (view) => {
       for (const direction of ["asc", "desc"]) sortGroup.append(new Option(message(field === "round" ? direction === "asc" ? "roundAscending" : "roundDescending" : direction === "asc" ? "statusRunningFirst" : "statusUnknownFirst"), `sort:${direction}`));
       select.append(sortGroup);
       const filterGroup = element("optgroup"); filterGroup.label = message("filterProducts");
-      const values = field === "status" ? ["running", "queued", "attention", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping", "archived", "reference", "exploration"] : ["completed", "running", "failed", "pending", "not_started", "startup_unconfirmed", "interrupted", "completed_with_timeout", "paused", "unknown", "no_rounds"];
+      const values = field === "status" ? ["running", "queued", "attention", "paused", "ended", "idle", "unknown", "failed", "blocked", "canceled", "preparing", "starting", "stopping", "archived", "reference", "exploration"] : ["completed", "running", "correcting", "validating", "closing", "recovering", "handoff", "failed", "pending", "not_started", "startup_unconfirmed", "interrupted", "completed_with_timeout", "paused", "unknown", "no_rounds"];
       for (const value of values) filterGroup.append(new Option(field === "status" ? filterLabel(value) : roundLabel(value), `filter:${value}`));
       select.append(filterGroup);
       const current = field === "status" ? state.filter : state.roundFilter;
@@ -422,6 +446,10 @@ window.DashboardNavigation.register('center', (view) => {
   function latestRoundState(entry) {
     if (!knownNumber(entry.cycleNumber) && ["", "unknown"].includes(text(entry.latestCycleStatus))) return "no_rounds";
     const recorded = text(entry.latestCycleStatus) || "unknown";
+    if (entry.latestHarnessVersion === 2) {
+      if (["running", "correcting", "recovering"].includes(recorded) && entry.latestCycleActiveConfirmed !== true) return "unknown";
+      return recorded;
+    }
     return readonlyObservationState(entry) === "ended" && ["running", "startup_unconfirmed", "pending"].includes(recorded) ? "interrupted" : recorded;
   }
 
@@ -444,7 +472,8 @@ window.DashboardNavigation.register('center', (view) => {
 
   const rowNodes = new Map();
   function rowSignature(entry) {
-    return JSON.stringify([entry, state.language, state.previewMode, state.stale, entryState(entry), capability(entry, 'execute'), window.DashboardDate.day()],
+    const trashFailed = entry.trashed ? Boolean(state.readParts.get("trash")?.failed) : false;
+    return JSON.stringify([entry, trashFailed, state.language, state.previewMode, state.stale, entryState(entry), capability(entry, 'execute'), window.DashboardDate.day()],
       (key, value) => ['observedAt', 'liveConfirmedAt', 'generatedAt'].includes(key) ? undefined : value);
   }
   function renderRow(entry) {
@@ -497,14 +526,24 @@ window.DashboardNavigation.register('center', (view) => {
     const actions = element("div", "row-actions");
     const execute = capability(entry, "execute");
     const items = [];
-    if (["product", "exploration"].includes(entry.kind) && !entry.archived) {
+    if (["product", "exploration"].includes(entry.kind) && !entry.archived && !entry.trashed) {
       items.push({ label: message("continue"), disabled: !execute.enabled,
         reason: execute.reason ? message("unavailableReason", { reason: capabilityReason(execute.reason) }) : message("capabilityUnavailable"),
         focusKey: `entry:${entry.entryId}:continue-menu`, action: () => openContinue(entry) });
     }
-    items.push({ label: message("manageSources"), focusKey: `entry:${entry.entryId}:manage`, action: () => openSourceManager(entry) },
-      { label: message(entry.archived ? "restore" : "archive"), focusKey: `entry:${entry.entryId}:visibility`, action: () => confirmEntryVisibility(entry) });
-    if (entry.kind === "reference" && !entry.archived) items.push({ label: message("detachReference"), danger: true,
+    if (entry.trashed) {
+      const trashFailed = Boolean(state.readParts.get("trash")?.failed);
+      const deleting = Boolean(entry.deletionInProgress) || trashFailed;
+      const deletingReason = trashFailed ? message("loadFailed") : deleting ? message("actionPending") : "";
+      items.push({ label: message("restoreTrash"), disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:restore-trash`, action: () => trashEntryAction(entry, "restore-trash") },
+        { label: message("deletePermanently"), danger: true, disabled: deleting, reason: deletingReason, focusKey: `entry:${entry.entryId}:delete`, action: () => trashEntryAction(entry, "delete") });
+    } else {
+      items.push({ label: message("rename"), focusKey: `entry:${entry.entryId}:rename`, action: () => renameEntry(entry) },
+        { label: message("manageSources"), focusKey: `entry:${entry.entryId}:manage`, action: () => openSourceManager(entry) },
+        { label: message(entry.archived ? "restore" : "archive"), focusKey: `entry:${entry.entryId}:visibility`, action: () => confirmEntryVisibility(entry) },
+        { label: message("moveToTrash"), danger: true, focusKey: `entry:${entry.entryId}:trash`, action: () => trashEntryAction(entry, "trash") });
+    }
+    if (entry.kind === "reference" && !entry.archived && !entry.trashed) items.push({ label: message("detachReference"), danger: true,
       focusKey: `entry:${entry.entryId}:detach`, action: () => confirmReferenceDetach(entry) });
     actions.append(UI.menu({ id: entry.entryId, label: message("moreActions"), items }));
     const updated = element("td", "updated-cell"); updated.setAttribute("role", "cell");
@@ -519,7 +558,8 @@ window.DashboardNavigation.register('center', (view) => {
   function renderEntries() {
     const container = $("productRows");
     const entries = sortedEntries();
-    const signature = JSON.stringify([entries.map(rowSignature), state.language, state.stale, state.summary?.executionAvailable, state.query, state.filter, state.sort, state.sortDirection, state.roundFilter, state.otherExpanded, state.loading]);
+    const trashStatus = state.readParts.get("trash")?.failed ? "failed" : state.readParts.has("trash") ? "ok" : "pending";
+    const signature = JSON.stringify([entries.map(rowSignature), state.language, state.stale, state.summary?.executionAvailable, state.query, state.filter, state.sort, state.sortDirection, state.roundFilter, state.otherExpanded, state.loading, trashStatus]);
     if (signature === entriesSignature) return;
     entriesSignature = signature;
     const positions = UI.positions(container, '.product-row');
@@ -595,7 +635,7 @@ window.DashboardNavigation.register('center', (view) => {
 
   function renderCounts() {
     const counts = normalizeCounts();
-    for (const key of ["All", "Running", "Queued", "Attention", "Archived"]) {
+    for (const key of ["All", "Running", "Queued", "Attention", "Archived", "Trash"]) {
       const value = counts[key.toLowerCase()], existing = $(`count${key}`);
       if (!value) { existing?.remove?.(); continue; }
       const count = existing || element("span", "filter-count count-badge"); count.id = `count${key}`; count.textContent = formatNumber(value);
@@ -635,6 +675,8 @@ window.DashboardNavigation.register('center', (view) => {
     if ($("newWorkDialog").open) updateGroupButtons();
     const executionAvailable = state.summary?.executionAvailable !== false;
     $("newWorkButton").disabled = state.stale || !executionAvailable;
+    const trashPart = state.readParts.get("trash");
+    if ($("trashSettingsButton")) $("trashSettingsButton").disabled = state.stale || !trashPart || Boolean(trashPart.failed);
     $("newWorkButton").title = !executionAvailable ? message("executionUnavailable") : "";
     $("newWorkUnavailable").hidden = executionAvailable && !state.stale;
     $("newWorkUnavailable").textContent = state.stale ? message("staleActionsDisabled") : !executionAvailable ? message("executionUnavailable") : "";
@@ -662,6 +704,7 @@ window.DashboardNavigation.register('center', (view) => {
   }
 
   function refreshRuntimeProjection(currentTime = Date.now()) {
+    if (state.readParts.size) updateReadHealth();
     const signature = runtimeProjectionSignature(currentTime);
     if (signature === state.projectionSignature) return;
     const focused = rememberFocus();
@@ -687,7 +730,7 @@ window.DashboardNavigation.register('center', (view) => {
       else if (["failed", "attention"].includes(operation.state)) groups.operationAttention.push(operation);
       else if (operation.state === "succeeded") groups.operationHistory.push(operation);
     }
-    groups.queued.sort((a, b) => (a.queuePosition ?? a.position ?? Infinity) - (b.queuePosition ?? b.position ?? Infinity));
+    groups.queued.sort((a, b) => (a.queuePosition ?? a.order ?? a.position ?? Infinity) - (b.queuePosition ?? b.order ?? b.position ?? Infinity));
     return groups;
   }
 
@@ -718,6 +761,15 @@ window.DashboardNavigation.register('center', (view) => {
     const actions = element("div", "queue-actions");
     if (["running", "starting", "stopping"].includes(value)) {
       const stop = focusKey(element("button", "text-button danger", message("stopItem")), `request:${request.requestId}:stop`); stop.type = "button"; stop.disabled = value === "stopping" || state.stale; stop.addEventListener("click", () => confirmRequestAction(request, "stop")); actions.append(stop);
+      if (value === "running") {
+        const waiting = request.pauseAfterCycle?.state === "requested";
+        const confirmed = requestIsFresh(request);
+        const pause = focusKey(element("button", "text-button", message(waiting ? "cancelPauseAfterCycle" : "pauseAfterCycle")), `request:${request.requestId}:pause`);
+        pause.type = "button"; pause.disabled = state.stale || !confirmed || Boolean(request.stopRequested);
+        pause.addEventListener("click", () => runRequestAction(request, waiting ? "cancel-pause-after-cycle" : "pause-after-cycle"));
+        actions.append(pause);
+        if (waiting) body.append(element("p", "", message("pauseAfterCycleWaiting")));
+      }
     } else if (group === "queued") {
       const up = focusKey(element("button", "text-button", message("moveUp")), `request:${request.requestId}:up`); up.type = "button"; up.disabled = index === 0 || state.stale; up.addEventListener("click", () => moveRequest(index, -1, queued));
       const down = focusKey(element("button", "text-button", message("moveDown")), `request:${request.requestId}:down`); down.type = "button"; down.disabled = index === queued.length - 1 || state.stale; down.addEventListener("click", () => moveRequest(index, 1, queued));
@@ -852,6 +904,78 @@ window.DashboardNavigation.register('center', (view) => {
     $("stopAllReason").textContent = $("stopAllButton").disabled ? message(state.stale ? "staleActionsDisabled" : "noActiveWork") : "";
   }
 
+  function updateReadHealth() {
+    const required = ['entries', 'summary', 'requests', 'operations'].map(kind => state.readParts.get(kind));
+    state.stale = required.some(part => !part || part.failed || Date.now() - part.receivedAt > 15000);
+    if (!state.stale && required.every(part => part.round === state.refreshToken)) {
+      const latest = required.reduce((previous, part) => (part.revision ?? -1) > (previous.revision ?? -1) || part.revision === previous.revision && part.observedAt > previous.observedAt ? part : previous);
+      state.revision = latest.revision; state.observedAt = latest.observedAt;
+      state.apiCenterId = state.centerId; state.apiRevision = Math.max(state.apiRevision ?? 0, state.revision ?? 0);
+      state.lastSuccessAt = state.observedAt;
+    }
+    if (state.revision === null) state.stale = true;
+    if (!state.stale && !state.refreshing && state.timerDelay > 5000 && view.active && state.autoRefresh) {
+      clearTimeout(state.timer); state.timerDelay = 5000; state.timer = setTimeout(refresh, 5000);
+    }
+  }
+  function installReadPart(kind, data, metadata, generation, seq) {
+    if (!view.active || generation !== state.writeGeneration) return;
+    if (seq !== undefined && state.partSeq.get(kind) !== seq) return;
+    if (kind === 'entries') {
+      if (state.centerId !== metadata.centerId) {
+        const preservedFailed = state.centerId === null
+          ? [...state.readParts.entries()].filter(([, part]) => part?.failed && part.generation === generation)
+          : [];
+        state.centerId = metadata.centerId; state.readParts.clear();
+        for (const [k, v] of preservedFailed) state.readParts.set(k, v);
+        state.summary = null; state.trash = { retentionDays: 30, revision: 1, items: [] }; state.requests = []; state.operations = []; state.preferences = null;
+        state.revision = null; state.apiRevision = null; state.apiCenterId = metadata.centerId;
+      }
+    } else if (metadata.centerId !== state.centerId) {
+      state.stagedParts.set(kind, { data, metadata, generation, seq }); return;
+    }
+    const previous = state.readParts.get(kind);
+    if (previous && !previous.failed && metadata.revision !== null && previous.revision !== null && metadata.revision < previous.revision) return;
+    state.readParts.set(kind, { ...metadata, receivedAt: Date.now(), failed: false });
+    if (kind === 'entries') { state.entries = data.items; state.loading = false; }
+    else if (kind === 'trash') state.trash = data;
+    else if (kind === 'summary') state.summary = data;
+    else if (kind === 'requests' || kind === 'operations') state[kind] = data.items;
+    else state.preferences = data;
+    const language = state.summary?.language || state.preferences?.language;
+    if (['en', 'zh-CN'].includes(language)) state.language = language;
+    updateReadHealth(); renderPage();
+    if (kind === 'entries') {
+      for (const [part, staged] of state.stagedParts) {
+        state.stagedParts.delete(part);
+        if (staged.metadata.centerId === state.centerId) installReadPart(part, staged.data, staged.metadata, staged.generation, staged.seq);
+      }
+      if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
+    }
+  }
+  function readPart(kind, path, force = false) {
+    const generation = state.writeGeneration;
+    const pending = state.pendingParts.get(kind);
+    if (!force && pending?.generation === generation) {
+      pending.metadata.round = state.refreshToken;
+      return pending.promise;
+    }
+    const seq = (state.partSeq.get(kind) || 0) + 1;
+    state.partSeq.set(kind, seq);
+    const metadata = { centerId: state.centerId, revision: null, observedAt: null, round: state.refreshToken, generation, seq };
+    const promise = (async () => { try {
+      const data = kind === 'entries' ? await allEntries(metadata) : await api(path, {}, 15000, metadata);
+      if (kind !== 'summary' && kind !== 'preferences' && !Array.isArray(data?.items) || !data || !metadata.centerId) throw new APIError({ code: 'INVALID_RESPONSE' }, 200);
+      installReadPart(kind, data, metadata, generation, seq);
+    } catch (error) {
+      if (error.name !== 'AbortError' && view.active && generation === state.writeGeneration && state.partSeq.get(kind) === seq) {
+        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true, round: metadata.round, generation, seq });
+        if (kind === 'entries') state.loading = false;
+        updateReadHealth(); renderPage();
+      }
+    } finally { if (state.pendingParts.get(kind)?.promise === promise) state.pendingParts.delete(kind); } })();
+    state.pendingParts.set(kind, { promise, generation, metadata, seq }); return promise;
+  }
   async function refresh() {
     if (!view.active) return;
     if (state.refreshing) {
@@ -861,30 +985,22 @@ window.DashboardNavigation.register('center', (view) => {
       return;
     }
     const generation = state.writeGeneration; state.refreshGeneration = generation;
-    const token = ++state.refreshToken;
+    ++state.refreshToken;
     const promise = (async () => {
       try {
-        const snapshot = { centerId: state.centerId, revision: state.revision, observedAt: state.observedAt };
-        const read = (path) => api(path, {}, 30000, snapshot);
-        const [summary, entries, requests, operations, preferences] = await Promise.all([
-          read("/summary"), allEntries(snapshot), read("/requests?limit=100"), read("/operations"), read("/preferences"),
-        ]);
-        if (token !== state.refreshToken || generation !== state.writeGeneration) return;
-        if (!summary || !Array.isArray(entries?.items) || !Array.isArray(requests?.items) || !Array.isArray(operations?.items)) throw new APIError({ code: "INVALID_RESPONSE" }, 200);
-        state.centerId = snapshot.centerId; state.revision = snapshot.revision; state.observedAt = snapshot.observedAt;
-        if (state.apiCenterId !== snapshot.centerId) { state.apiCenterId = snapshot.centerId; state.apiRevision = snapshot.revision; }
-        else state.apiRevision = Math.max(state.apiRevision ?? 0, snapshot.revision ?? 0);
-        state.summary = summary; state.entries = entries.items; state.requests = requests.items; state.operations = operations.items; state.preferences = preferences; state.loading = false; state.stale = false;
-        state.lastSuccessAt = state.observedAt || new Date().toISOString();
-        const language = summary.language || state.preferences?.language;
-        if (["en", "zh-CN"].includes(language)) state.language = language;
-        renderPage();
-        if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
-      } catch (_) {
-        if (token !== state.refreshToken || generation !== state.writeGeneration) return;
-        state.loading = false; state.stale = true; renderPage();
+        const entries = readPart('entries', '/entries');
+        readPart('summary', '/summary'); readPart('requests', '/requests?limit=100');
+        readPart('operations', '/operations'); readPart('preferences', '/preferences');
+        readPart('trash', '/trash');
+        await entries;
       } finally {
-        state.refreshing = null; clearTimeout(state.timer); if (view.active && state.autoRefresh) state.timer = setTimeout(refresh, state.stale ? 15000 : 5000);
+        state.refreshing = null; clearTimeout(state.timer);
+        if (view.active && state.autoRefresh) {
+          state.timerDelay = state.stale ? 15000 : 5000;
+          state.timer = setTimeout(refresh, state.timerDelay);
+        } else {
+          state.timerDelay = 0;
+        }
       }
     })();
     state.refreshing = promise; return promise;
@@ -1184,7 +1300,7 @@ window.DashboardNavigation.register('center', (view) => {
       form.elements.user.value = value.domain?.user || "";
       $("environmentCurrent").textContent = value.domain ? message("connectedEnvironment", { name: [value.domain.distribution || value.domain.platform, value.domain.user].filter(Boolean).join(" · ") }) : message("environmentNotConnected");
       selectEnvironment(); renderChecks($("environmentChecks"), value.checks);
-    } catch (error) { if (current()) setFormStatus(form, errorText(error), true); }
+    } catch (error) { if (current()) { if (error.details?.checks) renderChecks($("environmentChecks"), error.details.checks); setFormStatus(form, errorText(error), true); } }
     finally { if ($( "environmentDialog").open && state.environment) form.querySelectorAll("button:not(.dialog-close)").forEach(button => { button.disabled = !form.elements.candidate.options.length; }); }
   }
   async function environmentAction(action) {
@@ -1203,7 +1319,7 @@ window.DashboardNavigation.register('center', (view) => {
       renderChecks($("environmentChecks"), result.checks);
       setFormStatus(form, message(action === "connect" ? "environmentConnected" : result.ready === false || result.checks?.some(item => item.ok === false) ? "environmentCheckFailed" : "environmentChecked"));
       if (action === "connect") $("environmentCurrent").textContent = message("connectedEnvironment", { name: [domain.distribution || domain.platform, domain.user].filter(Boolean).join(" · ") });
-    } catch (error) { if (current()) setFormStatus(form, errorText(error), true); }
+    } catch (error) { if (current()) { if (error.details?.checks) renderChecks($("environmentChecks"), error.details.checks); setFormStatus(form, errorText(error), true); } }
     finally { if (dialog.open && dialogToken === state.dialogToken) { endSubmission(form, button); form.querySelectorAll("button:not(.dialog-close), input, select").forEach(item => { item.disabled = false; }); } }
   }
 
@@ -1462,6 +1578,11 @@ window.DashboardNavigation.register('center', (view) => {
           body.querySelector(".recovery-review")?.remove();
           const panel = element("section", "recovery-review");
           panel.append(element("h3", "", message("recoveryReview")));
+          if (review.nextContract) {
+            panel.append(element("p", "recovery-next-contract", message("recoveryNextContract", {
+              workKind: review.nextContract.workKind || "", objective: review.nextContract.objective || ""
+            })));
+          }
           const checks = element("div", "check-results"); renderChecks(checks, review.checks); panel.append(checks);
           for (const reason of review.reasons || []) panel.append(element("p", "", capabilityReason(typeof reason === "string" ? reason : reason.message || reason.code)));
           const lock = review.canRecoverLock === true;
@@ -1567,6 +1688,72 @@ window.DashboardNavigation.register('center', (view) => {
       await refresh();
     } catch (error) { if (isCurrent()) setFormStatus(form, message("requestFailed", { detail: errorText(error) }), true); }
     finally { if (isCurrent()) endSubmission(form); }
+  }
+
+  function entryIdentity(entry) { return `${entry.displayName || message("fieldMissing")} · ${entry.shortId || entry.entryId.slice(-8)}`; }
+  function managementDialog(title, build) {
+    $("managementTitle").textContent = title; clear($("managementBody")); $("managementStatus").textContent = "";
+    build($("managementBody")); openDialog($("managementDialog"));
+  }
+  function renameEntry(entry) {
+    managementDialog(message("rename"), body => {
+      const form = element("form", "group-editor"), label = element("label", "", message("productName")), input = element("input");
+      input.value = entry.displayName || ""; input.required = true; input.maxLength = 80; label.append(input);
+      const save = element("button", "button primary", message("save")); save.type = "submit"; form.append(label, save); body.append(form);
+      form.onsubmit = async event => {
+        event.preventDefault(); save.disabled = true; form.setAttribute("aria-busy", "true"); $("managementStatus").textContent = message("saving");
+        try {
+          await write(`/entries/${encodeURIComponent(entry.entryId)}/rename`, { displayName: input.value, expectedRevision: entry.revision ?? state.revision });
+          await refresh(); closeDialog($("managementDialog"));
+        } catch (error) { $("managementStatus").textContent = errorText(error); }
+        finally { save.disabled = false; form.removeAttribute("aria-busy"); }
+      };
+    });
+  }
+  function trashEntryAction(entry, action) {
+    confirmAction(action === "delete" ? "deletePermanently" : action === "restore-trash" ? "restoreTrash" : "moveToTrash",
+      action === "delete" ? "deleteMessage" : action === "restore-trash" ? "restoreTrashMessage" : "trashMessage",
+      async () => {
+        const payload = { expectedRevision: entry.revision ?? state.revision };
+        if (action === "trash") payload.confirm = true;
+        if (action === "delete") payload.confirmPermanent = true;
+        await write(`/entries/${encodeURIComponent(entry.entryId)}/${action}`, payload, action === "delete" ? 300000 : 30000);
+        await refresh();
+      },
+      action !== "restore-trash", entryIdentity(entry),
+      action === "delete" ? "deletePermanently" : action === "restore-trash" ? "restoreTrash" : "confirmTrash");
+  }
+  function trashSettings() {
+    const openedCenterId = state.centerId;
+    let openedRevision = state.trash?.revision ?? 1;
+    const openedDays = state.trash?.retentionDays ?? 30;
+    managementDialog(message("trashSettings"), body => {
+      body.append(element("p", "", message("trashRetentionIntro")));
+      const form = element("form", "group-editor"), label = element("label", "", message("retentionDays")), input = element("input");
+      input.type = "number"; input.min = 1; input.max = 3650; input.value = openedDays; input.required = true; label.append(input);
+      const save = element("button", "button primary", message("save")); save.type = "submit"; form.append(label, save); body.append(form);
+      form.onsubmit = async event => {
+        event.preventDefault();
+        if (state.centerId !== openedCenterId) { $("managementStatus").textContent = message("staleData"); return; }
+        save.disabled = true; $("managementStatus").textContent = message("saving");
+        try {
+          await write("/trash/settings", { retentionDays: Number(input.value), expectedRevision: openedRevision, expectedCenterId: openedCenterId });
+          await refresh(); closeDialog($("managementDialog"));
+        } catch (error) {
+          if (error?.code === "REVISION_CONFLICT") {
+            state.writeGeneration += 1;
+            const trashRead = readPart("trash", "/trash", true);
+            await Promise.allSettled([trashRead, refresh()]);
+            if (!state.readParts.get("trash")?.failed) {
+              openedRevision = state.trash?.revision ?? openedRevision;
+              input.value = state.trash?.retentionDays ?? input.value;
+            }
+          }
+          $("managementStatus").textContent = errorText(error);
+        }
+        finally { save.disabled = false; }
+      };
+    });
   }
 
   function confirmAction(titleKey, messageKey, action, danger = false, name = "", actionKey = titleKey) {
@@ -1677,6 +1864,7 @@ window.DashboardNavigation.register('center', (view) => {
     $("queueHistoryButton").addEventListener("click", () => { state.historyVisible = !state.historyVisible; renderQueue(); });
     $("newWorkButton").addEventListener("click", () => { if ($("newWorkDialog").closest("[data-motion-exit]")) { $("newWorkDialog").showModal(); return; } const form = $("newWorkForm"); renderChecks($("workChecks"), []); form.reset(); while ($("workGroups").children.length > 1) $("workGroups").lastElementChild.remove(); setupGroup($("workGroups").firstElementChild); setFormStatus(form, ""); openDialog($("newWorkDialog")); });
     $("importButton").addEventListener("click", () => { if ($("importDialog").closest("[data-motion-exit]")) { $("importDialog").showModal(); return; } const form = $("importForm"); form.reset(); resetImportProbe(); openDialog($("importDialog")); });
+    $("trashSettingsButton").addEventListener("click", trashSettings);
     $("settingsButton").addEventListener("click", () => {
       const dialog = $("settingsDialog");
       const resuming = dialog.open || Boolean(dialog.closest('[data-motion-exit]'));

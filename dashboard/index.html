@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/design-system.css">
     <script src="/icons.js" defer></script>
     <script src="/date-time.js" defer></script>
+    <script src="/projection.js" defer></script>
     <link rel="stylesheet" href="/styles.css">
     <script src="/i18n.js" defer></script>
     <link rel="stylesheet" href="/ui-assets/ui.css">
@@ -131,9 +132,18 @@
 
           <select id="logSelect" aria-label="选择日志" data-i18n-aria="chooseLog"></select>
           <button id="copyLogButton" class="button" disabled data-i18n="copy">复制日志</button>
+          <button id="downloadLogButton" class="button" disabled data-i18n="downloadLoadedLog">下载已载入日志</button>
+          <button id="downloadFullLogButton" class="button" disabled data-i18n="downloadFullLog">下载完整原始日志</button>
           <button id="refreshLogButton" class="text-button" data-i18n="refreshLog">重新读取</button>
           <label class="log-follow"><input id="followLog" type="checkbox"><span data-i18n="followLog">跟随新日志</span></label>
           <button id="newLogButton" class="text-button" hidden data-i18n="newLog">有新日志，查看末尾</button>
+        </div>
+        <div class="log-search">
+          <label for="logSearch" data-i18n="findLog">查找当前载入日志</label>
+          <input id="logSearch" type="search" data-i18n-placeholder="findLogPlaceholder" autocomplete="off">
+          <button id="previousLogMatch" class="text-button" disabled data-i18n="previousMatch">上一处</button>
+          <button id="nextLogMatch" class="text-button" disabled data-i18n="nextMatch">下一处</button>
+          <span id="logMatchStatus" role="status" aria-live="polite"></span>
         </div>
         <p id="logStatus" class="muted" role="status"></p>
         <pre id="logText" class="log-text" tabindex="0"></pre>

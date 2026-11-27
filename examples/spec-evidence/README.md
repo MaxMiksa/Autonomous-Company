@@ -12,4 +12,4 @@ npm start
 
 完整操作、输入格式、恢复与专业判断边界见 [DELIVERY.md](DELIVERY.md)。
 
-开发检查：`npm ci`、`npx playwright install chromium`、`npm test`、`npm run test:browser`。浏览器测试会自动启动本机服务；也可用 `PRODUCT_URL` 指定已启动页面。
+开发检查：`pnpm install --frozen-lockfile`、`pnpm exec playwright install chromium`、`pnpm test`、`pnpm run test:browser`。浏览器测试会自动启动本机服务；也可用 `PRODUCT_URL` 指定已启动页面。

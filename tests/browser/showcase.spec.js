@@ -3,16 +3,14 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 const exampleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../examples");
 const catalogSlugs = [
   "chart-proof", "coi-chase-desk", "crm-migration-proof", "crossed-island-experiment",
   "cuecheck", "disclosure-qa-spike", "dual-flavor-table", "family-art-show",
   "family-memory", "field-return-audit", "ifc-source-preflight", "participation-recovery",
-  "payment-recovery-audit", "rest-rhythm", "reversible-room", "scope-sheet",
-  "scopefence", "spec-evidence", "tabledelta", "tactile-preflight", "text-meter", "tujiandan",
+  "rest-rhythm", "reversible-room", "scopefence", "spec-evidence",
+  "tabledelta", "tactile-preflight", "tujiandan",
 ];
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
 const test = base.extend({
@@ -39,26 +37,21 @@ const test = base.extend({
   },
 });
 
-test("Public catalog has 22 runnable entries and preserves the CLI entrypoint", async () => {
+test("Public catalog has 19 runnable entries", async () => {
   const entries = await fs.readdir(exampleRoot, { withFileTypes: true });
   expect(entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort()).toEqual(catalogSlugs);
   const catalog = await fs.readFile(path.join(exampleRoot, "README.md"), "utf8");
   for (const slug of catalogSlugs) {
     expect(catalog, `${slug} catalog link`).toContain(`](${slug}/)`);
     await fs.access(path.join(exampleRoot, slug, "README.md"));
-    if (slug === "payment-recovery-audit") continue;
     await fs.access(path.join(exampleRoot, slug, slug === "disclosure-qa-spike" ? "web/index.html" : "index.html"));
   }
   for (const slug of ["disclosure-qa-spike", "ifc-source-preflight", "field-return-audit"]) {
     await fs.access(path.join(exampleRoot, slug, "server.py"));
   }
-  const { stdout } = await promisify(execFile)(process.execPath, ["bin/audit.js", "fixtures/demo.json", "--pretty"], {
-    cwd: path.join(exampleRoot, "payment-recovery-audit"),
-  });
-  expect(JSON.parse(stdout).totals.residual_opportunity).toBe(20000);
 });
 
-for (const slug of catalogSlugs.filter(slug => !["payment-recovery-audit", "disclosure-qa-spike", "ifc-source-preflight", "field-return-audit"].includes(slug))) {
+for (const slug of catalogSlugs.filter(slug => !["disclosure-qa-spike", "ifc-source-preflight", "field-return-audit"].includes(slug))) {
   test(`Public ${slug} entry loads from examples with an actual visible heading`, async ({ page, examples }) => {
     const response = await page.goto(`${examples}/${slug}/`);
     expect(response.status()).toBe(200);
@@ -97,24 +90,6 @@ test("Migrated CueCheck loads its clean SRT and downloads the actual subtitle fi
   expect(text).toContain("\n");
 });
 
-test("Text Meter counts actual Unicode input and resets through its controls", async ({ page, examples }) => {
-  await page.goto(`${examples}/text-meter/`);
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await page.locator("#text-input").fill("One 😀\nTwo");
-  await expect(page.locator("#character-count")).toHaveText("9");
-  await expect(page.locator("#non-whitespace-count")).toHaveText("7");
-  await expect(page.locator("#word-count")).toHaveText("3");
-  await expect(page.locator("#line-count")).toHaveText("2");
-  await page.locator("#clear-button").click();
-  await expect(page.locator("#text-input")).toBeEmpty();
-  await expect(page.locator("#word-count")).toHaveText("0");
-  await page.locator("#sample-button").click();
-  await expect(page.locator("#text-input")).not.toBeEmpty();
-  await expect(page.locator("#word-count")).not.toHaveText("0");
-  await page.setViewportSize({ width: 360, height: 800 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-});
-
 for (const decision of ["approved", "declined"]) {
   test(`ScopeFence returns the ${decision} link and handles same-tab navigation`, async ({ page, examples }) => {
     await page.goto(`${examples}/scopefence/`);
@@ -141,33 +116,3 @@ for (const decision of ["approved", "declined"]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   });
 }
-
-test("Chinese scope sheet blocks incomplete export and downloads actual form values", async ({ page, examples, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto(`${examples}/scope-sheet/`);
-  await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await expect(page.locator("#doc-price")).toHaveText("¥ —");
-  await page.locator("#download-button").click();
-  await expect(page.locator("#action-message")).toContainText("请先");
-  await page.locator("#example-button").click();
-  await expect(page.locator("#doc-price")).toHaveText("¥ 2,800");
-  await page.locator('[name="project"]').fill("中文验收项目");
-  await page.locator('[name="project"]').press("Enter");
-  await expect(page.locator('[name="project"]')).toHaveValue("中文验收项目");
-  await expect(page.locator("#doc-project")).toContainText("中文验收项目");
-  await page.locator("#copy-button").click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("中文验收项目");
-  const download = page.waitForEvent("download");
-  await page.locator("#download-button").click();
-  const file = await download;
-  expect(file.suggestedFilename()).toContain("中文验收项目");
-  const text = await fs.readFile(await file.path(), "utf8");
-  expect(text).toContain("中文验收项目");
-  expect(text).toContain("¥ 2,800");
-  await page.locator('[name="price"]').fill("-1");
-  await expect(page.locator("#doc-price")).toHaveText("¥ —");
-  await page.locator("#copy-button").click();
-  await expect(page.locator("#action-message")).toContainText("报价");
-  await page.setViewportSize({ width: 360, height: 800 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-});

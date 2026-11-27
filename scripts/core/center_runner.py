@@ -31,6 +31,7 @@ PROTOCOL = 2
 MARKER = ".autonomous-company-center.json"
 MAX_JSON = 128 * 1024
 HEARTBEAT_TIMEOUT = 15
+PAUSE_REQUEST = ".autonomous-company/pause-after-cycle.json"
 REVIEW_FILE = ".autonomous-company/recovery-review.json"
 CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "scripts/core/stop-loop.sh",
                  "scripts/core/engine-adapters.sh", "scripts/core/engine-metadata.py", "scripts/core/log_redaction.py",
@@ -42,7 +43,12 @@ CONTROL_FILES = ("scripts/core/auto-loop.sh", "scripts/core/center_runner.py", "
                  "scripts/core/product_media.py", "scripts/core/product_media_worker.cjs",
                  "scripts/core/project-context.py", "scripts/core/product_identity.py",
                  "scripts/core/consensus-format.py", "scripts/core/consensus-guard.sh",
-                 "scripts/core/localization.py", "scripts/core/namespace_guard.py", "scripts/core/runtime_artifacts.py", "dashboard/server.py", "Makefile",
+                 "scripts/core/localization.py", "scripts/core/namespace_guard.py", "scripts/core/runtime_artifacts.py",
+                 "scripts/core/company_harness.py", "scripts/core/company_harness_bridge.py",
+                 "scripts/core/company_harness_client.py", "scripts/core/company_harness_contract.py",
+                 "scripts/core/company_harness_handoff.py", "scripts/core/company_harness_inputs.py",
+                 "scripts/core/company_harness_loop.sh", "scripts/core/company_harness_quality.py",
+                 "scripts/core/company_harness_runner.py", "dashboard/server.py", "Makefile",
                  "scripts/macos/start-daemon.sh", "scripts/macos/install-daemon.sh", "scripts/wsl/dashboard-wsl.sh",
                  "scripts/wsl/install-wsl-daemon.sh", "scripts/windows/start-win.ps1", "scripts/windows/stop-win.ps1")
 
@@ -495,6 +501,99 @@ def _quiescence_preflight(root, center_id, result):
     return result
 
 
+def disposal_provenance(root, center_id, expected_framework_revision):
+    root = Path(root)
+    for ancestor in (root, *root.parents):
+        if ancestor.is_symlink():
+            raise ValueError("unsafe_disposal_path")
+    root = root.resolve()
+    token(center_id)
+    revision = expected_framework_revision
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("disposal_revision_invalid")
+    marker = marker_for(root)
+    for name in ("centerId", "runtimeId", "entryId", "sourceId", "operationId"):
+        token(marker[name])
+    if marker["centerId"] != center_id or marker.get("protocolVersion") != PROTOCOL:
+        raise ValueError("disposal_identity_mismatch")
+    if root.name != marker["runtimeId"] or root.parent.name != "runtimes":
+        raise ValueError("disposal_root_mismatch")
+    data = root.parent.parent
+    attempt = marker.get("preparationAttempt")
+    genesis_path = "staging/" + marker["operationId"]
+    if attempt is not None:
+        if not isinstance(attempt, str) or not re.fullmatch(r"attempt_[0-9a-f]{32}", attempt):
+            raise ValueError("disposal_attempt_invalid")
+        genesis_path += "/attempts/" + attempt
+    genesis = read_json(control_path(data, genesis_path + "/intent.json"))
+    reserved = genesis.get("reserved", {})
+    if (genesis.get("centerId") != center_id or genesis.get("operationId") != marker["operationId"]
+            or genesis.get("frameworkRevision") != revision or genesis.get("preparationAttempt") != attempt
+            or any(reserved.get(key) != marker[key] for key in ("runtimeId", "entryId", "sourceId"))):
+        raise ValueError("disposal_genesis_mismatch")
+    target = genesis.get("target")
+    if isinstance(target, str) and re.match(r"^[A-Za-z]:[\\/]", target):
+        target = "/mnt/" + target[0].lower() + "/" + target[3:].replace("\\", "/")
+    if not isinstance(target, str) or not Path(target).is_absolute() or Path(target).resolve() != root:
+        raise ValueError("disposal_genesis_target_mismatch")
+    framework = Path(__file__).resolve().parents[2]
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def git(directory, *arguments):
+        checked = subprocess.run(["git", "--no-replace-objects", "-c", "core.fsmonitor=false", "-C", str(directory), *arguments],
+                                 stdin=subprocess.DEVNULL, capture_output=True, env=environment, timeout=10)
+        if checked.returncode:
+            raise ValueError("disposal_revision_unavailable")
+        return checked.stdout
+    if git(framework, "rev-parse", "--verify", revision + "^{commit}").strip().decode("ascii") != revision:
+        raise ValueError("disposal_revision_unavailable")
+    git(framework, "merge-base", "--is-ancestor", revision, "HEAD")
+    if not control_path(root, ".git").is_dir() or git(root, "rev-parse", "--verify", "HEAD").strip().decode("ascii") != revision:
+        raise ValueError("disposal_head_mismatch")
+    import ast
+    historical_runner = git(framework, "show", revision + ":scripts/core/center_runner.py").decode("utf-8")
+    contract = next((ast.literal_eval(node.value) for node in ast.parse(historical_runner).body
+                     if isinstance(node, ast.Assign) and any(isinstance(item, ast.Name) and item.id == "CONTROL_FILES" for item in node.targets)), CONTROL_FILES)
+    for name in contract:
+        source = control_path(root, name)
+        metadata = source.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > 2 * 1024 * 1024:
+            raise ValueError("disposal_control_changed")
+        reference = git(framework, "show", revision + ":" + name)
+        if source.read_bytes() != reference:
+            raise ValueError("disposal_control_changed")
+    return {"disposalCompatible": True, "marker": marker, "frameworkRevision": revision}
+
+
+def disposal_preflight(root, center_id, expected_framework_revision):
+    result = {"compatible": compatible(root), "disposalCompatible": False, "quiescent": False, "reason": None}
+    try:
+        proof = disposal_provenance(root, center_id, expected_framework_revision)
+        root = Path(root).resolve()
+        result.update(disposalCompatible=True, frameworkRevision=proof["frameworkRevision"])
+        if (root / ".autonomous-company.local.team-active").exists():
+            result["reason"] = "interactive_team_active"
+            return result
+        for relative in (".autonomous-company.local.lock", ".autonomous-company.local.language-update",
+                         ".autonomous-company/product-state.lock", ".autonomous-company/product-state.transaction.json"):
+            if control_path(root, relative).exists():
+                result["reason"] = "configuration_writer_active"
+                return result
+        if not existing_lock_free(control_path(root, ".autonomous-company/project-registry.lock")):
+            result["reason"] = "configuration_writer_active"
+            return result
+        if operator_previews(root):
+            result["reason"] = "preview_owner_unconfirmed"
+            return result
+        result = _quiescence_preflight(root, center_id, result)
+        if result["quiescent"]:
+            gate = legacy_gate(proof["marker"])
+            os.close(gate)
+        return result
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        result.update(quiescent=False, reason=str(exc))
+        return result
+
+
 def probe(center_id, manifest_path=None, runtime_id=None):
     marker = {"centerId": center_id, "runtimeId": runtime_id, "protocolVersion": 2 if runtime_id else 1}
     if manifest_path:
@@ -689,7 +788,13 @@ def run_owned(manifest_path, descriptor, gate):
                         pass
             time.sleep(0.1)
         cleanup_children()
-        publish("terminal", reason=stopping or ("natural" if child.returncode == 0 else "runtime"),
+        completed_pause = pause_request(root)
+        if completed_pause and completed_pause.get("state") == "requested" and completed_pause.get("dispatchId") == manifest["dispatchId"]:
+            with request_lock(root):
+                completed_pause = {**completed_pause, "state": "canceled", "canceledAt": now(), "reason": stopping or "run_ended"}
+                atomic_json(control_path(root, PAUSE_REQUEST), completed_pause)
+        graceful_pause = completed_pause and completed_pause.get("state") == "completed" and completed_pause.get("dispatchId") == manifest["dispatchId"]
+        publish("terminal", reason=stopping or ("pause_after_cycle" if graceful_pause else "natural" if child.returncode == 0 else "runtime"),
                 exitCode=child.returncode, launched=launched, cleanupConfirmed=True, endedAt=now())
         return 0
     except (OSError, ValueError, KeyError) as exc:
@@ -1118,7 +1223,7 @@ def effective_settings(root, marker=None, observation=None):
     from localization import read_settings
     _, settings = read_settings(root)
     allowed = {"ENGINE", "MODEL", "CODEX_MODEL", "CODEX_EFFORT", "CODEX_REASONING_EFFORT", "LANGUAGE", "AUTONOMOUS_COMPANY_LANGUAGE",
-               "ACTIVE_PROJECT", "CLAUDE_MODEL", "CURSOR_MODEL", "OPENAI_COMPATIBLE_MODEL"}
+               "ACTIVE_PROJECT", "CLAUDE_MODEL", "CURSOR_MODEL", "OPENAI_COMPATIBLE_MODEL", "COMPANY_HARNESS_ENABLED", "CODEX_SANDBOX_MODE"}
     value = {key: data for key, data in settings.items() if key in allowed}
     owner = (observation or {}).get("owner") or {}
     if marker and owner and owner.get("manifest") and all(owner.get(key) == marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId")):
@@ -1150,6 +1255,23 @@ def readonly_probe(marker):
         if not existing_lock_free(domain / "slot.lock") or legacy and (legacy.get("state") != "terminal" or not legacy.get("cleanupConfirmed")):
             result.update(slotFree=False, legacyConflict=True)
     return result
+
+
+def harness_run_observation(root):
+    from product_identity import read_state
+    try:
+        pending = read_json(control_path(root, 'logs/usage.jsonl.pending'))
+        if pending.get('record_role') != 'harness_attempt':
+            return None
+        cycle = read_state(root)['cycles'][pending['logical_cycle_id']]
+        record = read_json(control_path(root, '.autonomous-company/isolation/' + cycle['identityId'] + '/active-run.json'))
+        process = identity(record['pid'])
+        if (not process or record.get('cycle') != pending['logical_cycle_id'] or record.get('attemptId') != pending['attempt_id'] or
+                str(process['start']) != record.get('processStart')):
+            return None
+        return {'cycleId': record['cycle'], 'attemptId': record['attemptId'], 'pid': record['pid'], 'processStart': record['processStart']}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def source_query(root, query="status", center_id=None, relative_path=None, offset=0, limit=262144, expected_product_id=None):
@@ -1185,6 +1307,8 @@ def source_query(root, query="status", center_id=None, relative_path=None, offse
         pending = control_path(root, "logs/usage.jsonl.pending")
         result["usagePendingMtimeNs"] = pending.stat().st_mtime_ns if pending.exists() else None
         result["parsed"]["loop"]["pid"] = int(result["pid"]) if (result["pid"] or "").isdigit() else None
+        process = identity(result['parsed']['loop']['pid']) if running and result['parsed']['loop']['pid'] else None
+        result.update(processStart=str(process['start']) if process else None, harnessRun=harness_run_observation(root) if running else None)
         if query == "recovery":
             result.update(recoverable=pause_reason == "interrupted_cycle",
                           pendingRecovery=control_path(root, "memories/.consensus-cycle-pending").exists(),
@@ -1202,12 +1326,23 @@ def source_query(root, query="status", center_id=None, relative_path=None, offse
     allowed = relative_path in {".auto-loop-state", ".auto-loop.pid", ".auto-loop-paused",
                                 ".autonomous-company/product-state.json", "logs/usage.jsonl", "logs/usage.jsonl.pending"}
     log_allowed = re.fullmatch(r"logs/(?:auto-loop\.log|cycle-[A-Za-z0-9_-]+\.(?:log|json))", relative_path)
+    harness_attempt = re.fullmatch(r"logs/(attempt-[A-Za-z0-9_-]+)\.(?:log|json)", relative_path)
+    if harness_attempt:
+        from company_harness import HarnessStore
+        from product_identity import read_state
+        state = read_state(root)
+        cycles = HarnessStore(root).snapshot(compact=True)['cycles']
+        cycle = next((cycle for cycle in cycles if any(attempt['attemptId'] == harness_attempt[1] for attempt in cycle['attempts'])), None)
+        identity = state['cycles'].get(cycle['cycleId']) if cycle else None
+        if not identity or expected_product_id and expected_product_id not in {identity['identityId'], *identity.get('createdProductIds', [])}:
+            raise ValueError('attempt_not_recorded')
+        log_allowed = True
     if not log_allowed and (query == "log" or not allowed):
         raise ValueError("invalid_read_path")
     path = control_path(root, relative_path)
     if not path.is_file():
         raise ValueError("source_file_missing")
-    if query == "log" and relative_path != "logs/auto-loop.log":
+    if query == "log" and relative_path != "logs/auto-loop.log" and not harness_attempt:
         # Require a real durable companion record; caller cannot select an
         # arbitrary file by presenting a path that merely resembles a cycle.
         record = path.with_suffix(".json")
@@ -1303,12 +1438,83 @@ def recovery_fingerprint(root):
     return value.hexdigest()
 
 
+def pause_request(root):
+    path = control_path(root, PAUSE_REQUEST)
+    return read_json(path) if path.exists() else None
+
+
+@contextmanager
+def request_lock(root):
+    path = control_path(root, ".autonomous-company/pause-after-cycle.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            descriptor = lock_file(path)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise ValueError("pause_request_busy")
+            time.sleep(0.025)
+    try:
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def boundary_pause(root):
+    root = Path(root).resolve()
+    admission(root)
+    with request_lock(root):
+        requested = pause_request(root)
+        if not requested or requested.get("state") != "requested":
+            return False
+        marker = marker_for(root)
+        if any(requested.get(key) != marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId")):
+            raise ValueError("pause_request_identity_mismatch")
+        manifest = read_json(os.environ["AUTONOMOUS_COMPANY_CENTER_MANIFEST"])
+        if requested.get("dispatchId") != manifest.get("dispatchId"):
+            raise ValueError("pause_request_dispatch_mismatch")
+        from product_identity import read_state, OPEN
+        if (control_path(root, "memories/.consensus-cycle-pending").exists()
+                or control_path(root, "logs/usage.jsonl.pending").exists()
+                or any(row["state"] in OPEN for row in read_state(root)["cycles"].values())):
+            raise ValueError("cycle_boundary_unsealed")
+        harness_db = control_path(root, ".autonomous-company/company-harness.sqlite3")
+        if harness_db.exists():
+            from company_harness import HarnessStore
+            if any(row.get("protocolState") != "closed" for row in HarnessStore(root).snapshot()["cycles"]):
+                raise ValueError("cycle_boundary_unsealed")
+        atomic_json(control_path(root, PAUSE_REQUEST), {**requested, "state": "completed", "completedAt": now()})
+        return True
+
+
 def source_control(manifest_path):
     manifest, root, marker = checked_control_manifest(manifest_path)
     action = manifest["action"]
+    if action in {"pause_after_cycle", "cancel_pause_after_cycle"}:
+        observation = probe(marker["centerId"], runtime_id=marker["runtimeId"] if marker.get("protocolVersion", 1) >= 2 else None)
+        owner = observation.get("owner") or {}
+        if (observation["slotFree"] or not observation["ownerAlive"] or owner.get("state") != "running"
+                or any(owner.get(key) != marker.get(key) for key in ("centerId", "runtimeId", "entryId", "sourceId"))
+                or owner.get("dispatchId") != manifest.get("expectedDispatchId")):
+            raise ValueError("active_owner_required")
+        with request_lock(root):
+            previous = pause_request(root)
+            if action == "cancel_pause_after_cycle":
+                if not previous or previous.get("state") != "requested":
+                    raise ValueError("pause_request_already_completed")
+                if previous.get("dispatchId") != owner["dispatchId"]:
+                    raise ValueError("pause_request_dispatch_mismatch")
+                result = {**previous, "state": "canceled", "canceledAt": now()}
+            else:
+                result = {"state": "requested", "requestedAt": now(), "dispatchId": owner["dispatchId"],
+                          **{key: marker[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}}
+            atomic_json(control_path(root, PAUSE_REQUEST), result)
+        return {"ok": True, "pauseAfterCycle": result}
     if action not in {"review_recovery", "confirm_recovery"}:
         raise ValueError("unsupported_control")
-    with execution_lock(marker):
+    with execution_lock(marker) as (slot_fd, _gate):
         previous_path = owner_dir(marker) / "owner.json"
         if previous_path.exists():
             previous = read_json(previous_path)
@@ -1341,6 +1547,19 @@ def source_control(manifest_path):
             if budget.returncode or control_path(root, ".auto-loop-budget-paused").exists():
                 raise ValueError("budget_pause")
             if action == "review_recovery":
+                recovery_env = {
+                    **environment,
+                    "AUTONOMOUS_COMPANY_RECOVERY_SLOT_FD": str(slot_fd),
+                    "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
+                    "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
+                }
+                next_contract_preview = None
+                if control_path(root, ".autonomous-company/company-harness.sqlite3").exists():
+                    reconcile_res = subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
+                        "--root", str(root), "reconcile-crash", "--reason", "center_review_recovery"],
+                        cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
+                    reconcile_data = json.loads(reconcile_res.stdout or "{}")
+                    next_contract_preview = reconcile_data.get("nextContract")
                 command = subprocess.run(["bash", str(root / "scripts/core/consensus-guard.sh"), "recover"],
                     cwd=root, env=environment, capture_output=True, text=True, timeout=15)
                 if command.returncode not in {0, 42} or control_path(root, "memories/.consensus-cycle-pending").exists():
@@ -1364,10 +1583,12 @@ def source_control(manifest_path):
                     raise ValueError(context["reason"])
                 review = {"reviewToken": secrets.token_hex(24), "createdAt": now(), "expiresAt": time.time() + 900,
                           "fingerprint": recovery_fingerprint(root), "pauseReason": reason,
+                          "nextContract": next_contract_preview,
                           **{key: marker[key] for key in ("centerId", "runtimeId", "entryId", "sourceId")}}
                 atomic_json(control_path(root, REVIEW_FILE), review)
                 return {"ok": True, "reviewToken": review["reviewToken"], "pauseReason": reason,
                         "writersStopped": True, "recoveryComplete": True, "context": context,
+                        "nextContract": next_contract_preview,
                         "requiresConfirmation": ["productCodeReviewed", "externalEffectsReviewed"],
                         "reviewScope": "Restored consensus and human configuration; product code and external effects are not rolled back"}
             review = read_json(control_path(root, REVIEW_FILE))
@@ -1387,6 +1608,28 @@ def source_control(manifest_path):
             context = execution_context(root, manifest.get("productId"), check_git=True)
             if not context["valid"]:
                 raise ValueError(context["reason"])
+            if control_path(root, ".autonomous-company/company-harness.sqlite3").exists():
+                recovery_env = {
+                    **environment,
+                    "AUTONOMOUS_COMPANY_RECOVERY_SLOT_FD": str(slot_fd),
+                    "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
+                    "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
+                }
+                cmd = [sys.executable, str(root / "scripts/core/company_harness_runner.py"),
+                       "--root", str(root), "approve-recovery", "--review-token", review["reviewToken"],
+                       "--reason", "center_human_confirmed"]
+                if review.get("nextContract") is not None:
+                    cmd.extend(["--expected-next-contract", json.dumps(review["nextContract"], sort_keys=True, ensure_ascii=False)])
+                try:
+                    approve_res = subprocess.run(cmd, cwd=root, env=recovery_env, pass_fds=(slot_fd,),
+                                                 capture_output=True, text=True, timeout=30, check=True)
+                except subprocess.CalledProcessError as error:
+                    if "RECOVERY_CONTRACT_CHANGED" in (error.stderr or ""):
+                        raise ValueError("recovery_review_changed") from error
+                    raise
+                approve_data = json.loads(approve_res.stdout or "{}")
+                if "nextContract" in review and review.get("nextContract") is not None and approve_data.get("nextContract") != review.get("nextContract"):
+                    raise ValueError("recovery_review_changed")
             confirmation = {**review, "confirmedAt": now(), "productCodeReviewed": True, "externalEffectsReviewed": True}
             atomic_json(control_path(root, REVIEW_FILE), confirmation)
             control_path(root, ".auto-loop-paused").unlink()
@@ -1397,7 +1640,7 @@ def source_control(manifest_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("run", "probe", "admit", "preflight", "media", "media-status", "bind", "dependencies", "query", "control", "stream-log", "stream-log-complete"))
+    parser.add_argument("action", choices=("run", "probe", "admit", "preflight", "disposal-preflight", "media", "media-status", "bind", "dependencies", "query", "control", "boundary-pause", "stream-log", "stream-log-complete"))
     parser.add_argument("--query", default="status")
     parser.add_argument("--relative-path", "--path", dest="relative_path")
     parser.add_argument("--input-path")
@@ -1415,6 +1658,7 @@ def main():
     parser.add_argument("--allow-protected", choices=("0", "1"), default="0")
     parser.add_argument("--require-context", choices=("0", "1"), default="1")
     parser.add_argument("--expected-product-id")
+    parser.add_argument("--expected-framework-revision")
     args = parser.parse_args()
     try:
         if args.action == "run":
@@ -1430,12 +1674,16 @@ def main():
             from live_log import stream_log
             stream_log(args.root, args.input_path, args.relative_path, admission=admission, control_path=control_path)
             return 0
+        if args.action == "boundary-pause":
+            return 0 if boundary_pause(args.root) else 1
         if args.action == "dependencies":
             result = dependency_checks(args.root, args.engine, args.model, args.require_isolation == "1", args.effort, args.product_language)
         elif args.action == "query":
             result = source_query(args.root, args.query, args.center_id, args.relative_path, args.offset, args.limit, args.expected_product_id)
         elif args.action == "control":
             result = source_control(args.manifest)
+        elif args.action == "disposal-preflight":
+            result = disposal_preflight(args.root, args.center_id, args.expected_framework_revision)
         elif args.action == "preflight":
             result = preflight(args.root, args.center_id, args.allow_protected == "1", args.require_context == "1", args.expected_product_id)
         elif args.action == "media":

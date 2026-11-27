@@ -168,6 +168,7 @@ test('local motion settles safely on resize, reduced motion and backgrounding', 
 test('detail return starts promptly on both the header and page timelines', async ({ page, center }) => {
   await openCenter(page, center);
   await page.locator('.product-link').first().click();
+  await expect(page.locator('#journalBackLink')).toBeVisible();
   await expect.poll(() => page.evaluate(() => DashboardNavigation.inspect().transitioning)).toBe(false);
   const result = await page.evaluate(async () => {
     const navigation = document.querySelector('.topbar > .navline');
@@ -1098,6 +1099,8 @@ test.describe('long product history', () => {
   test.use({ centerCycles: 36 });
   test('limited older rows load their recorded detail and keep scoped logs', async ({ page, center }) => {
     await page.goto(`${center.url}/products/${center.entryId}`);
+    await expect(page.locator('#historyList [data-disclosure]')).toHaveCount(19);
+    await page.locator('.history-more').click();
     await expect(page.locator('#historyList [data-disclosure]')).toHaveCount(35);
     const oldest = page.locator('#historyList [data-disclosure]').last();
     await oldest.locator('.disclosure-trigger').click();
@@ -1408,8 +1411,11 @@ for (const emptyCase of ['search', 'filter']) {
   test(`empty catalog ${emptyCase} action resets the view through real event wiring`, async ({ page, center }) => {
     const entry = { entryId: 'empty-action-fixture', kind: emptyCase === 'explorations' ? 'exploration' : 'product',
       displayName: 'Visible fixture', availability: 'available', executionSummary: { state: 'ended' } };
-    await page.route('**/api/center/v1/entries?*', route => route.fulfill({ json: { schemaVersion: 1,
-      data: { items: [entry], total: 1, nextCursor: null } } }));
+    await page.route('**/api/center/v1/entries?*', async route => {
+      const payload = await (await route.fetch()).json();
+      payload.data = { items: [entry], total: 1, nextCursor: null };
+      await route.fulfill({ json: payload });
+    });
     await openCenter(page, center);
     if (emptyCase === 'search') await page.locator('#productSearch').fill('no matching product');
     if (emptyCase === 'filter') await page.locator('[data-filter="archived"]').click();

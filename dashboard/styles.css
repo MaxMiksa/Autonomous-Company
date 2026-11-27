@@ -1831,6 +1831,10 @@ dialog .runtime-details {
 .log-toolbar select { min-width: min(250px, 100%); }
 .log-toolbar { min-width: 0; flex-wrap: wrap; gap: 12px; }
 .log-toolbar > * { max-width: 100%; }
+.log-search { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; min-width: 0; }
+.log-search input { flex: 1 1 180px; min-width: 0; max-width: 100%; }
+.log-text mark { background: #fff0ac; color: #1f1907; }
+.log-text .log-current-match { background: #ffd06c; color: #1f1907; outline: 1px solid #a64b08; }
 .log-follow { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; color: var(--muted); font-size: var(--text-caption); line-height: 1.5; white-space: normal; }
 .log-follow input { flex-shrink: 0; }
 #usageSource { margin-block: 8px; color: var(--muted); font-size: var(--text-caption); line-height: 1.5; overflow-wrap: anywhere; }

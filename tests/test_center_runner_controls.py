@@ -236,6 +236,132 @@ class RunnerControlsTests(unittest.TestCase):
         self.assertTrue(basic["ok"])
         self.assertEqual({row["name"] for row in basic["checks"]}, {"python", "git", "bash"})
 
+    def test_managed_center_recovery_reconciles_and_approves_harness_with_slot_lock(self):
+        from company_harness import HarnessStore
+        import company_harness_runner as hrunner
+        from product_identity import reserve_cycle
+        import hashlib
+
+        tstore = HarnessStore(self.root, create=True)
+        id1 = reserve_cycle(self.root, "", "managed-good", 1)["cycleId"]
+        hrunner.prepare(tstore, self.root, id1)
+        a1 = tstore.begin_attempt(id1, "managed-good-1", {"dispatchId": "owned"})
+        ev_good = tstore.bind_evidence(id1, "ev-good", "good research note", source={"attemptId": "managed-good-1"})
+        ev_ref = {"evidenceId": ev_good["evidenceId"], "sha256": ev_good["sha256"]}
+        hoff = {"nextContract": {"objective": "Bounded managed direction", "workKind": "direction",
+                                 "scope": ["dir"], "inputRefs": [ev_ref], "prerequisiteRefs": [],
+                                 "completionOrHandoff": "direction doc"}}
+        hoff_ev = tstore.bind_evidence(id1, "hoff-good", json.dumps(hoff),
+                                       source={"attemptId": "managed-good-1"}, media_type="application/json")
+        hoff_ref = {"evidenceId": hoff_ev["evidenceId"], "sha256": hoff_ev["sha256"], "path": "docs/harness/h.json"}
+        tstore.submit(a1["context"], "sub-good", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [ev_ref, hoff_ref],
+            "primaryEvidenceId": ev_ref["evidenceId"], "handoffRef": hoff_ref,
+        })
+        tstore.finish_attempt(a1["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        tstore.close_cycle(id1, "close-good", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True,
+                          "attemptResults": ["managed-good-1"], "evidenceRefs": [ev_ref, hoff_ref],
+                          "checkedAt": hrunner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated",
+                                   "basis": {"governance": "verified"}, "checkedAt": hrunner.now()},
+            submission_id="sub-good")
+        hrunner.sync_identity(self.root, hrunner.row(tstore, id1))
+
+        scope = {"productId": None, "explorationId": tstore.snapshot()["cycles"][0]["explorationId"]}
+        id2 = reserve_cycle(self.root, "", "managed-crashed", 2)["cycleId"]
+        tstore.create_cycle({
+            "cycleId": id2, "explorationId": scope["explorationId"], "sequenceNumber": 2, "runCycleNumber": 2,
+            "objective": "Crashed managed cycle", "workKind": "direction", "artifactKind": "direction",
+            "scope": ["dir"], "inputRefs": [ev_ref], "prerequisiteRefs": [], "completionOrHandoff": "dir doc",
+        })
+        tstore.begin_attempt(id2, "managed-crash-1", {"dispatchId": "owned"})
+
+        # Direct call without the managed slot lock FD must be refused.
+        unowned = subprocess.run([sys.executable, str(self.root / "scripts/core/company_harness_runner.py"),
+                                  "--root", str(self.root), "reconcile-crash"], capture_output=True, text=True)
+        self.assertNotEqual(unowned.returncode, 0)
+        self.assertIn("recoveryAdmission", unowned.stderr)
+
+        self.interrupt()
+        review = self.action("review_recovery")
+        self.assertTrue(review["recoveryComplete"])
+        self.assertEqual(review["nextContract"]["workKind"], "direction")
+        self.assertEqual(review["nextContract"]["objective"], "Bounded managed direction")
+        self.assertTrue(review["nextContract"].get("contractHash"))
+        reconciled = tstore.snapshot()["cycles"][-1]
+        self.assertEqual((reconciled["protocolState"], reconciled["outcome"]), ("closed", "interrupted"))
+
+        confirm = self.action("confirm_recovery", reviewToken=review["reviewToken"],
+                              productCodeReviewed=True, externalEffectsReviewed=True)
+        self.assertFalse(confirm["resumed"])
+        self.assertFalse((self.root / ".auto-loop-paused").exists())
+        approved = tstore.snapshot()["cycles"][-1]
+        self.assertTrue(approved["continuationDecision"]["allowed"])
+        self.assertEqual(approved["continuationDecision"]["reason"], "human_recovery_approved")
+        self.assertEqual(approved["continuationDecision"]["basis"]["boundNextContract"]["workKind"], "direction")
+
+        startup = subprocess.run([sys.executable, str(self.root / "scripts/core/company_harness_runner.py"),
+                                  "--root", str(self.root), "startup"],
+                                 env={**os.environ, "CODEX_SANDBOX_MODE": "danger-full-access"},
+                                 capture_output=True, text=True)
+        self.assertEqual(startup.returncode, 0, startup.stderr)
+        planned = hrunner.next_contract(tstore, scope, root=self.root)
+        self.assertEqual(planned["workKind"], "direction")
+        self.assertEqual(planned["objective"], "Bounded managed direction")
+
+    def test_confirm_recovery_rejects_tampered_next_contract(self):
+        from center_runner import REVIEW_FILE, control_path
+        from company_harness import HarnessStore
+        import company_harness_runner as hrunner
+        from product_identity import reserve_cycle
+
+        tstore = HarnessStore(self.root, create=True)
+        id1 = reserve_cycle(self.root, "", "managed-good", 1)["cycleId"]
+        hrunner.prepare(tstore, self.root, id1)
+        a1 = tstore.begin_attempt(id1, "managed-good-1", {"dispatchId": "owned"})
+        ev_good = tstore.bind_evidence(id1, "ev-good", "research note", source={"attemptId": "managed-good-1"})
+        ev_ref = {"evidenceId": ev_good["evidenceId"], "sha256": ev_good["sha256"]}
+        hoff = {"nextContract": {"objective": "Original objective", "workKind": "direction",
+                                 "scope": ["dir"], "inputRefs": [ev_ref], "prerequisiteRefs": [],
+                                 "completionOrHandoff": "direction doc"}}
+        hoff_ev = tstore.bind_evidence(id1, "hoff-good", json.dumps(hoff),
+                                       source={"attemptId": "managed-good-1"}, media_type="application/json")
+        hoff_ref = {"evidenceId": hoff_ev["evidenceId"], "sha256": hoff_ev["sha256"], "path": "docs/harness/h.json"}
+        tstore.submit(a1["context"], "sub-good", {
+            "result": "completed", "unfinishedItems": [], "evidenceRefs": [ev_ref, hoff_ref],
+            "primaryEvidenceId": ev_ref["evidenceId"], "handoffRef": hoff_ref,
+        })
+        tstore.finish_attempt(a1["context"], {"outcome": "completed", "exitCode": 0}, writers_stopped=True, observation="ok")
+        tstore.close_cycle(id1, "close-good", outcome="completed",
+            verification={"writersStopped": True, "submittedVersionUnchanged": True,
+                          "attemptResults": ["managed-good-1"], "evidenceRefs": [ev_ref, hoff_ref],
+                          "checkedAt": hrunner.now()},
+            continuation_decision={"allowed": True, "reason": "handoff_validated",
+                                   "basis": {"governance": "verified"}, "checkedAt": hrunner.now()},
+            submission_id="sub-good")
+        hrunner.sync_identity(self.root, hrunner.row(tstore, id1))
+        scope = {"productId": None, "explorationId": tstore.snapshot()["cycles"][0]["explorationId"]}
+        id2 = reserve_cycle(self.root, "", "managed-crashed", 2)["cycleId"]
+        tstore.create_cycle({
+            "cycleId": id2, "explorationId": scope["explorationId"], "sequenceNumber": 2, "runCycleNumber": 2,
+            "objective": "Crashed managed cycle", "workKind": "direction", "artifactKind": "direction",
+            "scope": ["dir"], "inputRefs": [ev_ref], "prerequisiteRefs": [], "completionOrHandoff": "dir doc",
+        })
+        tstore.begin_attempt(id2, "managed-crash-1", {"dispatchId": "owned"})
+        self.interrupt()
+        review = self.action("review_recovery")
+        review_path = control_path(self.root, REVIEW_FILE)
+        saved_review = json.loads(review_path.read_text(encoding="utf-8"))
+        saved_review["nextContract"]["scope"] = ["tampered-scope"]
+        review_path.write_text(json.dumps(saved_review), encoding="utf-8")
+        with self.assertRaises(ValueError) as err:
+            self.action("confirm_recovery", reviewToken=review["reviewToken"],
+                        productCodeReviewed=True, externalEffectsReviewed=True)
+        self.assertIn("recovery_review_changed", str(err.exception))
+        # Approval must NOT be persisted in SQLite when expected nextContract mismatches.
+        self.assertFalse(tstore.snapshot()["cycles"][-1]["continuationDecision"]["allowed"])
+
 
 if __name__ == "__main__":
     unittest.main()

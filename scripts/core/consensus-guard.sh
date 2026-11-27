@@ -74,6 +74,11 @@ has_unresolved_p1() {
 preflight() {
     local cycle="$1"
     recover_pending || return $?
+    check_admission "$cycle"
+}
+
+check_admission() {
+    local cycle="$1"
     if ! init_consensus || ! python3 "$FORMAT_TOOL" validate "$CONSENSUS_FILE"; then
         local message="HIGH PRIORITY: consensus must contain exactly one canonical Human Overrides and Priority Issues section"
         log_guard "$cycle" "CRITICAL" "$message"
@@ -87,6 +92,17 @@ preflight() {
         write_guard_state "$cycle" "paused" "unresolved_p1" "$message"
         return 41
     fi
+}
+
+admit_attempt() {
+    local cycle="$1" pending=""
+    [ -f "$PENDING_FILE" ] && [ ! -L "$PENDING_FILE" ] || return 42
+    IFS= read -r pending < "$PENDING_FILE" || true
+    [ "$pending" = "$cycle" ] || return 42
+    # Keep this cycle's original baseline. Recovering/restarting the baseline
+    # here would discard the very P1 additions that must block another writer.
+    verify_cycle "$cycle" || return $?
+    check_admission "$cycle"
 }
 
 begin_cycle() {
@@ -244,6 +260,12 @@ case "$command" in
         ;;
     verify)
         verify_cycle "${1:-0}"
+        ;;
+    admit-attempt)
+        admit_attempt "${1:-0}"
+        ;;
+    check-admission)
+        check_admission "${1:-0}"
         ;;
     close)
         close_cycle "${1:-0}"

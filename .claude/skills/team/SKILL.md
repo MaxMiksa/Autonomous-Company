@@ -38,12 +38,12 @@ These are all of the company's agents, defined in `.claude/agents/`:
 
 ### 1. Analyze the Task and Select Members
 
-Select the 2-5 most relevant agents for the nature of the task. Selection principles:
+Select the members needed for this cycle's single outcome, without a fixed headcount. A coordinator may handle a small outcome alone; critical independent review can be a separate cycle. Selection principles:
 - **Select only those needed**: More people is not always better; match the task's needs precisely
 - **Consider the collaboration chain**: If the task spans design through development, ensure the key roles along that chain are represented
 - **Avoid redundancy**: Do not select overlapping roles together
 
-Briefly explain to the founder whom you selected and why, then immediately start assembling the team.
+Briefly record whom you selected and why, then proceed within the current authority without waiting for routine staffing approval.
 
 ### 2. Create an Agent Team
 
@@ -61,7 +61,7 @@ For a dedicated frontend finishing cycle, the design owner, implementer and veri
 
 - Coordinate the members' work as team lead
 - Collect their outputs and consolidate them into a unified conclusion or proposal
-- If there are disagreements, present each position for the founder to decide
+- Review objections identify concrete issues, evidence and user-task impact. Resolve factual disputes with a small discriminating check; the coordinator/CEO adjudicates authorized tradeoffs and records the reason. Human-owned permissions, conflicting goals and genuine blockers remain with the founder
 - Clean up team resources after completion
 
 ## Notes
@@ -70,4 +70,4 @@ For a dedicated frontend finishing cycle, the design owner, implementer and veri
 - Leave language preference changes to the human-operated settings interface; do not edit saved language configuration or the current product's language state
 - Store each member's output documents under `docs/<role>/` as agreed
 - The team is temporary and dissolves when the task is complete
-- The founder is the final decision-maker; agents provide advice but do not replace that decision-making authority
+- The founder retains authority over goals and permissions; routine product and design decisions within that authority belong to the coordinator/CEO

@@ -66,6 +66,7 @@ Stop sequence:
 | Daemon | `scripts/wsl/dashboard-wsl.sh` | Query, start, and stop the existing `systemd --user` service with ownership checks |
 | Daemon | `scripts/macos/install-daemon.sh` | Install or uninstall the macOS launchd daemon |
 | Core | `scripts/core/auto-loop.sh` | Run the main loop, circuit breaker, logging, and consensus updates |
+| Core | `scripts/core/company_harness_handoff.py` | Compile explicit result/input selectors to the existing nextContract; no submission or quality approval; refuse after accepted |
 | Core | `scripts/core/engine-adapters.sh` | Provide a shared engine invocation and result contract; does not manage services or governance policy |
 | Core | `scripts/core/localization.py` | Save the runtime language and select localized resources while preserving customized source files and human rules |
 | Core | `scripts/core/process-supervisor.sh` | Manage Cycle process lifetimes; Linux uses a separate descendant supervisor |

@@ -157,6 +157,18 @@ projects/*
 !projects/.gitkeep
 !projects/README.md
 !projects/registry.tsv
+!projects/snapog/
+projects/snapog/*
+!projects/snapog/package.json
+!projects/snapog/pnpm-lock.yaml
+!projects/snapog/pnpm-workspace.yaml
+!projects/snapog/.node-version
+!projects/snapog/README.md
+!projects/snapog/tsconfig.json
+!projects/snapog/wrangler.toml
+!projects/snapog/migrations/
+!projects/snapog/sample/
+!projects/snapog/src/
 
 # Human-authorized public snapshots live under examples/. Autonomous output
 # under projects/ stays ignored; the historical tracked SnapOG assets remain.
@@ -220,6 +232,8 @@ docs/*/*
 !docs/product-center.md
 !docs/project-isolation.md
 !docs/rename-migration.md
+!docs/mechanism-versions.md
+!docs/curated-products.md
 .autonomous-company-center.json
 # Ignore all memories (keep folder marker only)
 memories/*

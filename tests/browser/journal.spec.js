@@ -647,7 +647,7 @@ test("compact records preserve failures and unknowns while hiding technical deta
   for (const locale of ["en", "zh-CN"]) {
     language = locale;
     await setLanguage(page, journal, locale);
-    await refreshRecords(page);
+    await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     for (const width of [1280, 360]) {
       await page.setViewportSize({ width, height: 900 });
@@ -655,10 +655,10 @@ test("compact records preserve failures and unknowns while hiding technical deta
     }
   }
   current.latestCheck = null;
+  current.checks = [];
   current.checkStatus = "unregistered";
   await refreshRecords(page);
-  await expect(page.locator("#currentCycle .record-check")).toContainText("暂无已登记检查");
-  await expect(page.locator("#currentCycle .record-check")).not.toContainText("通过");
+  await expect(page.locator("#currentCycle .record-check")).toHaveCount(0);
   current.latestCheck = { state: "completed", evidenceStatus: "missing", exitCode: 0, tests: { tests: 7, failures: 0, errors: 0, skipped: 0 } };
   current.checkStatus = "stale";
   await refreshRecords(page);

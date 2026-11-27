@@ -65,6 +65,7 @@
 | 守护 | `scripts/wsl/dashboard-wsl.sh` | 查询及启停原有 `systemd --user` 服务，保留服务归属校验 |
 | 守护 | `scripts/macos/install-daemon.sh` | macOS launchd 安装/卸载 |
 | 核心 | `scripts/core/auto-loop.sh` | 主循环执行、熔断、日志、共识更新 |
+| 核心 | `scripts/core/company_harness_handoff.py` | 将显式成果/不可变输入选择生成原 nextContract；不提交、不授予质量通过，accepted 后禁止生成 |
 | 核心 | `scripts/core/engine-adapters.sh` | 统一引擎调用与结果契约，不管理服务或治理策略 |
 | 核心 | `scripts/core/localization.py` | 保存运行语言、选择本地化资源；保留自定义源文件和人工规则 |
 | 核心 | `scripts/core/process-supervisor.sh` | Cycle 进程生命周期；Linux 使用独立子孙监管器 |

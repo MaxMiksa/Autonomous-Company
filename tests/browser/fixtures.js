@@ -8,9 +8,10 @@ export { expect };
 export const test = base.extend({
   centerCycles: [6, { option: true }],
   centerExplorationCycles: [0, { option: true }],
-  center: async ({ centerCycles, centerExplorationCycles }, use, testInfo) => {
+  centerLegacyInterrupted: [false, { option: true }],
+  center: async ({ centerCycles, centerExplorationCycles, centerLegacyInterrupted }, use, testInfo) => {
     const child = spawn(process.env.AUTONOMOUS_COMPANY_BROWSER_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
-      ['-u', fileURLToPath(new URL('center-fixture-server.py', import.meta.url)), '--cycles', String(centerCycles), '--exploration-cycles', String(centerExplorationCycles)],
+      ['-u', fileURLToPath(new URL('center-fixture-server.py', import.meta.url)), '--cycles', String(centerCycles), '--exploration-cycles', String(centerExplorationCycles), ...(centerLegacyInterrupted ? ['--legacy-interrupted'] : [])],
       { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let output = '';
     child.stderr.on('data', chunk => { output += chunk; });

@@ -62,7 +62,7 @@ python -m venv .venv
 
 在本目录运行 Python 核心与 HTTP 检查：Windows 使用 `.venv/Scripts/python.exe -m unittest discover -s tests -v`；macOS/Linux 使用 `.venv/bin/python -m unittest discover -s tests -v`。
 
-浏览器检查安装开发依赖 `npm ci`，再安装测试浏览器 `npx playwright install chromium`，执行 `npm run test:browser`。默认自动启停本产品虚拟环境中的服务。可用 `IFC_PYTHON` 指定已有 Python 环境，用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chrome/Chromium；这两项不是日常使用前提。
+浏览器检查安装开发依赖 `pnpm install --frozen-lockfile`，再安装测试浏览器 `pnpm exec playwright install chromium`，执行 `pnpm run test:browser`。默认自动启停本产品虚拟环境中的服务。可用 `IFC_PYTHON` 指定已有 Python 环境，用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chrome/Chromium；这两项不是日常使用前提。
 
 检查覆盖真实 IFC 实体、来源、单位、材料、错误恢复、实际文件上传、筛选及 CSV/JSON 下载。独立展示副本不附带原运行的私有登记、模型日志或商业历史。页面截图不证明真实客户采用、业务收益或工程数量准确性。
 

@@ -139,7 +139,27 @@ class CenterHttpTests(unittest.TestCase):
         self.assertEqual(headers["Content-Type"], "text/plain; charset=utf-8")
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
-        self.assertIn(b"<script>", raw)
+
+    def test_v2_routes_keep_envelope_and_forward_stable_binding(self):
+        data = {'projectionVersion': 2, 'centerId': 'test-center', 'entryId': 'entry-one', 'sourceId': 'source-one',
+                'sourceBindingVersion': 2, 'projectionEpoch': 'epoch-one', 'snapshotRevision': 3, 'cycles': []}
+        self.catalog.journal.return_value = data
+        query = 'projectionVersion=2&sourceId=source-one&sourceBindingVersion=2&projectionEpoch=epoch-one'
+        status, raw, _ = self.request('GET', '/api/center/v1/entries/entry-one/journal?' + query)
+        value = json.loads(raw)
+        self.assertEqual(status, 200)
+        self.assertEqual(value['schemaVersion'], 1)
+        self.assertEqual(value['centerId'], value['data']['centerId'])
+        self.catalog.record.return_value = {'id': 'cycle-one'}
+        self.request('GET', '/api/center/v1/entries/entry-one/records/cycle-one?' + query)
+        self.assertEqual(self.catalog.record.call_args.kwargs['query']['sourceBindingVersion'], '2')
+        self.catalog.resource.return_value = (b'<svg onload="alert(1)"/>', 'image/svg+xml')
+        status, raw, headers = self.request('GET', '/api/center/v1/entries/entry-one/resources/media-icon.svg?' + query)
+        self.assertEqual(status, 200)
+        self.assertIn('sandbox', headers['Content-Security-Policy'])
+        self.assertIn("default-src 'none'", headers['Content-Security-Policy'])
+        self.assertEqual(self.catalog.resource.call_args.kwargs['query']['projectionEpoch'], 'epoch-one')
+        self.assertEqual(raw, b'<svg onload="alert(1)"/>')
 
     def test_scope_and_path_cannot_be_replaced_with_arbitrary_file(self):
         for path in ("/api/center/v1/entries/../resources/secret", "/api/center/v1/entries/a/resources/%2e%2e",

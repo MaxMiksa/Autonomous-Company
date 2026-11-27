@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(os.environ.get('AUTONOMOUS_COMPANY_TEST_SOURCE', Path(__file__).resolve().parents[1]))
 sys.path[:0] = [str(ROOT / 'dashboard'), str(ROOT / 'scripts/core')]
 from center_readonly import PROC_READER, ReadOnlyObserver, scoped_observation
+from journal_data import ProductScope
 
 
 class ReadOnlyObservationTests(unittest.TestCase):
@@ -25,7 +26,8 @@ class ReadOnlyObservationTests(unittest.TestCase):
             def observe(root):
                 return json.loads(subprocess.check_output([sys.executable, '-c', PROC_READER, str(root), '0']))
             try:
-                self.assertEqual(observe(source), {'available': True, 'alive': True})
+                started = (Path('/proc') / str(child.pid) / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+                self.assertEqual(observe(source), {'available': True, 'alive': True, 'processStart': started, 'harnessRun': None})
                 self.assertEqual(observe(source / 'other'), {'available': True, 'alive': False})
             finally:
                 child.terminate()
@@ -72,6 +74,30 @@ class ReadOnlyObservationTests(unittest.TestCase):
         with patch.object(observer, '_process', return_value={'alive': True, 'executionDomain': {'platform': 'posix'}}):
             self.assertIsNone(observer.status(reader))
 
+    def test_cold_start_reads_missing_cache_during_first_five_monotonic_seconds(self):
+        for seconds in (0, 1):
+            with self.subTest(seconds=seconds):
+                observer, reader = ReadOnlyObserver(), self.reader()
+                stopped = {'alive': False, 'executionDomain': {'platform': 'posix'}}
+                with patch('center_readonly.time.monotonic', return_value=seconds), patch.object(observer, '_process', return_value=stopped) as process:
+                    status = observer.status_many([reader])[0]
+                process.assert_called_once_with('recorded-source', 12)
+                self.assertEqual(status['parsed']['loop']['state'], 'stopped')
+                self.assertEqual(observer._cache['recorded-source'], (seconds, status))
+
+    def test_fresh_none_cache_is_reused_without_refreshing_its_timestamp(self):
+        observer, reader = ReadOnlyObserver(), self.reader()
+        observer._cache['recorded-source'] = (0, None)
+        with patch('center_readonly.time.monotonic', return_value=1), patch.object(observer, '_process') as process:
+            self.assertEqual(observer.status_many([reader]), [None])
+        process.assert_not_called()
+        reader.pairs.assert_not_called()
+        self.assertEqual(observer._cache['recorded-source'], (0, None))
+        with patch('center_readonly.time.monotonic', return_value=5), patch.object(observer, '_process', return_value=None) as process:
+            self.assertEqual(observer.status_many([reader]), [None])
+        process.assert_called_once_with('recorded-source', 12)
+        self.assertEqual(observer._cache['recorded-source'], (5, None))
+
     def test_batch_preserves_independent_evidence_and_rejects_changed_pid(self):
         observer = ReadOnlyObserver()
         first, second = self.reader(), self.reader()
@@ -106,7 +132,8 @@ class ReadOnlyObservationTests(unittest.TestCase):
             child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)', command])
             try:
                 result = json.loads(subprocess.check_output([sys.executable, '-c', PROC_READER, '--batch', json.dumps([(root, 0) for root in roots])]))
-                self.assertEqual(result, [{'available': True, 'alive': True}, {'available': True, 'alive': False}])
+                started = (Path('/proc') / str(child.pid) / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+                self.assertEqual(result, [{'available': True, 'alive': True, 'processStart': started, 'harnessRun': None}, {'available': True, 'alive': False}])
             finally:
                 child.terminate()
                 child.wait()
@@ -162,6 +189,22 @@ class ReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(scoped_observation(reader, self.status('paused'))['state'], 'read_only')
         reader.scope.product_id = 'product-one'
         self.assertEqual(scoped_observation(reader, self.status('paused'))['state'], 'paused')
+
+    def test_paused_exploration_requires_both_identity_and_last_cycle_binding(self):
+        reader = self.reader()
+        reader.active_cycle.return_value = None
+        reader.scope = ProductScope('exploration', exploration_id='exploration-one')
+        reader.scoped_cycle_ids.return_value = {'owned-cycle'}
+        status = self.status('paused')
+        status['stateFile'].update(PRODUCT_ID='exploration-one', PRODUCT_CYCLE_ID='owned-cycle', PAUSE_REASON='human_required')
+        observed = scoped_observation(reader, status)
+        self.assertEqual(observed['state'], 'paused')
+        self.assertEqual(observed['pauseReason'], 'human_required')
+        self.assertTrue(observed['scoped'])
+        for changes in ({'PRODUCT_ID': 'other'}, {'PRODUCT_CYCLE_ID': 'other'}, {'PRODUCT_CYCLE_ID': None}):
+            with self.subTest(changes=changes):
+                wrong = {**status, 'stateFile': {**status['stateFile'], **changes}}
+                self.assertEqual(scoped_observation(reader, wrong)['state'], 'read_only')
 
 
 if __name__ == '__main__':

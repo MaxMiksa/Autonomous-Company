@@ -6,6 +6,7 @@ work report, not proof of a running process or a stream of agent activity.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -93,7 +94,7 @@ class ProductScope:
 
 
 class JournalSource:
-    def __init__(self, root: Path, language: str | None = None, *, scope: ProductScope | None = None):
+    def __init__(self, root: Path, language: str | None = None, *, scope: ProductScope | None = None, projection_version=1):
         self.root = root.resolve(strict=True)
         if not self.root.is_dir():
             raise ValueError("Source must be a repository directory")
@@ -101,6 +102,7 @@ class JournalSource:
             raise ValueError("Invalid preview language")
         self.preview_language = language
         self.scope = scope
+        self.projection_version = projection_version
 
     def identity_state(self):
         try:
@@ -220,7 +222,7 @@ class JournalSource:
             pass
         return None
 
-    def ledger(self) -> tuple[list[dict[str, Any]], list[str]]:
+    def ledger(self, *, include_attempts=False) -> tuple[list[dict[str, Any]], list[str]]:
         warnings: list[str] = []
         try:
             raw, truncated = self.read("logs/usage.jsonl", MAX_LEDGER_BYTES, tail=True)
@@ -236,6 +238,7 @@ class JournalSource:
         invalid = 0
         conflicting = 0
         conflict_ids = set()
+        conflict_owners = {}
         for line in raw.splitlines():
             if not line.strip():
                 continue
@@ -254,10 +257,19 @@ class JournalSource:
                 invalid += 1
                 continue
             identity = record["cycle_id"]
+            if include_attempts and record.get('record_role') == 'harness_attempt' and (
+                    not isinstance(record.get('logical_cycle_id'), str) or not CYCLE_ID.fullmatch(record['logical_cycle_id'])
+                    or record.get('attempt_id') != identity):
+                invalid += 1
+                continue
             if identity in seen:
                 if record != seen[identity]:
                     conflicting += 1
                     conflict_ids.add(identity)
+                    if include_attempts:
+                        conflict_owners.setdefault(identity, set()).update(
+                            row.get('logical_cycle_id') if row.get('record_role') == 'harness_attempt' else row['cycle_id']
+                            for row in (record, seen[identity]))
                 continue
             seen[identity] = record
         if invalid:
@@ -268,9 +280,11 @@ class JournalSource:
         if self.scope:
             allowed = self.scoped_cycle_ids()
             if allowed is not None:
-                records = [record for record in records if record["cycle_id"] in allowed and record["cycle_id"] not in conflict_ids]
+                records = [record for record in records if
+                           (record.get("logical_cycle_id") if include_attempts and record.get("record_role") == "harness_attempt" else record["cycle_id"]) in allowed
+                           and record["cycle_id"] not in conflict_ids]
                 warnings = [warning for warning in warnings if not warning.startswith('ledger_conflicting_ids:')]
-                scoped_conflicts = len(conflict_ids & allowed)
+                scoped_conflicts = sum(bool(conflict_owners.get(identity, {identity}) & allowed) for identity in conflict_ids) if include_attempts else len(conflict_ids & allowed)
                 if scoped_conflicts:
                     warnings.append(f'ledger_conflicting_ids:{scoped_conflicts}')
         def order(record: dict[str, Any]) -> float:
@@ -465,6 +479,8 @@ class JournalSource:
             if truncated or not isinstance(pending, dict):
                 return None
             identity = pending.get("cycle_id")
+            if self.projection_version == 2 and pending.get('record_role') == 'harness_attempt':
+                return self.harness_active_cycle(status, pending, state, pid)
             number = pending.get("cycle_number")
             started = timestamp(pending.get("started_at"))
             selected = self.project()["id"]
@@ -512,15 +528,55 @@ class JournalSource:
         except (OSError, ValueError, RecursionError):
             return None
 
+    def harness_active_cycle(self, status, pending, state, pid):
+        from company_harness import HarnessStore
+        identity, attempt_id = pending.get('logical_cycle_id'), pending.get('attempt_id')
+        if (not isinstance(identity, str) or not CYCLE_ID.fullmatch(identity) or
+                not isinstance(attempt_id, str) or pending.get('cycle_id') != attempt_id or
+                state.get('PRODUCT_CYCLE_ID') != identity or str(pending.get('cycle_number')) != state.get('LOOP_COUNT') or
+                pending.get('schema_version') != 1 or pending.get('kind') != 'cycle_usage' or
+                any(not state.get(key) or pending.get(key.lower()) != state[key] for key in ('ENGINE', 'MODEL'))):
+            return None
+        store = HarnessStore(self.root)
+        snapshot = store.snapshot([identity], catalog=True)
+        owner = store.read_attempt_ownership(attempt_id)
+        cycle = snapshot['cycles'][0] if snapshot['cycles'] else None
+        run = status.get('harnessRun') or {}
+        binding = (owner or {}).get('ownership') or {}
+        if (not cycle or not owner or owner.get('cycleId') != identity or owner.get('generation') != snapshot.get('generation') or
+                cycle['activeAttemptId'] != attempt_id or binding.get('loopPid') != pid or
+                not status.get('processStart') or str(binding.get('loopProcessStart')) != str(status['processStart']) or
+                run.get('cycleId') != identity or run.get('attemptId') != attempt_id):
+            return None
+        context = self.cycle_context(identity)
+        reservation = self.identity_state()['cycles'].get(identity)
+        if (not reservation or reservation['state'] != 'dispatching' or not timestamp(reservation.get('dispatchAt')) or
+                context.get('status') != 'recorded' or context.get('project') != self.project()['id'] or
+                self.scope and self.scoped_cycle_ids() is not None and identity not in self.scoped_cycle_ids()):
+            return None
+        actual_owner = status.get('owner')
+        if actual_owner and any(binding.get(key) != actual_owner.get(key) for key in ('centerId', 'runtimeId', 'requestId', 'dispatchId')):
+            return None
+        if (self.safe_path('logs/usage.jsonl.pending').stat().st_mtime_ns < self.safe_path('.auto-loop.pid').stat().st_mtime_ns or
+                self.pairs('.auto-loop-state') != state or self.read('.auto-loop.pid', 128)[0].strip() != str(pid)):
+            return None
+        return {'id': identity, 'attemptId': attempt_id, 'number': pending['cycle_number'], 'status': 'running', 'active': True,
+            'startedAt': cycle['startedAt'], 'endedAt': None, 'durationReliable': False, 'endedAtKind': 'unavailable',
+            'engine': pending['engine'][:200], 'model': pending['model'][:200], 'summary': '', 'report': '',
+            'logAvailable': False, 'projectId': context['project'], 'projectIdentity': context,
+            'usage': {'inputTokens': None, 'outputTokens': None, 'totalTokens': None, 'status': 'unavailable'},
+            'costUsd': None, 'costStatus': 'unavailable', 'budget': None}
+
     def log(self, identity: str, status: dict[str, Any] | None = None) -> dict[str, Any]:
         records, _ = self.ledger()
         active = self.active_cycle(status) if status is not None else None
-        allowed = {record["cycle_id"] for record in records}
-        if active:
-            allowed.add(active["id"])
         scoped = self.scoped_cycle_ids()
-        if scoped is not None:
-            allowed &= scoped
+        allowed = {
+            record["cycle_id"] for record in records
+            if scoped is None or record["cycle_id"] in scoped or record.get("logical_cycle_id") in scoped
+        }
+        if active and (scoped is None or active["id"] in scoped):
+            allowed.add(active["id"])
         if identity not in allowed:
             raise ValueError("Unknown cycle identity")
         try:
@@ -531,16 +587,46 @@ class JournalSource:
         except (OSError, ValueError):
             return {"ok": True, "text": "", "available": False, "truncated": False}
 
+    def log_page(self, identity: str, offset: int, limit: int = MAX_LOG_BYTES,
+                 status: dict[str, Any] | None = None, *, preverified: bool = False) -> dict[str, Any]:
+        """Export only a recorded/scoped cycle, preserving exact original bytes."""
+        if (type(offset) is not int or offset < 0 or type(limit) is not int
+                or not 1 <= limit <= MAX_LOG_BYTES):
+            raise ValueError('Invalid log range')
+        if not preverified:
+            self.log(identity, status)  # Includes active-cycle and immutable scope checks.
+        path = self.safe_path(f'logs/{identity}.log')
+        if not stat.S_ISREG(path.stat().st_mode):
+            raise ValueError('Only regular logs are exposed')
+        with path.open('rb') as source:
+            before = os.fstat(source.fileno())
+            if offset > before.st_size:
+                raise ValueError('Log range changed')
+            source.seek(offset)
+            raw = source.read(min(limit, before.st_size - offset))
+            after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise ValueError('Log changed during export')
+        next_offset = offset + len(raw)
+        return {'ok': True, 'offset': offset, 'nextOffset': next_offset,
+                'totalBytes': before.st_size, 'eof': next_offset == before.st_size,
+                'revision': f'{before.st_size}:{before.st_mtime_ns}',
+                'bytesBase64': base64.b64encode(raw).decode('ascii')}
+
     def snapshot(self, *, status: dict[str, Any] | None = None,
                  language_state: dict[str, Any] | None = None,
                  detail_cycle_id: str | None = None,
                  all_details: bool = False,
-                 runtime_config: dict[str, Any] | None = None) -> dict[str, Any]:
+                 runtime_config: dict[str, Any] | None = None,
+                 cycle_ids=None, include_media=True, include_events=True, include_documents=False,
+                 ledger_records=None) -> dict[str, Any]:
         generated = datetime.now(timezone.utc)
         generated_at = generated.isoformat()
-        records, warnings = self.ledger()
+        records, warnings = self.ledger() if ledger_records is None else ledger_records
+        if cycle_ids is not None:
+            records = [record for record in records if record["cycle_id"] in cycle_ids]
         project = self.project()
-        artifact_data = artifact_projection(self, project["id"] or "")
+        artifact_data = artifact_projection(self, project["id"] or "", kinds=None if include_media else {'check', 'document'} if include_documents else {'check'})
         registered = artifact_data["items"]
         if self.scope:
             registered = self.documents(registered)
@@ -632,6 +718,8 @@ class JournalSource:
             if not available:
                 warnings.append("runtime_unavailable")
         numbering = self.persistent_cycles(cycles, project, warnings)
+        if cycle_ids is not None:
+            cycles = [cycle for cycle in cycles if cycle["id"] in cycle_ids]
         if self.scope:
             # A root-global consensus, runtime config or budget cannot establish
             # ownership for a selected historical identity.
@@ -641,7 +729,10 @@ class JournalSource:
             scoped_active = runtime.get('currentCycleId') in allowed
             scoped_product = (self.scope.product_id and status and status.get('ok') is True
                               and status.get('stateFile', {}).get('PRODUCT_ID') == self.scope.product_id)
-            if not (scoped_active or scoped_product):
+            scoped_exploration = (not self.scope.product_id and self.scope.exploration_id and status and status.get('ok') is True
+                                  and status.get('stateFile', {}).get('PRODUCT_ID') == self.scope.exploration_id
+                                  and status.get('stateFile', {}).get('PRODUCT_CYCLE_ID') in allowed)
+            if not (scoped_active or scoped_product or scoped_exploration):
                 runtime.update(state="unknown", processState="unknown", available=False,
                                engine="unknown", model="unknown", reasoning="unknown")
             elif runtime_config:
@@ -658,9 +749,9 @@ class JournalSource:
         for index, cycle in enumerate(cycles):
             if not all_details and index >= 30 and cycle["id"] != detail_cycle_id:
                 continue
-            cycle["detailStatus"] = "recorded"
+            cycle["detailStatus"] = "recorded" if include_events else "limited"
             cycle.update(read_report(self, cycle))
-            cycle.update(cycle_events(self, cycle))
+            cycle.update(cycle_events(self, cycle) if include_events else {"events": [], "eventStatus": "not_loaded"})
             if cycle.get("active") or cycle["status"] == "interrupted":
                 # Interrupted adapter sidecars can contain mixed raw JSONL.
                 # Use only an explicit agent-message event as a work report.
@@ -741,7 +832,7 @@ class JournalSource:
         latest_project_cycle = next((cycle for cycle in cycles if cycle.get("projectStatus") == "current"), None)
         try:
             media_owned = not self.scope or (self.scope.product_id and self.identity_state()["paths"].get(selected_project) == self.scope.product_id)
-            product_media = media_projection(self.root, selected_project, readonly=status is None) if selected_project and media_owned else None
+            product_media = media_projection(self.root, selected_project, readonly=status is None) if include_media and selected_project and media_owned else None
         except (OSError, ValueError, TypeError, KeyError):
             product_media = None
             warnings.append("product_media_unavailable")
@@ -756,7 +847,7 @@ class JournalSource:
                               "reportedUpdatedAt": timestamp(section(parts, "Last Updated", "最后更新", "最近更新")),
                               "phase": section(parts, "Current Phase", "当前阶段"), "progress": progress_lines,
                               "raw": raw},
-                "cycles": cycles, "artifacts": self.documents(registered),
+                "cycles": cycles, "artifacts": self.documents(registered) if include_media else [],
                 "artifactCollection": {key: value for key, value in artifact_data.items() if key != "items"},
                 "latestCheck": latest_check,
                 "latestProjectCycleId": latest_project_cycle["id"] if latest_project_cycle else None,

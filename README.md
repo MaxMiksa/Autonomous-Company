@@ -97,7 +97,7 @@ See the [Product Center guide](docs/product-center.md) for source registration, 
 <a id="generated-applications"></a>
 ## 🧩 Generated Applications
 
-The [example catalog](examples/README.md) contains 22 independently runnable public examples, including 14 newly completed products and selected historical work. Each entry provides startup instructions, limitations and provenance; new local runs continue to write into `projects/`.
+The [example catalog](examples/README.md) contains 19 independently runnable public examples, including 14 newly completed products and selected historical work. Each entry provides startup instructions, limitations and provenance; new local runs continue to write into `projects/`.
 
 The examples cover professional data review, image delivery, shared meals, travel pacing and family creation. Published copies preserve the original product direction while refining components and repairing real interactions; original reports and unsuccessful conclusions are not rewritten for the showcase.
 

@@ -9,7 +9,22 @@ updates:
       github-actions:
         patterns: ['*']
   - package-ecosystem: npm
+    directory: /dashboard/ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+  - package-ecosystem: npm
+    directory: /scripts/media
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+  - package-ecosystem: npm
     directory: /tests/browser
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+  - package-ecosystem: npm
+    directory: /projects/snapog
     schedule:
       interval: weekly
     open-pull-requests-limit: 3

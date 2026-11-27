@@ -8,6 +8,9 @@ window.DashboardNavigation.register('journal', (view) => {
   if (!productMatch) throw new Error('A product center entry is required');
   const scope = { entryId: decodeURIComponent(productMatch[1]), token: 0, contextToken: 0, entries: [] };
   const state = { data: null, language: document.documentElement.lang || 'zh-CN', tab: 'work', expanded: new Set(), selectedLog: '', logText: '', logLoadedKey: '', logRequest: 0, logPending: null, refreshPending: null, signature: '', statusFailed: true, languageState: null, timer: null, autoChanged: false, currentCycle: null, receivedAt: 0, elapsedTimer: null, centerSummary: null, scopedUsage: null, usageToken: 0, detailToken: 0, detailLoads: new Map(), mediaIntent: null };
+  const projection = new window.DashboardProjection.Gate();
+  Object.assign(state, { controlFailed: true, usagePending: new Map(), mediaPending: null, contextPending: null,
+    historyCursor: null, historyPending: null, historyError: false, mediaCache: null, detailReadAt: new Map() });
   const message = (key, values = {}) => {
     const dictionary = window.JOURNAL_MESSAGES[state.language] || window.JOURNAL_MESSAGES.en;
     return Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, typeof value === 'number' && name !== 'number' ? new Intl.NumberFormat(state.language).format(value) : String(value)), dictionary[key] || key);
@@ -33,7 +36,7 @@ window.DashboardNavigation.register('journal', (view) => {
   function centerModeKey() { return state.data?.entry?.runtimeId ? 'centerManaged' : 'centerArchive'; }
   function liveProcess() { return !readOnly() && !state.statusFailed && state.data?.runtime?.processState === 'running'; }
   function freshCenterRequest(summary = state.centerSummary, currentTime = Date.now()) {
-    if (state.statusFailed) return null;
+    if (state.statusFailed || state.controlFailed) return null;
     const request = summary?.currentRequests?.find((item) => item?.entryId === scope.entryId) || summary?.currentRequest;
     if (!request?.liveConfirmedAt || !['starting', 'running', 'stopping'].includes(request.state)) return null;
     const confirmationAge = currentTime - Date.parse(request.liveConfirmedAt);
@@ -64,6 +67,7 @@ window.DashboardNavigation.register('journal', (view) => {
     }
     if (!execution?.requestId) return null;
     if (execution.state === 'ended' && execution.terminalReason === 'delivery_complete') return 'delivery_complete';
+    if (execution.state === 'ended' && execution.terminalReason === 'pause_after_cycle') return 'paused';
     return ['ended', 'canceled', 'failed', 'queued', 'attention'].includes(execution.state) ? execution.state : null;
   }
   function runtimeStateValue() {
@@ -77,6 +81,10 @@ window.DashboardNavigation.register('journal', (view) => {
   function runtimeLabel() { return runtimeStatusLabel(runtimeStateValue()); }
   function runtimeEvidence() {
     const value = runtimeStateValue();
+    if (value === 'paused') {
+      const reason = state.data?.entry?.readonlyObservation?.pauseReason || state.data?.runtime?.pauseReason;
+      return reason ? message('pauseReason', { reason: pauseLabel(reason) }) : '';
+    }
     if (value === 'read_only') return message('sourceReadOnlyEvidence');
     if (!['unknown', 'unavailable', 'blocked', 'attention'].includes(value)) return '';
     const execution = state.data?.entry?.executionSummary;
@@ -125,7 +133,8 @@ window.DashboardNavigation.register('journal', (view) => {
   async function fetchCenter(path, options = {}, timeout = 100000) {
     const result = await fetchJSON(`/api/center/v1${path}`, options, timeout);
     if (result?.schemaVersion !== 1 || !Object.hasOwn(result, 'data')) throw new Error('Invalid product center response');
-    return result.data;
+    if (result.data?.projectionVersion === 2 && result.data.centerId !== result.centerId) throw new Error('Conflicting center identity');
+    return result.data && typeof result.data === 'object' && !Array.isArray(result.data) ? { ...result.data, _centerId: result.centerId } : result.data;
   }
   async function fetchAllCenterEntries() {
     const items = []; let cursor = null; let total = null; const seen = new Set();
@@ -144,7 +153,13 @@ window.DashboardNavigation.register('journal', (view) => {
   function safeScopedResource(value) {
     if (typeof value !== 'string') return null;
     const prefix = `/api/center/v1/entries/${encodeURIComponent(scope.entryId)}/resources/`;
-    try { const url = new URL(value, location.origin); return url.origin === location.origin && url.pathname.startsWith(prefix) ? `${url.pathname}${url.search}` : null; }
+    try {
+      const url = new URL(value, location.origin), data = state.data;
+      if (url.origin !== location.origin || !url.pathname.startsWith(prefix) || data?.sourceId && url.searchParams.get('sourceId') !== data.sourceId) return null;
+      if (data?.projectionVersion === 2 && (url.searchParams.get('projectionVersion') !== '2'
+        || url.searchParams.get('sourceBindingVersion') !== String(data.sourceBindingVersion) || url.searchParams.get('projectionEpoch') !== data.projectionEpoch)) return null;
+      return `${url.pathname}${url.search}`;
+    }
     catch (_) { return null; }
   }
   function safePreviewURL(artifact, data = state.data) {
@@ -161,7 +176,8 @@ window.DashboardNavigation.register('journal', (view) => {
     return Boolean(expected?.entryId && expected?.sourceId && Number.isFinite(expected.sourceRevision)) && page?.entryId === expected.entryId && page?.sourceId === expected.sourceId && page?.sourceRevision === expected.sourceRevision && Array.isArray(page.cycles);
   }
   async function fetchFullScopedJournal() {
-    const first = await fetchCenter(`${scopedJournalPath('/journal')}?limit=100`);
+    const first = await fetchCenter(`${scopedJournalPath('/journal')}?projectionVersion=2&limit=20`, {}, 15000);
+    if (first?.projectionVersion === 2) return first;
     const expected = { entryId: scope.entryId, sourceId: first?.sourceId, sourceRevision: first?.sourceRevision };
     if (!journalPageMatches(first, expected)) throw new Error('Invalid scoped journal page');
     const cycles = [...first.cycles]; const seenCursors = new Set(); const seenCycles = new Set(cycles.map((cycle) => cycle.id));
@@ -184,7 +200,15 @@ window.DashboardNavigation.register('journal', (view) => {
     const period = $('usagePeriod').value;
     return { period, date: period === 'all' ? '' : $('usageDate').value };
   }
-  function usageKey(selection, data = state.data) { return JSON.stringify([data?.entryId, data?.sourceId, data?.sourceRevision, selection.period, selection.date]); }
+  function usageKey(selection, data = state.data) { return JSON.stringify([data?.projectionVersion === 2 ? window.DashboardProjection.scopeKey(data) : [data?.entryId, data?.sourceId, data?.sourceRevision], data?.projectionEpoch, selection.period, selection.date]); }
+  function projectionQuery(data = state.data) {
+    return data?.projectionVersion === 2 ? `&projectionVersion=2&sourceBindingVersion=${encodeURIComponent(data.sourceBindingVersion)}&projectionEpoch=${encodeURIComponent(data.projectionEpoch)}` : '';
+  }
+  function confirmProjection(ticket) {
+    if (ticket.generation !== projection.generation || state.epochCheckRequested === ticket.generation) return;
+    state.epochCheckRequested = ticket.generation;
+    Promise.resolve(state.refreshPending).then(() => { if (view.active && ticket.generation === projection.generation) refresh(); });
+  }
   function expectedUsageRange(selection) {
     if (selection.period === 'all') return { startDate: null, endDate: null };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(selection.date)) return null;
@@ -199,20 +223,105 @@ window.DashboardNavigation.register('journal', (view) => {
     const expectedRange = expectedUsageRange(selection);
     if (!expectedRange) throw new Error('Invalid usage selection');
     const date = selection.date ? `&date=${encodeURIComponent(selection.date)}` : '';
-    const result = await fetchCenter(`${scopedJournalPath('/usage')}?period=${encodeURIComponent(selection.period)}${date}&includeExploration=true&sourceId=${encodeURIComponent(data.sourceId)}`);
-    if (result?.entryId !== data.entryId || result?.sourceId !== data.sourceId || result?.sourceRevision !== data.sourceRevision || result?.period !== selection.period || result?.startDate !== expectedRange.startDate || result?.endDate !== expectedRange.endDate) throw new Error('Out-of-scope usage response');
+    const result = await fetchCenter(`${scopedJournalPath('/usage')}?period=${encodeURIComponent(selection.period)}${date}&includeExploration=true&sourceId=${encodeURIComponent(data.sourceId)}${projectionQuery(data)}`, {}, 15000);
+    if (result?.entryId !== data.entryId || result?.sourceId !== data.sourceId || (data.projectionVersion === 2 ? !projection.matches(result) : result?.sourceRevision !== data.sourceRevision) || result?.period !== selection.period || result?.startDate !== expectedRange.startDate || result?.endDate !== expectedRange.endDate) throw new Error('Out-of-scope usage response');
     return { key: usageKey(selection, data), data: result };
   }
   async function refreshScopedUsage() {
     if (!state.data) return;
-    const token = ++state.usageToken; const data = state.data; const selection = usageSelection();
-    try {
+    const data = state.data, selection = usageSelection(), key = usageKey(selection, data), ticket = projection.ticket();
+    const existing = state.usagePending.get(key);
+    if (existing && existing.generation === ticket.generation) return existing.promise;
+    const token = ++state.usageToken;
+    const promise = (async () => { try {
       const usage = await fetchScopedUsage(selection, data);
-      if (token !== state.usageToken || data !== state.data || usage.key !== usageKey(usageSelection(), state.data)) return;
-      state.scopedUsage = usage; renderUsage();
-    } catch (_) {
-      if (token === state.usageToken && data === state.data && usageKey(selection, data) === usageKey(usageSelection(), state.data)) { state.scopedUsage = null; renderUsage(); }
+      if (ticket.generation !== projection.generation || !view.active || usage.key !== usageKey(usageSelection(), state.data)) return;
+      if (data.projectionVersion === 2 && !projection.component(`usage:${key}`, { usage: usage.data.usage, groups: usage.data.groups, costUsd: usage.data.costUsd, costKnown: usage.data.costKnown, count: usage.data.count, recorded: usage.data.recorded, unknown: usage.data.unknown, conflicting: usage.data.conflicting, truncated: usage.data.truncated }, usage.data.partitions?.usage, usage.data, ticket)) throw new Error('Stale usage partition');
+      usage.stale = ['unavailable', 'invalid'].includes(usage.data.partitions?.usage?.status) || usage.data.partitions?.usage?.freshness === 'stale';
+      state.scopedUsage = usage; renderUsage(); renderSidebar();
+    } catch (error) {
+      if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
+      if (ticket.generation === projection.generation && key === usageKey(usageSelection(), state.data)) {
+        if (state.scopedUsage?.key === key) state.scopedUsage.stale = true;
+        else state.scopedUsage = { key, data: null, stale: true };
+        renderUsage();
+      }
+    } finally {
+      if (state.usagePending.get(key)?.promise === promise) state.usagePending.delete(key);
+      if (view.active && state.data && key !== usageKey(usageSelection()) && token === state.usageToken) refreshScopedUsage();
+    } })();
+    state.usagePending.set(key, { promise, generation: ticket.generation }); return promise;
+  }
+  async function refreshMedia() {
+    if (state.data?.projectionVersion !== 2 || state.mediaPending) return;
+    const data = state.data, ticket = projection.ticket();
+    const promise = (async () => { try {
+      const result = await fetchCenter(`${scopedJournalPath('/journal')}?component=media&sourceId=${encodeURIComponent(data.sourceId)}${projectionQuery(data)}`, {}, 15000);
+      if (!projection.matches(result)) { confirmProjection(ticket); throw new Error('Media scope changed'); }
+      if (!projection.component('media', { artifacts: result.artifacts, productMedia: result.productMedia }, result.partitions?.media, result, ticket)) throw new Error('Stale media partition');
+      state.mediaCache = { artifacts: result.artifacts || [], productMedia: result.productMedia, metadata: result.partitions?.media };
+      state.data.artifacts = state.mediaCache.artifacts; state.data.productMedia = state.mediaCache.productMedia;
+      state.data.partitions.media = state.mediaCache.metadata; renderSidebar();
+    } catch (error) {
+      if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
+      if (projection.matches(data) && ticket.generation === projection.generation) {
+        state.data.partitions.media = { ...state.data.partitions.media, status: 'unavailable', freshness: 'stale', errorCode: 'READ_FAILED' };
+        if (state.mediaCache) state.mediaCache.metadata = state.data.partitions.media;
+        renderSidebar();
+      }
+    } finally { if (state.mediaPending === promise) state.mediaPending = null; } })();
+    state.mediaPending = promise; return promise;
+  }
+  function installCycleComponents(data, previous = null) {
+    const oldRows = new Map((previous?.cycles || []).map(cycle => [cycle.id, cycle]));
+    for (const cycle of data.cycles) {
+      const previousRow = oldRows.get(cycle.id);
+      const old = previousRow && { ...previousRow, artifacts: previousRow.artifacts?.filter(item => item.kind === 'document') };
+      if (Array.isArray(cycle.artifacts)) cycle.artifacts = cycle.artifacts.filter(item => item.kind === 'document');
+      for (const [kind, fields] of [['usage', ['usage', 'costUsd', 'costStatus']], ['report', ['workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt']], ['checks', ['checks', 'latestCheck', 'checkStatus']], ['documents', ['artifacts']], ['events', ['events', 'eventStatus', 'eventsHealth']]]) {
+        const metadata = cycle.partitions?.[kind] || data.partitions?.[kind];
+        if (metadata?.errorCode === 'NOT_REQUESTED') {
+          if (old?.activeAttemptId === cycle.activeAttemptId) {
+            for (const field of fields) cycle[field] = old[field];
+            cycle.partitions = { ...cycle.partitions, [kind]: { ...(old.partitions?.[kind] || metadata), freshness: 'unknown' } };
+          }
+          continue;
+        }
+        if (metadata?.status === 'unavailable') {
+          const cached = old?.activeAttemptId === cycle.activeAttemptId ? old : null;
+          const value = Object.fromEntries(fields.map(key => [key, cycle[key]]));
+          const accepted = projection.component(`${kind}:${cycle.id}:${cycle.activeAttemptId || ''}`, value, metadata, data);
+          for (const field of fields) cycle[field] = cached?.[field];
+          if (!accepted && Number.isSafeInteger(metadata.revision) && cached?.partitions?.[kind]?.revision > metadata.revision) {
+            cycle.partitions = { ...cycle.partitions, [kind]: cached.partitions[kind] };
+            continue;
+          }
+          cycle.partitions = { ...cycle.partitions, [kind]: { ...metadata,
+            asOf: cached?.partitions?.[kind]?.asOf || metadata.asOf, freshness: cached ? 'stale' : 'unknown' } };
+          continue;
+        }
+        const value = Object.fromEntries(fields.map(key => [key, cycle[key]]));
+        if (projection.component(`${kind}:${cycle.id}:${cycle.activeAttemptId || ''}`, value, metadata, data)) continue;
+        for (const field of fields) cycle[field] = old?.activeAttemptId === cycle.activeAttemptId ? old?.[field] : undefined;
+        cycle.partitions = { ...cycle.partitions, [kind]: { ...(cycle.partitions?.[kind] || data.partitions?.[kind]), status: 'unavailable', freshness: 'stale', errorCode: 'REVISION_CONFLICT' } };
+      }
+      if (cycle.detailStatus === 'limited' && old?.detailStatus === 'recorded' && old.activeAttemptId === cycle.activeAttemptId
+        && !cycle.active && cycle.status === old.status && cycle.protocolState === old.protocolState) cycle.detailStatus = 'recorded';
     }
+  }
+  function retainHistoricalCycles(data, previous) {
+    const ids = new Set(data.cycles.map(cycle => cycle.id));
+    for (const cycle of previous.cycles) {
+      if (ids.has(cycle.id)) continue;
+      const usage = cycle.partitions?.usage;
+      data.cycles.push({ ...cycle, partitions: { ...cycle.partitions, usage: { ...usage,
+        freshness: usage?.freshness === 'unknown' || !usage ? 'unknown' : 'stale' } } });
+    }
+  }
+  function usageRowFresh(cycle) {
+    const metadata = cycle.partitions?.usage;
+    return state.data?.projectionVersion !== 2 || metadata?.freshness === 'fresh'
+      && !['unavailable', 'invalid'].includes(metadata.status);
   }
   async function fetchScopedText(value, timeout = 15000) {
     const url = safeScopedResource(value);
@@ -221,7 +330,10 @@ window.DashboardNavigation.register('journal', (view) => {
     const request = view.request(controller, {}); const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        let failure; try { failure = await response.json(); } catch (_) {}
+        throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status, code: failure?.code });
+      }
       const text = await response.text();
       if (!request.valid()) throw new DOMException('Inactive view', 'AbortError');
       return text;
@@ -230,7 +342,10 @@ window.DashboardNavigation.register('journal', (view) => {
   function formatTime(value) { return fullTime(value); }
   function fullTime(value) { return window.DashboardDate.format(value, state.language) || message('unknownTime'); }
   function describeTimes(root = document) {
-    root.querySelectorAll('time[datetime]').forEach(node => { node.title = fullTime(node.dateTime); node.setAttribute('aria-label', node.title); });
+    root.querySelectorAll('time[datetime]').forEach(node => {
+      node.title = node.dataset.timeKind === 'confirmation' ? message('confirmedTime', { time: fullTime(node.dateTime) }) : fullTime(node.dateTime);
+      node.setAttribute('aria-label', node.title);
+    });
   }
   function saveJournalView() {
     try { sessionStorage.setItem(`journal:view:${scope.entryId || new URL(view.url).pathname}`, JSON.stringify({ expanded: [...state.expanded], tab: state.tab, selectedLog: state.selectedLog, scroll: window.scrollY })); } catch (_) {}
@@ -256,6 +371,7 @@ window.DashboardNavigation.register('journal', (view) => {
   function number(value) { return knownNumber(value) ? new Intl.NumberFormat(state.language).format(value) : '—'; }
   function compactNumber(value) { return knownNumber(value) ? new Intl.NumberFormat(state.language, { notation: 'compact', maximumFractionDigits: 1 }).format(value) : message('unknown'); }
   function duration(cycle) {
+    if (cycle.harnessVersion === 2) return '';
     if (cycle.durationReliable === false || cycle.status === 'interrupted') return '';
     const seconds = Math.round((Date.parse(cycle.endedAt) - Date.parse(cycle.startedAt)) / 1000);
     if (!Number.isFinite(seconds) || seconds < 0) return '';
@@ -264,6 +380,18 @@ window.DashboardNavigation.register('journal', (view) => {
   function liveDuration(cycle, now = performance.now()) {
     const runtime = state.data?.runtime;
     const age = now - state.receivedAt;
+    if (cycle.harnessVersion === 2) {
+      if (cycle.executionUnconfirmed) return message('elapsedUnconfirmed');
+      const timing = cycle.time || {};
+      if (timing.reliability !== 'reliable' || !knownNumber(timing.executionSeconds)) return message('durationUnknown');
+      const running = cycle.active && ['running', 'correcting', 'recovering'].includes(cycle.status) && !state.statusFailed
+        && runtime?.processState === 'running' && runtime.currentCycleId === cycle.id && age >= 0 && age <= 15000;
+      const extra = running ? age / 1000 : 0;
+      const seconds = value => number(Math.floor(value));
+      return message('harnessTiming', { execution: seconds(timing.executionSeconds + (cycle.status === 'recovering' ? 0 : extra)),
+        recovery: knownNumber(timing.recoverySeconds) ? seconds(timing.recoverySeconds + (cycle.status === 'recovering' ? extra : 0)) : '—',
+        total: knownNumber(timing.totalSeconds) ? seconds(timing.totalSeconds + extra) : '—' }) + (cycle.active && !running ? ` · ${message('elapsedUnconfirmed')}` : '');
+    }
     if (!cycle.active || cycle.status !== 'running' || state.statusFailed || runtime?.processState !== 'running' || (runtime?.currentCycleId && runtime.currentCycleId !== cycle.id) || runtime?.elapsedReliable !== true || !knownNumber(runtime.elapsedSeconds) || !Number.isFinite(age) || age < 0 || age > 15000) return message('elapsedUnconfirmed');
     const seconds = Math.floor(runtime.elapsedSeconds + age / 1000);
     return message('runningElapsed', { time: seconds < 60 ? message('seconds', { seconds }) : message('minutes', { minutes: Math.floor(seconds / 60), seconds: seconds % 60 }) });
@@ -271,9 +399,11 @@ window.DashboardNavigation.register('journal', (view) => {
   function updateElapsed() {
     document.querySelectorAll('.live-elapsed').forEach((node) => { if (node.dataset.cycleId === state.currentCycle?.id) node.textContent = liveDuration(state.currentCycle); });
     renderCenterLiveState();
+    document.querySelectorAll('.screenshot-retry').forEach(button => { button.disabled = !mediaControlFresh() || Boolean(state.mediaAction); });
   }
   function cycleTitle(cycle) {
     if (cycle.workReport) return cycle.workReport.title;
+    if (cycle.harnessVersion === 2) return cycle.objective ? message('contractTask', { task: cycle.objective }) : statusLabel(cycle.status);
     if (['not_started', 'startup_unconfirmed'].includes(cycle.status)) return statusLabel(cycle.status);
     if (cycle.status === 'interrupted' && cycle.events?.length) return message('interruptedSummary');
     if (cycle.synthetic && cycle.status !== 'running') return statusLabel(cycle.status);
@@ -290,15 +420,16 @@ window.DashboardNavigation.register('journal', (view) => {
     if (cycle.numbering === 'legacy') row.append(element('span', '', message('legacyCycles')));
     if (cycle.identityKind === 'exploration') row.append(element('span', '', message('explorationCycles')));
     if (cycle.workReport?.phase) row.append(element('span', 'reported-phase', message(`workPhase_${cycle.workReport.phase}`)));
-    if (['failed', 'interrupted', 'unknown', 'completed_with_timeout'].includes(cycle.status)) row.append(element('span', cycle.status === 'failed' ? 'status-failed' : '', statusLabel(cycle.status)));
+    if (cycle.harnessVersion === 2 && cycle.workKind) row.append(element('span', '', message(`workKind_${cycle.workKind}`)));
+    if (['failed', 'interrupted', 'unknown', 'completed_with_timeout', 'correcting', 'validating', 'closing', 'recovering', 'handoff'].includes(cycle.status)) row.append(element('span', cycle.status === 'failed' ? 'status-failed' : '', statusLabel(cycle.status)));
     row.append(element('span', '', message(cycle.reservedAt && !cycle.startedAt ? 'reservedAt' : 'startAt', { time: formatTime(cycle.startedAt || cycle.reservedAt) })));
     const elapsed = duration(cycle);
     if (elapsed) row.append(element('span', '', elapsed));
-    if (cycle.active && cycle.status === 'running') {
+    if (cycle.harnessVersion === 2 || cycle.active && cycle.status === 'running') {
       const live = element('span', 'live-elapsed'); live.dataset.cycleId = cycle.id;
       live.textContent = liveDuration(cycle); row.append(live);
     }
-    if ((!cycle.active && cycle.durationReliable === false) || cycle.status === 'interrupted') { row.title = message('recoveredEnd'); row.append(element('span', '', message('durationUnknown'))); }
+    if (cycle.harnessVersion !== 2 && ((!cycle.active && cycle.durationReliable === false) || cycle.status === 'interrupted')) { row.title = message('recoveredEnd'); row.append(element('span', '', message('durationUnknown'))); }
     return row;
   }
   function bindDisclosure(details, key, defaultOpen = false) {
@@ -327,7 +458,11 @@ window.DashboardNavigation.register('journal', (view) => {
     const cycles = Array.isArray(data?.cycles) ? data.cycles : [];
     return { main: cycles.filter((cycle) => cycle.id !== current?.id) };
   }
-  function logCycles() { return state.data?.cycles || []; }
+  function logCycles() {
+    return (state.data?.cycles || []).flatMap(cycle => cycle.harnessVersion === 2
+      ? (cycle.attempts || []).filter(attempt => safeScopedResource(attempt.logUrl)).map((attempt, index) => ({ ...cycle, id: attempt.attemptId, cycleId: cycle.id, attemptNumber: index + 1, logUrl: attempt.logUrl, logAvailable: true, startedAt: attempt.startedAt || cycle.startedAt, status: attempt.status || cycle.status }))
+      : [cycle]);
+  }
   function logButton(cycle) {
     if (cycle.synthetic) {
       const button = element('button', 'text-button cycle-log-link', message('viewRuntimeLog'));
@@ -335,13 +470,14 @@ window.DashboardNavigation.register('journal', (view) => {
       button.addEventListener('click', () => { state.selectedLog = 'runtime'; $('logSelect').value = 'runtime'; selectTab('logs', true); loadLog(); });
       return button;
     }
-    if (!cycle.logAvailable) return element('p', 'sidebar-note cycle-log-link', message('noLog'));
+    const selectedAttempt = cycle.harnessVersion === 2 ? [...(cycle.attempts || [])].reverse().find(attempt => safeScopedResource(attempt.logUrl)) : null;
+    if (!cycle.logAvailable && !selectedAttempt) return element('p', 'sidebar-note cycle-log-link', message('noLog'));
     const button = element('button', 'text-button cycle-log-link', message('viewLog'));
     button.type = 'button';
     button.dataset.focusKey = `log:${cycle.id}`;
     button.addEventListener('click', () => {
-      state.selectedLog = cycle.id;
-      $('logSelect').value = cycle.id;
+      state.selectedLog = selectedAttempt?.attemptId || cycle.id;
+      $('logSelect').value = state.selectedLog;
       selectTab('logs', true);
       loadLog();
     });
@@ -376,7 +512,8 @@ window.DashboardNavigation.register('journal', (view) => {
   function progressState(status) {
     if (['read_only', 'archived', 'canceled'].includes(status)) return window.DashboardStatus.visual(status);
     if (status === 'completed') return 'completed';
-    if (status === 'running') return 'running';
+    if (['running', 'correcting', 'validating', 'closing', 'recovering'].includes(status)) return 'running';
+    if (status === 'handoff') return 'paused';
     if (['attention', 'blocked', 'waiting_limit', 'circuit_break'].includes(status)) return 'attention';
     if (['paused', 'interrupted', 'completed_with_timeout', 'stopped', 'ended', 'canceled'].includes(status)) return 'paused';
     if (status === 'failed') return 'failed';
@@ -393,14 +530,21 @@ window.DashboardNavigation.register('journal', (view) => {
     return node;
   }
   function checkPresentation(cycle) {
+    const health = cycle.partitions?.checks || state.data?.partitions?.checks;
+    if (['unavailable', 'invalid'].includes(health?.status)) return { status: 'unknown', detail: message('checksUnavailable') };
+    const incomplete = health?.status === 'partial' || health?.truncated || health?.gaps?.length;
+    const present = (status, detail) => ({ status: incomplete && status !== 'failed' ? 'unknown' : status,
+      detail: [detail, incomplete ? message('checksIncomplete') : ''].filter(Boolean).join(' · ') });
+    if (health?.freshness === 'stale') return present('unknown', message('check_stale'));
     const check = cycle.latestCheck;
-    if (!check) return { status: 'unknown', detail: message(cycle.checkStatus === 'invalid' ? 'check_invalid' : 'noRegisteredCheck') };
+    if (!check && incomplete) return present('unknown', '');
+    if (!check) return ['invalid', 'stale'].includes(cycle.checkStatus) ? present('unknown', message(`check_${cycle.checkStatus}`)) : null;
     const stale = cycle.checkStatus === 'stale' || check.freshness === 'stale' || ['changed', 'missing', 'stale'].includes(check.evidenceStatus);
-    if (stale) return { status: 'unknown', detail: message('check_stale') };
+    if (stale) return present('unknown', message('check_stale'));
     const status = cycle.checkStatus || check.state;
-    if (status === 'running') return { status, detail: message('check_running') };
-    if (status === 'interrupted') return { status, detail: message('check_interrupted') };
-    if (status === 'invalid') return { status: 'unknown', detail: message('check_invalid') };
+    if (status === 'running') return present(status, message('check_running'));
+    if (status === 'interrupted') return present(status, message('check_interrupted'));
+    if (status === 'invalid') return present('unknown', message('check_invalid'));
     const counts = checkCounts(check.tests);
     const valid = Number.isInteger(counts.passed);
     const failed = check.exitCode > 0 || counts.failures > 0 || counts.errors > 0;
@@ -415,7 +559,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (result === 'failed' && !(counts.failures > 0 || counts.errors > 0)) parts.push(message('checkFailedRun'));
     if (!valid) parts.push(message('checkCountsUnknown'));
     else if (!completed || result === 'unknown') parts.push(message('checkUnconfirmed'));
-    return { status: result, detail: parts.join(' · ') };
+    return present(result, parts.join(' · '));
   }
   function cycleRecords(cycle) {
     const section = element('section', 'cycle-records');
@@ -426,13 +570,13 @@ window.DashboardNavigation.register('journal', (view) => {
     const rows = [];
     const check = cycle.latestCheck;
     const presentation = checkPresentation(cycle);
-    rows.push({ kind: 'check', title: message('checkSummary'), status: presentation.status, detail: presentation.detail,
+    if (presentation) rows.push({ kind: 'check', title: message('checkSummary'), status: presentation.status, detail: presentation.detail,
       time: check?.endedAt || check?.recordedAt || check?.startedAt,
       url: check?.available === true ? safeScopedResource(check.url) : null });
     for (const earlier of cycle.checks || []) {
       const identity = item => item?.id || item?.url || item?.path;
       if (earlier === check || (identity(earlier) && identity(earlier) === identity(check))) continue;
-      const previous = checkPresentation({ latestCheck: earlier, checkStatus: earlier.evidenceStatus });
+      const previous = checkPresentation({ latestCheck: earlier, checkStatus: earlier.evidenceStatus, partitions: cycle.partitions });
       rows.push({ kind: 'check-history', title: message('earlierCheck'), status: previous.status, detail: previous.detail,
         time: earlier.endedAt || earlier.recordedAt || earlier.startedAt,
         url: earlier.available === true ? safeScopedResource(earlier.url) : null });
@@ -443,6 +587,13 @@ window.DashboardNavigation.register('journal', (view) => {
         detail: artifact.displayLabel || String(artifact.path || artifact.label || '').split(/[\\/]/).pop(),
         url: artifact.available === true ? safeScopedResource(artifact.url) : null });
     }
+    for (const quality of cycle.qualityApplicability || []) rows.push({ kind: 'quality', title: message('qualityReview'),
+      detail: `${message(`quality_${quality.verdict}`)} · ${(quality.workKinds || []).map(kind => message(`workKind_${kind}`)).join(' / ')}`,
+      time: quality.recordedAt || quality.reviewedAt || quality.confirmedAt,
+      confirmationTime: !quality.recordedAt && !quality.reviewedAt && Boolean(quality.confirmedAt), url: safeScopedResource(quality.evidenceRef?.url) });
+    for (const ref of cycle.evidenceRefs || []) if (safeScopedResource(ref.url)) rows.push({ kind: 'document',
+      title: message('documentRecorded'), detail: ref.label || ref.path?.split(/[\\/]/).pop() || message('cycleEvidence'),
+      time: ref.recordedAt || ref.confirmedAt, confirmationTime: !ref.recordedAt && Boolean(ref.confirmedAt), url: safeScopedResource(ref.url) });
     if (cycle.workReport && cycle.workReportStatus === 'valid') rows.push({ kind: 'report', time: cycle.workReport.recorded_at, title: message('workRecorded') });
     // Missing timestamps remain unknown, rather than borrowing a cycle or consensus time.
     rows.sort((a, b) => (Date.parse(a.time) || Infinity) - (Date.parse(b.time) || Infinity));
@@ -451,7 +602,7 @@ window.DashboardNavigation.register('journal', (view) => {
       const row = element(record.kind === 'check' ? 'div' : 'li', `record-row record-${record.kind}`);
       if (record.status) row.dataset.status = record.status;
       const time = element('time', '', record.time ? formatTime(record.time, localDatePart(record.time) !== localDatePart(cycle.startedAt || cycle.reservedAt)) : '—');
-      if (record.time) { time.dateTime = record.time; time.title = formatTime(record.time, true); }
+      if (record.time) { time.dateTime = record.time; if (record.confirmationTime) time.dataset.timeKind = 'confirmation'; }
       const body = element('div', 'record-body');
       const title = element('div', 'record-title', record.title);
       if (record.status) title.append(progressIcon(record.status, record.detail, true));
@@ -465,7 +616,7 @@ window.DashboardNavigation.register('journal', (view) => {
           if (record.kind === 'document') {
             link.append(icon('file-text'), element('span', '', record.detail));
             link.setAttribute('aria-label', record.detail); link.title = record.detail;
-          } else link.append(message('checkReport'));
+          } else link.append(message(record.kind === 'quality' ? 'reviewEvidence' : 'checkReport'));
           const arrow = icon('external-link');
           if (record.kind === 'document') arrow.classList.add('artifact-arrow');
           link.append(arrow); detail.append(link);
@@ -488,7 +639,7 @@ window.DashboardNavigation.register('journal', (view) => {
       return section;
     }
     if (work.blocker) section.append(element('p', 'work-blocker', `${message('workBlocker')}：${work.blocker}`));
-    if (!cycle.active && !work.final) section.append(element('p', 'sidebar-note', message('unfinishedWorkReport')));
+    if (cycle.harnessVersion !== 2 && !cycle.active && !work.final) section.append(element('p', 'sidebar-note', message('unfinishedWorkReport')));
     return section;
   }
   const cycleNodes = new Map();
@@ -512,16 +663,20 @@ window.DashboardNavigation.register('journal', (view) => {
       time.dateTime = timestamp;
       heading.append(time);
     }
-    const liveReport = cycle.active ? [...(cycle.events || [])].reverse().find((event) => event.kind === 'report') : null;
+    const liveReport = cycle.active && cycle.harnessVersion !== 2 ? [...(cycle.events || [])].reverse().find((event) => event.kind === 'report') : null;
     let intro = cycle.workReport?.summary || clean(cycle.summary || liveReport?.text || '');
     if (/^[\[{]/.test(intro)) intro = cycleTitle(cycle);
     if (!intro) intro = message(cycle.active ? 'runningNoReport' : 'noReport');
     report.append(heading, element('p', 'report-intro', intro));
+    if (cycle.executionIssue) report.append(element('p', 'sidebar-note status-failed', message(
+      cycle.executionIssue.code === 'COLLECTION_UNCONFIRMED' ? 'cycleCollectionFailed' : 'cycleValidationFailed')));
+    const reportHealth = cycle.partitions?.report || state.data?.partitions?.report;
+    if (reportHealth?.freshness === 'stale' || ['unavailable', 'invalid'].includes(reportHealth?.status)) report.append(element('p', 'sidebar-note', message('partitionStale')));
     const workDetails = workReportDetails(cycle);
     if (workDetails) report.append(workDetails);
     const surface = element('div', 'cycle-report-surface');
     surface.append(report, cycleRecords(cycle));
-    const rows = cycle.workReport ? [] : reportRows(cycle);
+    const rows = cycle.workReport || cycle.harnessVersion === 2 ? [] : reportRows(cycle);
     if (rows.length) {
       const results = element('section', 'results-section');
       const resultHeading = element('div', 'section-heading-row');
@@ -540,6 +695,21 @@ window.DashboardNavigation.register('journal', (view) => {
     const signature = JSON.stringify([cycle, current, state.language, state.detailErrors?.has(cycle.id)]);
     const cached = cycleNodes.get(cycle.id);
     if (cached?.signature === signature) return cached.row;
+    if (cached && cached.current === current && cached.language === state.language && cached.status === cycle.status && cached.row.isConnected && cached.content?.isConnected) {
+      const nextTitle = cycleTitle(cycle);
+      const liveTitle = cached.row.querySelector('.history-title-text');
+      if (liveTitle) { liveTitle.textContent = nextTitle; liveTitle.title = nextTitle; }
+      const bodyNodes = [metadata(cycle), reportSurface(cycle, current)];
+      if (state.detailErrors?.has(cycle.id)) {
+        const error = element('p', 'status-failed', message('detailReadFailed'));
+        const retry = element('button', 'text-button', message('retryRead')); retry.type = 'button'; retry.dataset.focusKey = `detail-retry:${cycle.id}`;
+        retry.addEventListener('click', () => loadCycleDetail(cycle.id, true));
+        error.append(retry); bodyNodes.push(error);
+      }
+      cached.content.replaceChildren(...bodyNodes);
+      cached.signature = signature;
+      return cached.row;
+    }
     const row = bindDisclosure(element('details', `history-row cycle-row${current ? ' current-cycle' : ''}`), `cycle:${cycle.id}`, current);
     if (current) { row.setAttribute('aria-current', 'step'); row.setAttribute('aria-labelledby', 'cycleTitle'); }
     row.dataset.cycleId = cycle.id;
@@ -574,40 +744,61 @@ window.DashboardNavigation.register('journal', (view) => {
     if (state.detailErrors?.has(cycle.id)) {
       const error = element('p', 'status-failed', message('detailReadFailed'));
       const retry = element('button', 'text-button', message('retryRead')); retry.type = 'button'; retry.dataset.focusKey = `detail-retry:${cycle.id}`;
-      retry.addEventListener('click', () => loadCycleDetail(cycle.id));
+      retry.addEventListener('click', () => loadCycleDetail(cycle.id, true));
       error.append(retry); content.append(error);
     }
     row.append(summary, content);
-    cycleNodes.set(cycle.id, { signature, row });
-    if (cycle.detailStatus === 'limited') row.addEventListener('toggle', () => { if (row.open) loadCycleDetail(cycle.id); });
+    cycleNodes.set(cycle.id, { signature, row, content, titleText, current, language: state.language, status: cycle.status });
+    let observedOpen = row.open;
+    row.addEventListener('toggle', () => {
+      const opening = row.open && !observedOpen; observedOpen = row.open;
+      if (opening && (cycle.detailStatus === 'limited' || state.data?.projectionVersion === 2 && performance.now() - (state.detailReadAt.get(cycle.id) ?? -Infinity) > 15000)) loadCycleDetail(cycle.id, true);
+    });
     return row;
   }
-  async function loadCycleDetail(cycleId) {
+  async function loadCycleDetail(cycleId, force = false) {
     if (!state.data || state.detailLoads.has(cycleId)) return;
     const expected = { token: state.detailToken, entryId: state.data.entryId, sourceId: state.data.sourceId, sourceRevision: state.data.sourceRevision };
+    const data = state.data, ticket = projection.ticket();
     const collection = state.data.cycles;
-    const index = collection.findIndex((cycle) => cycle.id === cycleId && cycle.detailStatus === 'limited');
+    const index = collection.findIndex((cycle) => cycle.id === cycleId && (force || cycle.detailStatus === 'limited'));
     if (!collection || index < 0) return;
     const limited = collection[index];
     const promise = (async () => {
       try {
-        const detail = await fetchCenter(`${scopedJournalPath(`/records/${encodeURIComponent(cycleId)}`)}?sourceId=${encodeURIComponent(expected.sourceId)}`);
+        const detail = await fetchCenter(`${scopedJournalPath(`/records/${encodeURIComponent(cycleId)}`)}?sourceId=${encodeURIComponent(expected.sourceId)}${projectionQuery(data)}`);
+        if (data.projectionVersion === 2) {
+          if (!projection.matches(detail) || ticket.generation !== projection.generation || detail.id !== cycleId || detail.detailStatus !== 'recorded') return;
+          const current = state.data.cycles.find(cycle => cycle.id === cycleId);
+          if (!current || current.activeAttemptId !== detail.activeAttemptId) return;
+          const result = { ...detail, cycles: [detail] }; installCycleComponents(result, { cycles: [current] });
+          const fields = ['usage', 'costUsd', 'costStatus', 'workReport', 'workReportStatus', 'harnessReport', 'report', 'summary', 'reportObservedAt', 'artifacts', 'checks', 'latestCheck', 'checkStatus', 'events', 'eventStatus', 'eventsHealth'];
+          Object.assign(current, Object.fromEntries(fields.map(key => [key, detail[key]])), { detailStatus: 'recorded', partitions: detail.partitions });
+          state.detailReadAt.set(cycleId, performance.now());
+          state.detailErrors?.delete(cycleId); render(); return;
+        }
         if (expected.token !== state.detailToken || state.data?.entryId !== expected.entryId || state.data?.sourceId !== expected.sourceId || state.data?.sourceRevision !== expected.sourceRevision || detail?.entryId !== expected.entryId || detail?.sourceId !== expected.sourceId || detail?.sourceRevision !== expected.sourceRevision || detail?.id !== cycleId || detail.detailStatus !== 'recorded') return;
         const currentIndex = collection.findIndex((cycle) => cycle.id === cycleId && cycle.detailStatus === 'limited');
         if (currentIndex < 0) return;
         collection[currentIndex] = { ...limited, ...detail };
         state.detailErrors?.delete(cycleId);
         renderHistory();
-      } catch (_) {
-        if (expected.token === state.detailToken && state.data?.sourceRevision === expected.sourceRevision) {
+      } catch (error) {
+        if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
+        if (data.projectionVersion === 2 ? ticket.generation === projection.generation : expected.token === state.detailToken && state.data?.sourceRevision === expected.sourceRevision) {
           if (!state.detailErrors) state.detailErrors = new Set();
           state.detailErrors.add(cycleId); renderHistory();
         }
       }
-      finally { state.detailLoads.delete(cycleId); }
+      finally { if (state.detailLoads.get(cycleId) === promise) state.detailLoads.delete(cycleId); }
     })();
     state.detailLoads.set(cycleId, promise);
     return promise;
+  }
+  function readExpandedDetails(force = false) {
+    if (state.data?.projectionVersion !== 2) return;
+    for (const cycle of state.data.cycles) if ((cycle.id === state.currentCycle?.id || state.expanded.has(`cycle:${cycle.id}`))
+      && (force || cycle.detailStatus === 'limited')) loadCycleDetail(cycle.id, force);
   }
   function renderHistory() {
     const focus = rememberFocus();
@@ -627,14 +818,41 @@ window.DashboardNavigation.register('journal', (view) => {
       nodes.push(cycleRow(cycle));
     }
     UI.reconcile(history, nodes);
+    if (state.data.projectionVersion === 2 && (state.historyCursor || state.historyError)) {
+      const more = element('button', 'text-button history-more', message(state.historyError ? 'historyReadFailed' : state.historyPending ? 'loadingHistory' : 'loadHistory'));
+      more.type = 'button'; more.disabled = Boolean(state.historyPending); more.dataset.focusKey = 'history-more';
+      more.addEventListener('click', loadHistory); history.append(more);
+    }
     const retained = new Set([state.currentCycle?.id, ...visible.map(cycle => cycle.id)]);
     for (const key of cycleNodes.keys()) if (!retained.has(key)) cycleNodes.delete(key);
     UI.layout(history, '.cycle-row', positions);
-    document.querySelector('.history-section').hidden = !older.length;
+    document.querySelector('.history-section').hidden = !older.length && !state.historyCursor && !state.historyError;
     document.querySelector('.journal-layout').classList.toggle('no-history', !older.length);
     describeTimes(history);
     UI?.mountControls();
     restoreFocus(focus);
+  }
+  async function loadHistory() {
+    if (state.historyPending || (!state.historyCursor && !state.historyReload) || state.data?.projectionVersion !== 2) return;
+    const data = state.data, cursor = state.historyCursor, ticket = projection.ticket();
+    const promise = (async () => { try {
+      const page = await fetchCenter(`${scopedJournalPath('/journal')}?limit=20${cursor ? `&before=${encodeURIComponent(cursor)}` : ''}&sourceId=${encodeURIComponent(data.sourceId)}${projectionQuery(data)}`, {}, 15000);
+      if (!projection.matches(page) || ticket.generation !== projection.generation || !Array.isArray(page.cycles)) return;
+      if (!projection.component(`history:${cursor}`, page.cycles.map(cycle => [cycle.id, cycle.status, cycle.activeAttemptId]), page.partitions?.history, page, ticket)) throw new Error('Stale history partition');
+      installCycleComponents(page, state.data);
+      const known = new Set(state.data.cycles.map(cycle => cycle.id));
+      for (const cycle of page.cycles) if (!known.has(cycle.id)) { state.data.cycles.push(cycle); known.add(cycle.id); }
+      state.historyCursor = page.nextBefore || null; state.historyError = false; state.historyReload = false;
+      renderHistory(); renderLogOptions(); renderUsage(); readExpandedDetails();
+    } catch (error) {
+      if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
+      if (ticket.generation === projection.generation) {
+        state.historyError = true;
+        if (error.code === 'CURSOR_EXPIRED') { state.historyCursor = null; state.historyReload = true; }
+        renderHistory();
+      }
+    } finally { if (state.historyPending === promise) { state.historyPending = null; if (view.active && state.data) renderHistory(); } } })();
+    state.historyPending = promise; renderHistory(); return promise;
   }
   function aggregate(cycles) {
     const result = { inputTokens: null, outputTokens: null, totalTokens: null, known: 0, count: cycles.length, partial: false };
@@ -661,6 +879,15 @@ window.DashboardNavigation.register('journal', (view) => {
       groups.get(key).cycles.push(cycle);
     }
     return [...groups.values()];
+  }
+  function usageGroupLabel(group) {
+    const known = value => value && !['unknown', 'config-default', 'unavailable'].includes(value);
+    const labels = [group.engine, group.model].filter(known);
+    if (!known(group.engine) || !known(group.model)) {
+      labels.push(knownNumber(group.sequenceNumber) ? `${message('cycle')} ${String(group.sequenceNumber).padStart(2, '0')}` : message('usageIdentityUnknown'));
+      if (group.attemptNumber && !String(group.attemptId).startsWith('legacy:')) labels.push(message('attemptNumber', { number: group.attemptNumber }));
+    }
+    return labels.join(' · ');
   }
   function icon(name) { return window.DashboardIcons.icon(name); }
   function iconLabel(node, name, text) {
@@ -724,6 +951,14 @@ window.DashboardNavigation.register('journal', (view) => {
     const summary = clear($('diagnosticSummary'));
     if (state.statusFailed && data) summary.append(element('p', 'fine-print', message('diagnosticsStale')));
     summary.append(runtimeRows(entries));
+    if (data?.projectionVersion === 2) {
+      const current = state.currentCycle;
+      summary.append(runtimeRows([['Harness', `${data.projectionEpoch} / ${data.snapshotRevision ?? '—'}`],
+        ['Cycle / attempt', `${current?.id || '—'} / ${current?.activeAttemptId || '—'}`],
+        ['Protocol / outcome', `${current?.protocolState || 'legacy'} / ${current?.outcome || '—'}`],
+        ['Continuation', JSON.stringify(current?.continuationDecision || null)],
+        ['Partitions', JSON.stringify(data.partitions || {})]]));
+    }
     if (data?.budgetPause) summary.append(element('p', 'fine-print', `${message('budgetPause')}: ${JSON.stringify(data.budgetPause)}`));
     $('rawText').textContent = status.raw || runtime.error || message('noDiagnostics');
     if (state.statusFailed && status.raw) $('rawText').textContent = `${message('diagnosticsStale')}\n\n${status.raw}`;
@@ -744,7 +979,7 @@ window.DashboardNavigation.register('journal', (view) => {
   }
   function mediaURL(value) { return safeScopedResource(value); }
   async function retryProductMedia(productId) {
-    if (readOnly() || state.mediaAction || productId !== state.data?.productMedia?.productId) return;
+    if (readOnly() || !mediaControlFresh() || state.mediaAction || productId !== state.data?.productMedia?.productId) return;
     const previousCapture = state.data?.productMedia?.screenshot;
     const previousSuccess = previousCapture?.latestSuccess?.capturedAt || null;
     state.mediaAction = true; state.mediaError = null;
@@ -786,6 +1021,10 @@ window.DashboardNavigation.register('journal', (view) => {
   }
   function publishedRefinement(media) {
     return readOnly() && media?.publishedRefinement?.language === state.language ? media.publishedRefinement : null;
+  }
+  function mediaControlFresh() {
+    return !state.statusFailed && !state.controlFailed && performance.now() - state.receivedAt <= 15000
+      && performance.now() - (state.controlReceivedAt || 0) <= 15000 && ['stopped', 'inactive'].includes(state.data?.runtime?.processState);
   }
   function renderProductMedia(media) {
     if (!media?.productId) return null;
@@ -843,7 +1082,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (!readOnly()) {
       const retry = element('button', 'text-button screenshot-retry', message(state.mediaAction ? 'screenshotCapturing' : 'retryScreenshot'));
       retry.id = 'retryScreenshot';
-      retry.disabled = Boolean(state.mediaAction || state.statusFailed || !['stopped', 'inactive'].includes(state.data?.runtime?.processState));
+      retry.disabled = Boolean(state.mediaAction || !mediaControlFresh());
       retry.title = message('retryScreenshotHint');
       retry.addEventListener('click', () => retryProductMedia(media.productId));
       diagnostics.append(retry);
@@ -862,7 +1101,7 @@ window.DashboardNavigation.register('journal', (view) => {
     const sidebar = clear($('projectSidebar'));
     const data = state.data;
     const overview = element('section', 'sidebar-block project-overview');
-    const projectName = data.project?.displayName?.trim() || data.project?.name?.trim() || data.entry?.displayName?.trim() || message('untitledProject');
+    const projectName = data.entry?.customDisplayName?.trim() || data.project?.displayName?.trim() || data.project?.name?.trim() || data.entry?.displayName?.trim() || message('untitledProject');
     $('workspaceProjectName').textContent = projectName;
     $('workspaceProjectName').title = projectName;
     const name = element('h1', '', projectName); name.id = 'projectName';
@@ -920,14 +1159,16 @@ window.DashboardNavigation.register('journal', (view) => {
     runtime.append(element('h2', '', message('runtime')));
     const recordedGroups = usageGroups(data.cycles.filter((cycle) => !cycle.active));
     const sum = aggregate(recordedGroups.length === 1 ? recordedGroups[0].cycles : []);
-    const usage = recordedGroups.length > 1 ? message('usageSeparated') : `${compactNumber(sum.totalTokens)}${knownNumber(sum.totalTokens) ? ' tokens' : ''}${sum.partial && sum.known ? message('usagePartialShort') : ''}`;
+    const allUsage = state.scopedUsage?.key === usageKey({ period: 'all', date: '' }) ? state.scopedUsage : null;
+    const usage = data.projectionVersion === 2 ? allUsage?.data ? (allUsage.data.groups?.length > 1 ? message('usageSeparated') : `${compactNumber(allUsage.data.usage?.totalTokens)} tokens${allUsage.stale ? ` · ${message('partitionStale')}` : ''}`) : message('unknown')
+      : recordedGroups.length > 1 ? message('usageSeparated') : `${compactNumber(sum.totalTokens)}${knownNumber(sum.totalTokens) ? ' tokens' : ''}${sum.partial && sum.known ? message('usagePartialShort') : ''}`;
     const recordedCycle = data.cycles.find((cycle) => cycle.belongsToCurrentProject !== false);
     const config = {
-      engine: recordedCycle?.engine || 'unknown',
-      model: recordedCycle?.observedConfig?.model || recordedCycle?.model || 'unknown',
-      reasoning: recordedCycle?.observedConfig?.reasoning || 'unknown',
+      engine: recordedCycle?.engine || data.runtime?.engine || 'unknown',
+      model: recordedCycle?.observedConfig?.model || recordedCycle?.model || data.runtime?.model || 'unknown',
+      reasoning: recordedCycle?.observedConfig?.reasoning || data.runtime?.reasoning || 'unknown',
     };
-    const productLanguage = data.languageState?.productLanguageStatus === 'unknown' ? null : data.languageState?.productLanguage;
+    const productLanguage = data.languageState?.productLanguageStatus === 'unknown' ? null : (data.languageState?.productLanguage || data.runtime?.language);
     const effort = ['low', 'medium', 'high', 'xhigh'].includes(config.reasoning) ? message(`effort_${config.reasoning}`) : config.reasoning;
     runtime.append(runtimeRows([[message('productCreated'), data.project?.createdAt ? formatTime(data.project.createdAt, true) : message('unknown')], [message('lastRun'), latest?.startedAt ? formatTime(latest.startedAt, true) : message('unknown')], [message('state'), runtimeLabel()], [message('slotOccupied'), concurrencyLabel()]]));
     runtime.querySelectorAll('dd')[2].id = 'sidebarRuntimeState';
@@ -942,6 +1183,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (productMedia) {
       overview.append(productMedia);
     }
+    if (data.partitions?.media?.freshness === 'stale' || ['unavailable', 'invalid'].includes(data.partitions?.media?.status)) overview.append(element('p', 'sidebar-note', message('partitionUnavailable')));
     if (artifactDiagnostics.children.length) runtime.append(artifactDiagnostics);
     sidebar.append(overview, artifacts, runtime);
     UI?.mountControls(sidebar);
@@ -949,8 +1191,16 @@ window.DashboardNavigation.register('journal', (view) => {
   function applyLanguage() {
     if (!view.active) return;
     document.documentElement.lang = state.language;
-    document.title = `${state.data?.project?.name || 'Autonomous Company'} · ${message('work')}`;
-    document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = message(node.dataset.i18n); });
+    document.title = `${state.data?.entry?.customDisplayName?.trim() || state.data?.project?.displayName?.trim() || state.data?.project?.name || state.data?.entry?.displayName?.trim() || 'Autonomous Company'} · ${message('work')}`;
+    document.querySelectorAll('[data-i18n]').forEach((node) => {
+      if (node.closest('.ac-tabs-host')) {
+        for (const child of node.childNodes) {
+          if (child.nodeType === 3) { child.textContent = message(node.dataset.i18n); return; }
+        }
+        return;
+      }
+      node.textContent = message(node.dataset.i18n);
+    });
     document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = message(node.dataset.i18nPlaceholder); });
     $('centerContextNav').hidden = false;
     document.body.classList.add('center-journal');
@@ -958,7 +1208,10 @@ window.DashboardNavigation.register('journal', (view) => {
     const brand = document.querySelector('.brand');
     brand.href = '/center';
     $('journalBackLink').href = brand.href;
-    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal']]) iconLabel($(id), name, $(id).textContent);
+    for (const [id, name] of [['tab-work', 'notebook-pen'], ['tab-usage', 'chart-no-axes-column'], ['tab-logs', 'terminal']]) {
+      const node = $(id);
+      if (node && !node.closest('.ac-tabs-host')) iconLabel(node, name, node.textContent);
+    }
     $('refreshButton').replaceChildren(icon('refresh-cw'));
     $('closeSettingsButton').replaceChildren(icon('x'));
     $('refreshButton').title = message('refresh');
@@ -989,20 +1242,28 @@ window.DashboardNavigation.register('journal', (view) => {
     }
   }
   function latestCycle(data) {
+    if (data.projectionVersion === 2) return data.cycles.find(cycle => cycle.id === data.currentCycleId) || data.currentCycle || null;
     const scoped = Boolean(data.project?.id) && Object.hasOwn(data, 'latestProjectCycleId');
     return data.cycles.find((cycle) => cycle.active && (!scoped || cycle.projectStatus === 'current'))
       || (scoped ? data.cycles.find((cycle) => cycle.id === data.latestProjectCycleId && cycle.projectStatus === 'current') : data.cycles[0]);
+  }
+  function presentCycle(cycle, data = state.data) {
+    if (cycle?.harnessVersion === 2 && cycle.activeAttemptId && ['running', 'correcting', 'recovering'].includes(cycle.status)
+      && !(data?.runtime?.active === true && data.runtime.currentCycleId === cycle.id && data.runtime.processState === 'running')) {
+      return { ...cycle, status: 'unknown', active: false, executionUnconfirmed: true };
+    }
+    return cycle;
   }
   function render() {
     if (!view.active) return;
     const focus = rememberFocus();
     const data = state.data;
     applyLanguage();
-    let latest = latestCycle(data);
-    if (!latest?.active && liveProcess() && data.runtime?.state === 'running') latest = { id: '__current__', number: data.runtime?.currentCycleNumber, startedAt: data.runtime?.lastRun, status: 'running', active: true, synthetic: true };
+    let latest = presentCycle(latestCycle(data), data);
+    if (data.projectionVersion !== 2 && !latest?.active && liveProcess() && data.runtime?.state === 'running') latest = { id: '__current__', number: data.runtime?.currentCycleNumber, startedAt: data.runtime?.lastRun, status: 'running', active: true, synthetic: true };
     if (latest?.active && state.statusFailed) latest = { ...latest, active: false, status: 'unknown' };
     state.currentCycle = latest;
-    $('productSwitcherName').textContent = data.project?.name || data.entry?.displayName || message('switchProduct');
+    $('productSwitcherName').textContent = data.entry?.customDisplayName?.trim() || data.project?.name || data.entry?.displayName || message('switchProduct');
     renderCurrent(latest);
     renderHistory();
     renderSidebar();
@@ -1048,25 +1309,32 @@ window.DashboardNavigation.register('journal', (view) => {
     const rows = clear($('usageRows'));
     $('usageSource').textContent = message('lastUpdated', { time: fullTime(state.data.generatedAt) });
     renderBudget(cycles);
-    if (!cycles.length) {
+    const scopedValue = state.scopedUsage?.key === usageKey(usageSelection()) ? state.scopedUsage : null;
+    const scoped = scopedValue?.data;
+    if (state.data.projectionVersion === 2 && !scoped) {
+      summary.append(element('p', 'usage-warning', message(scopedValue?.stale ? 'usageReadFailed' : 'usageLoading')));
+    }
+    if (!cycles.length && (!scoped || !scoped.count)) {
       summary.append(element('p', 'muted', message('noUsage')));
       return;
     }
-    const scoped = state.scopedUsage?.key === usageKey(usageSelection()) ? state.scopedUsage.data : null;
     const total = scoped ? { ...scoped.usage, known: scoped.recorded, count: scoped.recorded + scoped.unknown,
-      partial: Boolean(scoped.unknown || scoped.unknownTime || scoped.truncated || scoped.conflicting || cycles.some((cycle) => cycle.usage?.status === 'partial')) } : aggregate(cycles);
+      partial: Boolean(scoped.unknown || scoped.unknownTime || scoped.truncated || scoped.conflicting || scoped.partitions?.usage?.status === 'partial') }
+      : state.data.projectionVersion === 2 ? { known: 0, count: 0, partial: true } : aggregate(cycles);
     if (!total.known) for (const field of ['inputTokens', 'outputTokens', 'totalTokens']) total[field] = null;
-    const groups = usageGroups(cycles);
+    const groups = state.data.projectionVersion === 2 ? (scoped?.groups || []).map(group => ({ ...group,
+      label: usageGroupLabel(group),
+      total: { ...group.usage, known: group.recorded, count: group.count, partial: group.unknown > 0 || scoped.partitions?.usage?.status === 'partial' } })) : usageGroups(cycles);
     const metric = (label, value) => {
       const item = element('div', 'usage-metric');
       item.append(element('span', 'usage-metric-label', label), element('strong', 'usage-total', number(value)));
       return item;
     };
     for (const group of groups) {
-      const usage = groups.length === 1 ? total : aggregate(group.cycles);
+      const usage = group.total || (groups.length === 1 ? total : aggregate(group.cycles));
       const section = element('section', 'usage-group');
       const header = element('div', 'usage-group-heading');
-      header.append(element('h3', '', group.label), element('span', 'usage-coverage', message('coverageDescription', usage)));
+      header.append(element('h3', '', group.label), element('span', 'usage-coverage', message(state.data.projectionVersion === 2 ? 'executionCoverage' : 'coverageDescription', usage)));
       const metrics = element('div', 'usage-metrics');
       metrics.append(metric(message('total'), usage.totalTokens), metric(message('input'), usage.inputTokens), metric(message('output'), usage.outputTokens));
       section.append(header, metrics); summary.append(section);
@@ -1074,8 +1342,14 @@ window.DashboardNavigation.register('journal', (view) => {
     if (!total.known) summary.append(element('p', 'usage-warning', message('noUsageKnown')));
     else if (total.known < total.count) summary.append(element('p', 'usage-warning', message('partialWarning', { count: total.count - total.known })));
     else if (total.partial) summary.append(element('p', 'usage-warning', message('partial')));
+    if (scopedValue?.stale) summary.append(element('p', 'usage-warning', message('partitionStale')));
+    if (state.data.projectionVersion === 2) {
+      $('usageSource').textContent = scoped?.partitions?.usage?.asOf ? message('lastUpdated', { time: fullTime(scoped.partitions.usage.asOf) }) : message('usageObservationUnknown');
+      if (cycles.length < (state.data.total || 0)) summary.append(element('p', 'sidebar-note', message('loadedUsageRows', { count: cycles.length })));
+    }
     for (const cycle of cycles) {
       const row = element('tr');
+      row.dataset.cycleId = cycle.id;
       row.append(element('td', '', cycle.identityKind === 'exploration' ? message('explorationNumber', { number: paddedCycleNumber(cycle) }) : `${message('cycle')} ${paddedCycleNumber(cycle)}`), element('td', '', formatTime(cycle.startedAt, true)), element('td', '', statusLabel(cycle.status)));
       for (const field of ['inputTokens', 'outputTokens', 'totalTokens']) {
         const cell = element('td', 'numeric', number(cycle.usage?.[field]));
@@ -1083,17 +1357,21 @@ window.DashboardNavigation.register('journal', (view) => {
         row.append(cell);
       }
       const status = knownNumber(cycle.usage?.totalTokens) ? (cycle.usage?.status === 'partial' ? 'partial' : 'reported') : 'unavailable';
-      row.append(element('td', '', message(status)));
+      const health = element('td', '', message(usageRowFresh(cycle) ? status : 'usageRowStale'));
+      if (!usageRowFresh(cycle)) health.title = message('usageRowAsOf', { time: fullTime(cycle.partitions?.usage?.asOf) });
+      row.append(health);
       rows.append(row);
     }
   }
   function renderBudget(cycles) {
     const container = clear($('budgetSummary'));
-    for (const group of usageGroups(cycles)) {
-      const costs = group.cycles.map((cycle) => cycle.costUsd).filter(knownNumber);
+    const scoped = state.scopedUsage?.key === usageKey(usageSelection()) ? state.scopedUsage.data : null;
+    const groups = state.data.projectionVersion === 2 ? (scoped?.groups || []).map(group => ({ ...group, label: usageGroupLabel(group) })) : usageGroups(cycles);
+    for (const group of groups) {
+      const costs = group.cycles ? group.cycles.map((cycle) => cycle.costUsd).filter(knownNumber) : knownNumber(group.costUsd) ? [group.costUsd] : [];
       if (!costs.length) continue;
       const cost = costs.length ? new Intl.NumberFormat(state.language, { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(costs.reduce((sum, value) => sum + value, 0)) : message('unknown');
-      container.append(element('p', '', `${group.label} · ${message('recordedCost', { cost, known: costs.length, count: group.cycles.length })}`));
+      container.append(element('p', '', `${group.label} · ${message('recordedCost', { cost, known: group.costKnown ?? costs.length, count: group.count ?? group.cycles?.length ?? 0 })}`));
     }
     const budget = cycles.find((cycle) => cycle.budget)?.budget || ($('usagePeriod').value === 'all' ? state.data?.recordedBudget : null);
     if (budget && budget.state && !['unknown', 'unavailable', 'disabled'].includes(budget.state)) {
@@ -1123,19 +1401,74 @@ window.DashboardNavigation.register('journal', (view) => {
     }
     for (const cycle of cycles) {
       const label = cycle.identityKind === 'exploration' ? message('explorationNumber', { number: paddedCycleNumber(cycle) }) : `${message('cycle')} ${paddedCycleNumber(cycle)}`;
-      const option = element('option', '', `${label} · ${formatTime(cycle.startedAt, true)} · ${statusLabel(cycle.status)}`);
+      const option = element('option', '', `${label}${cycle.attemptNumber ? ` · ${message('attemptNumber', { number: cycle.attemptNumber })}` : ''} · ${formatTime(cycle.startedAt, true)} · ${statusLabel(cycle.status)}`);
       option.value = cycle.id;
       select.append(option);
     }
     select.value = state.selectedLog;
     select.disabled = false;
     $('refreshLogButton').disabled = !state.selectedLog || Boolean(state.logPending);
+    $('downloadLogButton').disabled = !state.logText;
+    $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime' || Boolean(state.logPending) || Boolean(state.logDownloading);
   }
   function logContextKey() {
     const id = state.selectedLog;
     const cycle = logCycles().find((item) => item.id === id);
-    return JSON.stringify([state.data?.entryId, state.data?.sourceId, state.data?.sourceRevision, id,
+    return JSON.stringify([state.data?.projectionVersion === 2 ? window.DashboardProjection.scopeKey(state.data) : [state.data?.entryId, state.data?.sourceId, state.data?.sourceRevision], state.data?.projectionEpoch, id,
       id === 'runtime' ? state.data?.runtimeLogUrl : cycle?.logUrl]);
+  }
+  function renderLogSearch(direction = 0) {
+    const search = $('logSearch'), node = $('logText');
+    if (!search || !node) return;
+    const query = search.value.toLocaleLowerCase(state.language);
+    const text = state.logText || '', matches = [];
+    if (query) {
+      const lowered = text.toLocaleLowerCase(state.language);
+      for (let index = lowered.indexOf(query); index !== -1; index = lowered.indexOf(query, index + query.length)) matches.push(index);
+    }
+    state.logMatchIndex = matches.length ? ((state.logMatchIndex || 0) + direction + matches.length) % matches.length : 0;
+    const fragment = document.createDocumentFragment(); let start = 0;
+    matches.forEach((index, number) => {
+      fragment.append(document.createTextNode(text.slice(start, index)));
+      fragment.append(element('mark', number === state.logMatchIndex ? 'log-current-match' : '', text.slice(index, index + query.length)));
+      start = index + query.length;
+    });
+    fragment.append(document.createTextNode(text.slice(start)));
+    node.replaceChildren(fragment);
+    $('previousLogMatch').disabled = $('nextLogMatch').disabled = !matches.length;
+    $('logMatchStatus').textContent = query ? message('logMatchCount', { current: matches.length ? state.logMatchIndex + 1 : 0, total: matches.length }) : '';
+    if (direction) node.querySelector('.log-current-match')?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+  function saveLogDownload(parts, name) {
+    const url = URL.createObjectURL(new Blob(parts, { type: 'text/plain;charset=utf-8' }));
+    const link = element('a'); link.href = url; link.download = name; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function downloadFullLog() {
+    if (state.logDownloading || !state.selectedLog || state.selectedLog === 'runtime' || !state.data?.sourceId) return;
+    const key = logContextKey(), identity = state.selectedLog, v2 = state.data?.projectionVersion === 2;
+    state.logDownloading = true; $('downloadFullLogButton').disabled = true;
+    $('logStatus').textContent = message('logDownloading');
+    try {
+      const parts = []; let offset = 0, total = null, revision = null;
+      do {
+        const revisionQuery = revision !== null ? `&revision=${encodeURIComponent(revision)}` : '';
+        const versionQuery = v2 ? projectionQuery(state.data) : '';
+        const path = `${scopedJournalPath(`/logs/${encodeURIComponent(identity)}`)}?sourceId=${encodeURIComponent(state.data.sourceId)}${versionQuery}&offset=${offset}&limit=131072${revisionQuery}`;
+        const chunk = await fetchCenter(path, {}, 15000);
+        if (key !== logContextKey() || !view.active) throw new Error('Log source changed');
+        if (chunk.offset !== offset || !Number.isSafeInteger(chunk.totalBytes) || !Number.isSafeInteger(chunk.nextOffset) || chunk.nextOffset < offset || chunk.nextOffset > chunk.totalBytes || chunk.totalBytes > 256 * 1024 * 1024 || (total !== null && chunk.totalBytes !== total) || typeof chunk.bytesBase64 !== 'string' || typeof chunk.eof !== 'boolean' || (revision !== null && chunk.revision !== revision)) throw new Error('Incomplete or changed log');
+        total = chunk.totalBytes;
+        revision = chunk.revision ?? null;
+        const bytes = Uint8Array.from(atob(chunk.bytesBase64), character => character.charCodeAt(0));
+        if (bytes.length !== chunk.nextOffset - offset || (!chunk.eof && chunk.nextOffset === offset)) throw new Error('Invalid log chunk');
+        parts.push(bytes); offset = chunk.nextOffset;
+        if (chunk.eof) { if (offset !== total) throw new Error('Incomplete log'); break; }
+      } while (offset < total);
+      saveLogDownload(parts, `${identity}-full-raw.log`);
+      $('logStatus').textContent = message('logDownloadComplete', { count: total });
+    } catch (_) { if (view.active) $('logStatus').textContent = message('logDownloadFailed'); }
+    finally { state.logDownloading = false; if (view.active) $('downloadFullLogButton').disabled = state.selectedLog === 'runtime' || !state.selectedLog; }
   }
   function readableLog(value, cycle = null) {
     const lines = cycle && (knownNumber(cycle.sequenceNumber) || knownNumber(cycle.number)) ? [`${message('cycle')} #${paddedCycleNumber(cycle)} · ${fullTime(cycle.startedAt || cycle.reservedAt)}`, ''] : [];
@@ -1188,22 +1521,25 @@ window.DashboardNavigation.register('journal', (view) => {
     const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight <= 4;
     state.logText = value; state.logLoadedKey = key;
     state.logLoadedAt = new Date().toISOString(); state.logRange = range;
-    if (node.textContent !== value) node.textContent = value;
+    renderLogSearch();
     const following = same && $('followLog').checked && atBottom;
     node.scrollTop = following ? node.scrollHeight : top;
     node.scrollLeft = left;
     if (!same || !value || following) $('newLogButton').hidden = true;
     else if (value !== previous) $('newLogButton').hidden = false;
     $('copyLogButton').disabled = !value;
+    $('downloadLogButton').disabled = !value;
+    $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime';
     $('logStatus').textContent = `${value ? range : message('logEmpty')} · ${message('logReadAt', { time: fullTime(state.logLoadedAt) })}`;
   }
   async function loadLog() {
     if (!view.active) return;
     const key = logContextKey();
+    const ticket = projection.ticket();
     if (state.logPending) {
       if (state.logPending.key !== key) {
         ++state.logRequest;
-        if (state.logLoadedKey !== key) { state.logText = ''; $('logText').textContent = ''; $('rawLogText').textContent = ''; $('copyLogButton').disabled = true; }
+        if (state.logLoadedKey !== key) { state.logText = ''; $('logText').textContent = ''; $('rawLogText').textContent = ''; $('copyLogButton').disabled = true; $('downloadLogButton').disabled = true; $('downloadFullLogButton').disabled = true; renderLogSearch(); }
         await state.logPending.promise;
         return loadLog();
       }
@@ -1214,14 +1550,16 @@ window.DashboardNavigation.register('journal', (view) => {
     if (!id) {
       state.logText = ''; state.logLoadedKey = key; state.logLoadedAt = null;
       $('logText').textContent = ''; $('rawLogText').textContent = '';
-      $('copyLogButton').disabled = true; $('refreshLogButton').disabled = true;
-      $('newLogButton').hidden = true; $('logStatus').textContent = message('logEmpty');
+      $('copyLogButton').disabled = true; $('downloadLogButton').disabled = true; $('downloadFullLogButton').disabled = true; $('refreshLogButton').disabled = true;
+      $('newLogButton').hidden = true; $('logStatus').textContent = message('logEmpty'); renderLogSearch();
       return;
     }
     const previous = state.logLoadedKey === key ? state.logText : '';
     if (state.logLoadedKey !== key) { $('logText').textContent = ''; $('rawLogText').textContent = ''; }
-    if (state.logLoadedKey !== key) { state.logText = ''; state.logLoadedAt = null; $('newLogButton').hidden = true; }
+    if (state.logLoadedKey !== key) { state.logText = ''; state.logLoadedAt = null; $('newLogButton').hidden = true; renderLogSearch(); }
     $('copyLogButton').disabled = !previous;
+    $('downloadLogButton').disabled = !previous;
+    $('downloadFullLogButton').disabled = id === 'runtime';
     $('copyLogButton').textContent = message('copy');
     $('refreshLogButton').disabled = true;
     $('logStatus').textContent = message('loadingLog');
@@ -1230,12 +1568,15 @@ window.DashboardNavigation.register('journal', (view) => {
       const value = await fetchScopedText(id === 'runtime' ? state.data.runtimeLogUrl : cycle?.logUrl, 15000);
       if (request !== state.logRequest || key !== logContextKey()) return;
       showLog(value, key, message('logVisibleRange', { count: number(value.length) }));
-    } catch (_) {
+    } catch (error) {
+      if (['SOURCE_BINDING_CHANGED', 'PROJECTION_EPOCH_CHANGED'].includes(error.code)) confirmProjection(ticket);
       if (request !== state.logRequest || key !== logContextKey()) return;
       state.logText = previous;
       $('copyLogButton').disabled = !previous;
+      $('downloadLogButton').disabled = !previous;
+      renderLogSearch();
       $('logStatus').textContent = `${message('logFailed')}${state.logLoadedAt ? ` ${message('logReadAt', { time: fullTime(state.logLoadedAt) })} · ${state.logRange || ''}` : ''}`;
-    } finally { if (state.logPending?.request === request) { state.logPending = null; if (view.active) $('refreshLogButton').disabled = false; } } })();
+    } finally { if (state.logPending?.request === request) { state.logPending = null; if (view.active) { $('refreshLogButton').disabled = false; $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime' || Boolean(state.logDownloading); } } } })();
     state.logPending = { key, request, promise };
     return promise;
   }
@@ -1277,50 +1618,68 @@ window.DashboardNavigation.register('journal', (view) => {
     } catch (_) { if (token === scope.token) $('productSwitcherStatus').textContent = message('readFailed'); }
   }
   async function refreshCenterContext() {
-    if (!view.active) return;
+    if (!view.active || state.contextPending) return;
     const token = ++scope.contextToken; const entryId = scope.entryId;
-    try {
-      const summary = state.centerSummary || await fetchCenter('/summary');
+    const promise = (async () => { try {
+      const summary = await fetchCenter('/summary', {}, 15000);
       if (token !== scope.contextToken || entryId !== scope.entryId) return;
-      renderCenterRuntimeContext(summary);
+      if (state.data?.projectionVersion === 2 && summary._centerId !== state.data.centerId) throw new Error('Control source changed');
+      state.centerSummary = summary; state.controlFailed = false; state.controlReceivedAt = performance.now();
+      renderCenterLiveState(); if (state.data) { renderRuntime(); renderSidebar(); }
     } catch (_) {
-      if (token === scope.contextToken) { $('centerRuntimeContext').textContent = ''; $('centerRuntimeContext').title = ''; }
-    }
+      if (token === scope.contextToken) { state.controlFailed = true; renderCenterLiveState(); if (state.data) { renderRuntime(); renderSidebar(); } }
+    } finally { if (state.contextPending === promise) state.contextPending = null; } })();
+    state.contextPending = promise; return promise;
   }
 
   function scheduleRefresh() {
     clearTimeout(state.timer);
     state.timer = null;
-    if (!$('autoRefresh').checked || document.hidden || state.refreshPending) return;
+    if (!$('autoRefresh').checked || document.hidden || state.refreshPending || state.objectMissing) return;
     state.timer = setTimeout(refresh, state.statusFailed ? 15000 : 5000);
   }
-  function refresh() {
+  function refresh(options = {}) {
     if (!view.active) return;
+    if (options?.type === 'click') state.refreshDetailsRequested = true;
     if (state.refreshPending) return state.refreshPending;
     clearTimeout(state.timer);
     $('refreshButton').disabled = true;
     $('refreshStatus').textContent = message('refreshing');
     const detailToken = ++state.detailToken;
+    refreshCenterContext();
     const promise = (async () => { try {
       const requestEntryId = scope.entryId;
-      const scopedSelection = usageSelection();
-      const scopedResult = await Promise.all([fetchFullScopedJournal(), fetchCenter('/summary')]);
-      const data = scopedResult[0];
-      state.centerSummary = scopedResult[1];
+      const data = await fetchFullScopedJournal();
       if (detailToken !== state.detailToken || requestEntryId !== scope.entryId || data.entryId !== scope.entryId) throw new Error('Out-of-scope journal response');
       if (!data.ok || !Array.isArray(data.cycles)) throw new Error('invalid journal response');
+      if (data.projectionVersion === 2) {
+        const reset = projection.core(data);
+        if (reset) {
+          const hadData = Boolean(state.data);
+          state.historyCursor = data.nextBefore || null; state.historyError = false; state.historyReload = false;
+          state.mediaCache = null; state.scopedUsage = null; if (hadData) state.selectedLog = ''; ++state.logRequest; ++state.usageToken;
+          state.mediaPending = null; state.logPending = null; state.logLoadedKey = ''; state.logText = '';
+          state.detailLoads.clear(); state.detailErrors?.clear(); if (hadData) state.expanded.clear(); cycleNodes.clear();
+          state.detailReadAt.clear();
+          if (state.centerSummary?._centerId !== data.centerId) { state.centerSummary = null; state.controlFailed = true; }
+        }
+        installCycleComponents(data, reset ? null : state.data);
+        if (!reset) {
+          retainHistoricalCycles(data, state.data);
+        }
+        const nowStamp = performance.now();
+        for (const cycle of data.cycles) if (cycle.detailStatus === 'recorded' && !state.detailReadAt.has(cycle.id)) state.detailReadAt.set(cycle.id, nowStamp);
+        if (state.mediaCache) { data.artifacts = state.mediaCache.artifacts; data.productMedia = state.mediaCache.productMedia; data.partitions.media = state.mediaCache.metadata; }
+      } else if (state.data && Number.isFinite(Date.parse(data.generatedAt)) && Date.parse(data.generatedAt) < Date.parse(state.data.generatedAt)) throw new Error('Out-of-order journal snapshot');
       const signature = JSON.stringify({ ...data, displayDay: window.DashboardDate.day(), generatedAt: undefined, status: data.status ? { ...data.status, timestamp: undefined, elapsedMs: undefined } : undefined });
-      if (state.data && Number.isFinite(Date.parse(data.generatedAt)) && Date.parse(data.generatedAt) < Date.parse(state.data.generatedAt)) throw new Error('Out-of-order journal snapshot');
       if (!$('usageDate').value) {
         const latestRecorded = data.cycles.find((cycle) => !cycle.active);
         $('usageDate').value = localDatePart(latestRecorded?.endedAt || latestRecorded?.startedAt || latestRecorded?.reservedAt) || localDatePart(new Date());
       }
-      const selection = scopedSelection.period === 'all' ? scopedSelection : usageSelection();
-      const nextScopedUsage = await fetchScopedUsage(selection, data);
       state.data = data;
-      state.scopedUsage = nextScopedUsage;
       state.receivedAt = performance.now();
       state.statusFailed = false;
+      state.objectMissing = false;
       if (data.languageState) {
         const language = data.languageState;
         if (['en', 'zh-CN'].includes(language.language) && (!language.nextLanguage || ['en', 'zh-CN'].includes(language.nextLanguage))) state.languageState = language;
@@ -1339,12 +1698,15 @@ window.DashboardNavigation.register('journal', (view) => {
       }
       renderRuntime();
       renderUsage();
-      refreshCenterContext();
+      refreshScopedUsage(); refreshMedia();
+      const forceDetails = state.refreshDetailsRequested; state.refreshDetailsRequested = false;
+      readExpandedDetails(Boolean(forceDetails));
       $('refreshStatus').textContent = message('refreshed', { time: formatTime(data.generatedAt || new Date().toISOString()) });
-      if (state.tab === 'logs') await loadLog();
+      if (state.tab === 'logs') loadLog();
     } catch (error) {
       if (!view.active) return;
       state.statusFailed = true;
+      state.objectMissing = error.status === 404;
       state.signature = '';
       $('loadingState').hidden = true;
       $('connectionError').hidden = false;
@@ -1377,6 +1739,12 @@ window.DashboardNavigation.register('journal', (view) => {
   $('usageDate').addEventListener('change', () => { renderUsage(); refreshScopedUsage(); });
   $('logSelect').addEventListener('change', () => { state.selectedLog = $('logSelect').value; loadLog(); });
   $('refreshLogButton').addEventListener('click', loadLog);
+  $('logSearch').addEventListener('input', () => { state.logMatchIndex = 0; renderLogSearch(); });
+  $('previousLogMatch').addEventListener('click', () => renderLogSearch(-1));
+  $('nextLogMatch').addEventListener('click', () => renderLogSearch(1));
+  $('logSearch').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); renderLogSearch(event.shiftKey ? -1 : 1); } });
+  $('downloadLogButton').addEventListener('click', () => { if (state.logText) saveLogDownload([state.logText], `${state.selectedLog}-loaded-readable.log`); });
+  $('downloadFullLogButton').addEventListener('click', downloadFullLog);
   $('logText').addEventListener('scroll', () => {
     const node = $('logText');
     if (node.scrollHeight - node.scrollTop - node.clientHeight > 4) $('followLog').checked = false;

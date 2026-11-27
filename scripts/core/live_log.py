@@ -72,7 +72,19 @@ def stream_log(root, input_path, relative_path, *, admission, control_path):
     root, source = Path(root).resolve(), Path(input_path)
     admission(root)
     cycle = os.environ.get("AUTONOMOUS_COMPANY_CYCLE_ID", "")
-    if not re.fullmatch(r"cycle-[A-Za-z0-9_-]+", cycle) or relative_path != f"logs/{cycle}.log":
+    stream_id = cycle
+    if os.environ.get("COMPANY_HARNESS_ENABLED") == "1":
+        from company_harness import HarnessStore
+        attempt_id = os.environ.get("AUTONOMOUS_COMPANY_ATTEMPT_ID", "")
+        snapshot = HarnessStore(root).snapshot()
+        current = next((c for c in snapshot["cycles"] if c["cycleId"] == cycle), None)
+        attempt = next((a for a in current["attempts"] if a["attemptId"] == attempt_id), None) if current else None
+        if (not re.fullmatch(r"attempt-[0-9a-f]{32}", attempt_id) or not current
+                or current["activeAttemptId"] != attempt_id or not attempt or attempt["status"] != "running"
+                or attempt["generation"] != snapshot["generation"]):
+            raise ValueError("invalid_stream_identity")
+        stream_id = attempt_id
+    if not re.fullmatch(r"cycle-[A-Za-z0-9_-]+", cycle) or relative_path != f"logs/{stream_id}.log":
         raise ValueError("invalid_stream_identity")
     directory = source.parent.lstat()
     if not stat.S_ISDIR(directory.st_mode) or source.parent.is_symlink() or directory.st_uid != os.getuid() or directory.st_mode & 0o077:

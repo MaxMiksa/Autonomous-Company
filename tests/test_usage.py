@@ -318,6 +318,23 @@ class UsageLedgerTests(unittest.TestCase):
         self.assertEqual(budget["state"], "ok")
         self.assertFalse(self.pause.exists())
 
+    def test_pre_dispatch_checks_preserve_one_use_budget_resume(self) -> None:
+        self.append(make_record(1, "2026-09-02T10:00:00+08:00", metadata={"total_tokens": 110}))
+        config = load_budget_config({"USAGE_HARD_LIMIT_TOKENS": "100"})
+        args = {"budget_config": config, "pause_path": self.pause, "target_date": "2026-09-02"}
+        check_budget(self.ledger, **args)
+        self.assertTrue(resume_budget(self.pause))
+        acknowledgement = self.pause.with_name(self.pause.name + ".resume")
+        for _ in range(2):
+            check_budget(self.ledger, **args, consume_resume=False)
+            self.assertTrue(acknowledgement.exists())
+            self.assertFalse(self.pause.exists())
+        check_budget(self.ledger, **args)
+        self.assertFalse(acknowledgement.exists())
+        self.assertFalse(self.pause.exists())
+        check_budget(self.ledger, **args)
+        self.assertTrue(self.pause.exists())
+
     def test_budget_configuration_rejects_invalid_numbers_and_inverted_thresholds(self) -> None:
         for values in ({"USAGE_HARD_LIMIT_USD": "NaN"}, {"USAGE_HARD_LIMIT_USD": "-1"},
                        {"USAGE_HARD_LIMIT_TOKENS": "1.5"}, {"USAGE_WARNING_USD": "20", "USAGE_HARD_LIMIT_USD": "10"}):

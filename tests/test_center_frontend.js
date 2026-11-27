@@ -23,7 +23,7 @@ function helpers() {
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.lastIndexOf("\n  applyLanguage(); wire(); renderPage(); refresh();");
   assert.ok(binding > 0, "Center event wiring must follow helper declarations");
-  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write, wire, submitProbe, renderEntries, renderQueue, setRenderPage: callback => { renderPage = callback; } };\n});", context);
+  vm.runInContext(app.slice(0, binding) + "\n globalThis.center = { state, message, entryState, capability, capabilityReason, errorText, requestReason, requestIsFresh, executionBlockReason, requestDisplayState, requestOwnsDispatch, normalizeCounts, renderCounts, filteredEntries, sortedEntries, latestRoundState, latestWorkSource, readonlyObservationState, emptyListState, requestState, statusLabel, write, wire, submitProbe, renderEntries, renderQueue, setRenderPage: callback => { renderPage = callback; } };\n});", context);
   context.center.state.language = "en";
   return { ...context.center, messages: context.window.CENTER_MESSAGES, context };
 }
@@ -34,6 +34,7 @@ function journalHelpers() {
     document: { documentElement: { lang: "en" } }, URL, Intl, Date, Number, Object, Set, Map, String, Math, AbortController, setTimeout, clearTimeout,
   });
   vm.runInContext(fs.readFileSync(path.join(dashboard, "i18n.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(dashboard, "projection.js"), "utf8"), context);
   context.window.DashboardNavigation = { register(_kind, mount) { mount({ document: context.document, ui: (context.window.DashboardUI ||= {}), active: true, url: 'http://127.0.0.1:8843/products/entry-a', listen() {}, request: () => ({ valid: () => true, done() {} }) }); } };
   vm.runInContext(fs.readFileSync(path.join(dashboard, "icons.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
@@ -41,6 +42,7 @@ function journalHelpers() {
   assert.ok(binding > 0, "Journal event wiring must follow helper declarations");
   vm.runInContext(journalApp.slice(0, binding) + "\n globalThis.journal = { state, scope, freshCenterRequest, centerRequestDisplayState, scopedCenterRuntimeState, scopedRecordedRuntimeState, runtimeStateValue, runtimeStatusLabel, runtimeLabel, requestContextLabel, centerRuntimeContextValue, historyGroups, fetchFullScopedJournal, journalPageMatches, safePreviewURL };\n});", context);
   context.journal.state.language = "en";
+  context.journal.state.controlFailed = false;
   return { ...context.journal, context };
 }
 
@@ -60,6 +62,18 @@ test("queue badge counts requests without treating read-only unknown products as
   state.summary = { currentRequest: null, queuedCount: 0, attentionCount: 0 };
   renderCounts();
   assert.equal(elements.queueNavCount.hidden, true);
+});
+
+test("center Harness execution needs actual confirmation while validation and closing remain visible", () => {
+  const { latestRoundState } = helpers();
+  for (const status of ['running', 'correcting', 'recovering']) {
+    const entry = { cycleNumber: 1, latestHarnessVersion: 2, latestCycleStatus: status, latestProtocolState: 'executing' };
+    assert.equal(latestRoundState(entry), 'unknown');
+    assert.equal(latestRoundState({ ...entry, latestCycleActiveConfirmed: true }), status);
+  }
+  for (const status of ['validating', 'closing', 'handoff', 'completed']) {
+    assert.equal(latestRoundState({ cycleNumber: 1, latestHarnessVersion: 2, latestCycleStatus: status, latestCycleActiveConfirmed: false }), status);
+  }
 });
 
 test("center fixed labels are complete and bilingual", () => {
@@ -443,17 +457,18 @@ test("product detail routes are entry scoped with no standalone API fallback", (
   assert.match(journalApp, /fetchScopedText\(id === 'runtime' \? state\.data\.runtimeLogUrl : cycle\?\.logUrl/);
   assert.match(journalApp, /fetchCenter\(scopedJournalPath\('\/media\/capture'\), options/);
   assert.doesNotMatch(journalApp, /['"]\/api\/(?:journal|language|action|product-media|log-tail)(?:[/'"?])/);
-  assert.ok(journalApp.includes("await Promise.all([fetchFullScopedJournal(), fetchCenter('/summary')])"));
+  assert.ok(journalApp.includes("const data = await fetchFullScopedJournal()"));
+  assert.ok(journalApp.includes("refreshScopedUsage(); refreshMedia();"));
   assert.match(journalApp, /fetchAllCenterEntries\(\)/);
-  assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| 'unknown'/);
-  assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| 'unknown'/);
+  assert.match(journalApp, /engine: recordedCycle\?\.engine \|\| data\.runtime\?\.engine \|\| 'unknown'/);
+  assert.match(journalApp, /reasoning: recordedCycle\?\.observedConfig\?\.reasoning \|\| data\.runtime\?\.reasoning \|\| 'unknown'/);
   assert.match(journalApp, /state\.data\?\.entry\?\.sourceRecordRevision/);
 });
 
 test("blank exploration direction stays a string and preparations survive refresh", () => {
   assert.match(app, /direction: text\(group\.querySelector/);
   assert.doesNotMatch(app, /direction: text\([^\n]+\|\| null/);
-  assert.match(app, /state\.operations = operations\.items/);
+  assert.match(app, /state\[kind\] = data\.items/);
   assert.match(app, /groups\.operationAttention/);
   assert.match(app, /preparationAttentionSection/);
 });
@@ -704,7 +719,7 @@ test('reconcile retains errors in status and blocks duplicate action across queu
   assert.match(h.nodes.actionError.children.map(item => item.textContent).join(''), /Connection lost/); assert.equal(buttonFor().disabled, false);
 });
 
-test('refresh publishes metadata only with a complete validated snapshot, including delayed failed responses', async () => {
+test('center business partitions update despite a control failure without publishing mixed control metadata', async () => {
   const h = harness();
   h.context.fetch = async url => refreshResponse(url);
   await h.refresh();
@@ -717,7 +732,7 @@ test('refresh publishes metadata only with a complete validated snapshot, includ
   };
   await h.refresh();
   assert.equal(h.state.stale, true);
-  assert.equal(h.state.summary, original.summary); assert.equal(h.state.entries, original.entries);
+  assert.equal(h.state.summary.changed, true); assert.notEqual(h.state.entries, original.entries);
   assert.equal(h.state.revision, original.revision); assert.equal(h.state.observedAt, original.observedAt);
   // A later complete refresh can succeed before the rejected batch's final reply.
   h.context.fetch = async url => envelope(url.includes('/summary') ? { language: 'en', recovered: true } : url.includes('/preferences') ? {} : { items: [], total: 0 }, 3, '2026-09-30T12:00:00Z');
@@ -745,6 +760,25 @@ test('invalid refresh data and failed later entry pages retain rendered metadata
     await h.refresh();
     assert.equal(h.state.stale, true); assert.equal(h.state.revision, 1); assert.equal(h.state.observedAt, original);
   }
+});
+
+test('slow controls and preferences do not freeze new catalog rows or enable unconfirmed actions', async () => {
+  const h = harness(), summary = deferred(), preferences = deferred();
+  let round = 1;
+  h.context.fetch = async url => {
+    if (url.includes('/summary')) return summary.promise;
+    if (url.includes('/preferences')) return preferences.promise;
+    return envelope({ items: url.includes('/entries') ? [{ entryId: `entry-${round}` }] : [], total: url.includes('/entries') ? 1 : 0 }, round);
+  };
+  await h.refresh();
+  assert.equal(h.state.entries[0].entryId, 'entry-1'); assert.equal(h.state.stale, true);
+  round = 2; await h.refresh();
+  assert.equal(h.state.entries[0].entryId, 'entry-2'); assert.equal(h.state.stale, true);
+  summary.reject(new Error('control unavailable')); preferences.reject(new Error('preferences unavailable'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.state.entries[0].entryId, 'entry-2'); assert.equal(h.state.stale, true);
+  h.context.fetch = async url => envelope(url.includes('/summary') ? { language: 'en' } : url.includes('/preferences') ? {} : { items: [], total: 0 }, 3); await h.refresh();
+  assert.equal(h.state.stale, false);
 });
 
 test('probe then commit retains the latest API revision without advancing the rendered snapshot', async () => {
@@ -1470,4 +1504,390 @@ test('source selection clears an earlier source error and its error styling', as
   assert.match(h.nodes.sourceManagerStatus.textContent, /source A failed/); assert.equal(errorStyle, true);
   sourceChoice(h, 'source-b').fire('change');
   assert.equal(h.nodes.sourceManagerStatus.textContent, ''); assert.equal(errorStyle, false);
+});
+
+test('trash filter, completedCyclePause state and queue pause-after-cycle controls behave consistently', async () => {
+  const { state, requestDisplayState, entryState, normalizeCounts, filteredEntries, renderQueue, context } = helpers();
+  const elements = {};
+  const nodeFactory = (tag = 'div', className = '', textContent = '') => {
+    const node = {
+      tag, className, textContent, children: [], dataset: {}, style: {},
+      append(...items) { this.children.push(...items.filter(Boolean)); },
+      replaceChildren(...items) { this.textContent = ''; this.children = []; this.append(...items); },
+      setAttribute() {}, addEventListener() {}, querySelectorAll: () => [],
+    };
+    return node;
+  };
+  context.document.getElementById = id => elements[id] ||= nodeFactory();
+  elements.capacityForm = { ...nodeFactory('form'), elements: { unlimited: {}, capacity: {} }, dataset: {} };
+  context.document.querySelectorAll = () => [];
+  context.window.DashboardUI.element = nodeFactory;
+  context.window.DashboardUI.reconcile = () => {};
+  context.window.DashboardUI.positions = () => new Map();
+  context.window.DashboardUI.layout = () => {};
+  context.window.DashboardIcons.status = () => nodeFactory('span');
+  context.window.DashboardIcons.icon = () => nodeFactory('span');
+  context.window.DashboardIcons.hydrate = () => {};
+  context.window.DashboardStatus = { visual: value => value };
+
+  const recent = new Date().toISOString();
+  const pauseRequest = { requestId: 'req-run', displayName: 'Run', kind: 'continue', state: 'running', dispatchId: 'dsp-1', liveConfirmedAt: recent, config: {} };
+  const canceledWaitRequest = { ...pauseRequest, requestId: 'req-sched', pauseAfterCycle: { state: 'requested' } };
+  const stoppingRequest = { ...pauseRequest, requestId: 'req-stopping', stopRequested: true };
+  state.requests = [pauseRequest, canceledWaitRequest, stoppingRequest];
+  state.entries = [
+    { entryId: 'e1', kind: 'product', archived: false, executionSummary: { state: 'ended', terminalReason: 'pause_after_cycle' } },
+  ];
+  state.trash = { retentionDays: 30, revision: 1, items: [{ entryId: 'e2', kind: 'product', trashed: true, archived: true, displayName: 'Removed' }] };
+
+  assert.equal(entryState(state.entries[0]), 'paused');
+  assert.equal(requestDisplayState({ state: 'ended', terminalReason: 'pause_after_cycle' }), 'paused');
+  assert.equal(normalizeCounts().trash, 1);
+  state.filter = 'trash';
+  assert.deepEqual(filteredEntries().map(row => row.entryId), ['e2']);
+
+  renderQueue();
+  const findButtons = (root, out = []) => {
+    if (!root) return out;
+    if (root.tag === 'button') out.push(root);
+    for (const child of root.children || []) findButtons(child, out);
+    return out;
+  };
+  const buttons = findButtons(elements.queueContent);
+  const schedPause = buttons.find(b => b.dataset.focusKey === 'request:req-run:pause');
+  const cancelPause = buttons.find(b => b.dataset.focusKey === 'request:req-sched:pause');
+  const blockedPause = buttons.find(b => b.dataset.focusKey === 'request:req-stopping:pause');
+  assert.equal(schedPause.textContent, 'Pause after this cycle');
+  assert.equal(schedPause.disabled, false);
+  assert.equal(cancelPause.textContent, 'Cancel scheduled pause');
+  assert.equal(cancelPause.disabled, false);
+  assert.equal(blockedPause.disabled, true);
+});
+
+test('scopedRecordedRuntimeState maps pause_after_cycle to paused and customDisplayName takes precedence', () => {
+  const { state, scopedRecordedRuntimeState, runtimeLabel, context } = journalHelpers();
+  const labelNode = {};
+  context.document.getElementById = () => labelNode;
+  state.statusFailed = false;
+  state.centerSummary = { currentRequest: null };
+  state.data = {
+    entry: {
+      entryId: 'entry-custom',
+      displayName: 'Auto Name',
+      customDisplayName: 'Custom Human Name',
+      executionSummary: { requestId: 'req-pac', state: 'ended', terminalReason: 'pause_after_cycle' },
+    },
+  };
+  assert.equal(scopedRecordedRuntimeState(), 'paused');
+  assert.equal(runtimeLabel(), 'Paused');
+  assert.match(journalApp, /data\.entry\?\.customDisplayName\?\.trim\(\)/);
+});
+
+test('trashSettings captures open revision and updates on REVISION_CONFLICT; failed trash load disables settings button', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  const writes = [];
+  let conflictOnce = true;
+  let refreshCount = 0;
+  let trashSettled = Promise.resolve();
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      writes.push(payload);
+      if (conflictOnce) {
+        conflictOnce = false;
+        return {
+          ok: false, status: 409,
+          json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+        };
+      }
+      return envelope({ retentionDays: payload.retentionDays, revision: 5 });
+    }
+    if (url.endsWith('/trash')) {
+      refreshCount += 1;
+      let mark;
+      trashSettled = new Promise(resolve => { mark = resolve; });
+      queueMicrotask(() => queueMicrotask(mark));
+      return envelope({ revision: refreshCount >= 1 ? 4 : 2, retentionDays: 45, items: [] });
+    }
+    if (url.endsWith('/entries')) {
+      await trashSettled;
+      return refreshResponse(url);
+    }
+    return refreshResponse(url);
+  };
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[0].expectedRevision, 2);
+  assert.equal(writes[0].expectedCenterId, 'fixture');
+  assert.equal(input.value, 45);
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[1].expectedRevision, 4);
+  assert.equal(writes[1].expectedCenterId, 'fixture');
+
+  const helpersCtx = helpers();
+  helpersCtx.state.filter = 'trash';
+  helpersCtx.state.readParts = new Map([['trash', { failed: true }]]);
+  assert.deepEqual({ ...helpersCtx.emptyListState([]) }, { messageKey: 'loadFailed' });
+
+  // Trash settings button remains disabled before the first /trash read completes and when it fails;
+  // deleting entries disable restore/delete menu items.
+  const h2 = harness();
+  let capturedMenus = [];
+  h2.context.window.DashboardUI = undefined;
+  assert.match(app, /if \(\$\("trashSettingsButton"\)\) \$\("trashSettingsButton"\)\.disabled = state\.stale \|\| !trashPart \|\| Boolean\(trashPart\.failed\);/);
+  assert.match(app, /const deleting = Boolean\(entry\.deletionInProgress\) \|\| trashFailed;/);
+  assert.match(app, /state\.readParts\.get\("trash"\)\?\.failed \? "failed" : state\.readParts\.has\("trash"\) \? "ok" : "pending"/);
+});
+
+test('trashSettings REVISION_CONFLICT ignores pre-conflict in-flight /trash v2 and fetches v4', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.revision = 2;
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  let releaseStaleTrash;
+  const staleTrashGate = new Promise(resolve => { releaseStaleTrash = resolve; });
+  let trashCalls = 0;
+  const writes = [];
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      writes.push(JSON.parse(options.body));
+      return {
+        ok: false, status: 409,
+        json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+      };
+    }
+    if (url.endsWith('/trash')) {
+      trashCalls += 1;
+      if (trashCalls === 1) {
+        await staleTrashGate;
+        return envelope({ revision: 2, retentionDays: 99, items: [] });
+      }
+      return envelope({ revision: 4, retentionDays: 45, items: [] });
+    }
+    return refreshResponse(url);
+  };
+  const pendingRefresh = h.refresh();
+  await Promise.resolve();
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(writes[0].expectedRevision, 2);
+  assert.equal(h.state.trash.revision, 4);
+  assert.equal(input.value, 45);
+  releaseStaleTrash();
+  await pendingRefresh;
+  assert.equal(h.state.trash.revision, 4);
+  assert.equal(h.state.trash.retentionDays, 45);
+});
+
+test('initial /trash failure before /entries sets centerId preserves failed state and loadFailed', async () => {
+  const h = harness();
+  h.state.centerId = null;
+  let releaseEntries;
+  const entriesGate = new Promise(resolve => { releaseEntries = resolve; });
+  h.context.fetch = async (url) => {
+    if (url.endsWith('/trash')) throw new Error('trash read failed');
+    if (url.includes('/entries')) {
+      await entriesGate;
+      return envelope({ items: [] });
+    }
+    return refreshResponse(url);
+  };
+  const pending = h.refresh();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  releaseEntries();
+  await pending;
+  assert.equal(h.state.centerId, 'fixture');
+  assert.equal(h.state.readParts.get('trash')?.failed, true);
+});
+
+test('failed /trash invalidates cached trashed row and disables restore and delete menu items', () => {
+  const h = helpers();
+  const capturedMenus = [];
+  const doc = h.context.document;
+  const origGet = doc.getElementById;
+  const makeNode = (tag = 'div') => ({
+    tag, className: '', dataset: {}, children: [], style: {},
+    classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
+    setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {},
+    querySelector() { return null; }, querySelectorAll() { return []; }, focus() {},
+    append(...items) { this.children.push(...items.flat().filter(Boolean)); },
+    replaceChildren(...items) { this.children = items.flat().filter(Boolean); },
+  });
+  const nodes = { productRows: makeNode('table'), listState: makeNode('div'), searchCount: makeNode('span') };
+  doc.getElementById = id => (nodes[id] ||= makeNode('div'));
+  doc.createElement = tag => makeNode(tag);
+  doc.createElementNS = (_ns, tag) => makeNode(tag);
+  h.context.Option = function Option(text, value) { return { text, value }; };
+  Object.assign(h.context.window.DashboardUI, {
+    element(tag, className, text) {
+      const node = makeNode(tag);
+      node.className = className || '';
+      if (text !== undefined) node.textContent = String(text);
+      return node;
+    },
+    retainMenus() {},
+    positions() { return new Map(); },
+    reconcile() {},
+    layout() {},
+    animate() {},
+    menu(options) { capturedMenus.push(options.items); return doc.createElement('div'); },
+  });
+  h.context.performance = { now: () => 0 };
+  const trashedEntry = {
+    entryId: 'entry-trash-cached',
+    kind: 'exploration',
+    trashed: true,
+    deletionInProgress: null,
+    displayName: 'Cached Trash Item',
+    createdAt: '2026-11-27T00:00:00Z',
+    revision: 1,
+    capabilities: { execute: false },
+  };
+  h.state.loading = false;
+  h.state.filter = 'trash';
+  h.state.trash = { revision: 1, retentionDays: 30, items: [trashedEntry] };
+  h.state.readParts.set('trash', { failed: false });
+  h.renderEntries();
+  const firstMenu = capturedMenus.at(-1);
+  assert.equal(firstMenu.every(item => item.disabled === false), true);
+
+  h.state.readParts.set('trash', { failed: true });
+  h.renderEntries();
+  const secondMenu = capturedMenus.at(-1);
+  assert.equal(secondMenu.length >= 2, true);
+  assert.equal(secondMenu.every(item => item.disabled === true), true);
+});
+
+test('.recovery-review panel renders review.nextContract preview', async () => {
+  const h = harness();
+  h.state.language = 'en';
+  const detail = {
+    entryId: 'entry-rec',
+    sourceId: 'source-rec',
+    revision: 1,
+    recovery: { canReview: true },
+    capabilities: { reviewRecovery: { enabled: true } },
+    sources: [{ sourceId: 'source-rec', revision: 1, sourceRevision: 1, kind: 'product', availability: 'available', capabilities: { reviewRecovery: { enabled: true } } }],
+  };
+  h.context.fetch = async (url) => {
+    if (url.includes('/entries/entry-rec')) return envelope(detail);
+    if (url.includes('/sources/source-rec/review-recovery')) {
+      return envelope({
+        expectedRevision: 2,
+        expectedSourceRevision: 2,
+        nextContract: { workKind: 'direction', objective: 'Bounded next preview goal' },
+        checks: [],
+        reasons: [],
+        canConfirm: true,
+      });
+    }
+    return refreshResponse(url);
+  };
+  await h.openSourceManager({ entryId: 'entry-rec', sourceId: 'source-rec', displayName: 'Rec' });
+  h.nodes.sourceManagerBody.querySelector = () => null;
+  h.context.window.DashboardIcons = { hydrate() {}, icon() { return h.context.document.createElement('span'); } };
+  const findAll = (root, pred, out = []) => {
+    if (!root || typeof root !== 'object') return out;
+    if (pred(root)) out.push(root);
+    for (const child of root.children || []) findAll(child, pred, out);
+    return out;
+  };
+  const buttons = findAll(h.nodes.sourceManagerBody, node => typeof node.listeners?.click === 'function');
+  const reviewBtn = buttons.find(btn => /review|核对恢复条件/i.test(btn.textContent || ''));
+  assert.ok(reviewBtn, 'expected reviewRecovery button');
+  await reviewBtn.fire('click');
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const nextContractNode = findAll(
+    h.nodes.sourceManagerBody,
+    node => String(node.className || '').includes('recovery-next-contract') || /Bounded next preview goal/.test(node.textContent || ''),
+  )[0];
+  assert.ok(nextContractNode, 'expected .recovery-next-contract element');
+  assert.match(nextContractNode.textContent, /direction/);
+  assert.match(nextContractNode.textContent, /Bounded next preview goal/);
+});
+
+test('trashSettings REVISION_CONFLICT fires one post-conflict /trash fetch, ignores stale seq, and retains form revision on forced failure', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.revision = 2;
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  let trashCalls = 0;
+  let forceFail = false;
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      return {
+        ok: false, status: 409,
+        json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+      };
+    }
+    if (url.endsWith('/trash')) {
+      trashCalls += 1;
+      if (forceFail) throw new Error('forced trash failed');
+      return envelope({ revision: 5, retentionDays: 45, items: [] });
+    }
+    return refreshResponse(url);
+  };
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(trashCalls, 1);
+  assert.equal(h.state.trash.revision, 5);
+  assert.equal(input.value, 45);
+
+  forceFail = true;
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(trashCalls, 2);
+  assert.equal(input.value, 45);
+});
+
+test('local AbortError timeout marks trash read failed and disables cached trashed row actions', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.context.setTimeout = (fn) => { fn(); return 1; };
+  h.context.clearTimeout = () => {};
+  h.context.fetch = async (_url, options) => {
+    if (options?.signal?.aborted) throw new DOMException('Timed out', 'AbortError');
+    return refreshResponse(_url);
+  };
+  await assert.rejects(h.api('/trash', {}, 15000, { centerId: 'fixture', revision: null, observedAt: null }), error => error.code === 'REQUEST_TIMEOUT');
+});
+
+test('initial /entries failure followed by manual refresh reusing in-flight /trash still preserves failed state', async () => {
+  const h = harness();
+  h.state.centerId = null;
+  let entriesCalls = 0;
+  let rejectTrash;
+  const trashGate = new Promise((_, reject) => { rejectTrash = reject; });
+  let releaseEntries;
+  const entriesGate = new Promise(resolve => { releaseEntries = resolve; });
+  h.context.fetch = async (url) => {
+    if (url.endsWith('/trash')) return trashGate;
+    if (url.includes('/entries')) {
+      entriesCalls += 1;
+      if (entriesCalls === 1) throw new Error('initial entries failed');
+      await entriesGate;
+      return envelope({ items: [] });
+    }
+    return refreshResponse(url);
+  };
+  await h.refresh();
+  assert.equal(h.state.centerId, null);
+  const manualRefresh = h.refresh();
+  await Promise.resolve();
+  rejectTrash(new Error('trash failed after reuse'));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  releaseEntries();
+  await manualRefresh;
+  assert.equal(h.state.centerId, 'fixture');
+  assert.equal(h.state.readParts.get('trash')?.failed, true);
 });

@@ -163,7 +163,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: dashboard/ui/.node-version
           package-manager-cache: false
       - name: Verify executable entrypoints and safe startup failure
         run: python3 scripts/ci/run.py shell-contracts-1 bash tests/test-shell-entrypoints.sh
@@ -192,6 +192,8 @@ jobs:
         run: python3 scripts/ci/run.py center-frontend node tests/test_center_frontend.js
       - name: Verify localized dashboard dates
         run: python3 scripts/ci/run.py dashboard-dates node --test tests/test_dashboard_dates.js
+      - name: Verify dashboard projection state machine
+        run: python3 scripts/ci/run.py dashboard-projection node tests/test_dashboard_projection.js
       - name: Save failure evidence
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -213,28 +215,33 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: dashboard/ui/.node-version
           package-manager-cache: false
+      - name: Set up pinned pnpm without changing Corepack
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: '12.16.1'
+          run_install: false
       - name: Install and verify mandatory Linux project isolation
         run: bash scripts/ci/setup-isolation.sh
       - name: Build and verify shared Dashboard components
         run: |
-          python3 scripts/ci/run.py ui-dependencies npm ci --prefix dashboard/ui --ignore-scripts --no-audit --no-fund
-          python3 scripts/ci/run.py ui-types npm run check --prefix dashboard/ui
-          python3 scripts/ci/run.py ui-build npm run build --prefix dashboard/ui
+          python3 scripts/ci/run.py ui-dependencies pnpm --dir dashboard/ui install --frozen-lockfile
+          python3 scripts/ci/run.py ui-types pnpm --dir dashboard/ui run check
+          python3 scripts/ci/run.py ui-build pnpm --dir dashboard/ui run build
           git diff --exit-code -- dashboard/ui-assets
       - name: Install browser test dependencies
-        run: python3 scripts/ci/run.py browser-dependencies npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund
+        run: python3 scripts/ci/run.py browser-dependencies pnpm --dir tests/browser install --frozen-lockfile
       - name: Install product screenshot dependencies
-        run: python3 scripts/ci/run.py media-dependencies npm ci --prefix scripts/media --ignore-scripts --no-audit --no-fund
+        run: python3 scripts/ci/run.py media-dependencies pnpm --dir scripts/media install --frozen-lockfile
       - name: Install Chromium
         working-directory: tests/browser
-        run: python3 ../../scripts/ci/run.py chromium-install npx playwright install --with-deps chromium
+        run: python3 ../../scripts/ci/run.py chromium-install pnpm exec playwright install --with-deps chromium
       - name: Install product screenshot Chromium
         working-directory: scripts/media
-        run: python3 ../../scripts/ci/run.py media-chromium-install npx playwright install --with-deps chromium
+        run: python3 ../../scripts/ci/run.py media-chromium-install pnpm exec playwright install --with-deps chromium
       - name: Test Dashboard with a real browser and isolated server
-        run: python3 scripts/ci/run.py dashboard-browser npm test --prefix tests/browser
+        run: python3 scripts/ci/run.py dashboard-browser pnpm --dir tests/browser test
       - name: Set up Python for example core tests
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -280,10 +287,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: dashboard/ui/.node-version
           package-manager-cache: false
+      - name: Set up pinned pnpm without changing Corepack
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: '12.16.1'
+          run_install: false
       - name: Run existing core tests
-        run: python3 scripts/ci/run.py tabledelta npm test --prefix examples/tabledelta
+        run: python3 scripts/ci/run.py tabledelta pnpm --dir examples/tabledelta test
       - name: Save failure evidence
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -303,10 +315,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: dashboard/ui/.node-version
           package-manager-cache: false
+      - name: Set up pinned pnpm without changing Corepack
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: '12.16.1'
+          run_install: false
       - name: Run existing core tests
-        run: python3 scripts/ci/run.py cuecheck npm test --prefix examples/cuecheck
+        run: python3 scripts/ci/run.py cuecheck pnpm --dir examples/cuecheck test
       - name: Save failure evidence
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -326,12 +343,17 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: dashboard/ui/.node-version
           package-manager-cache: false
+      - name: Set up pinned pnpm without changing Corepack
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: '12.16.1'
+          run_install: false
       - name: Install locked dependencies
-        run: python3 scripts/ci/run.py snapog-dependencies npm ci --prefix projects/snapog --ignore-scripts --no-audit --no-fund
+        run: python3 scripts/ci/run.py snapog-dependencies pnpm --dir projects/snapog install --frozen-lockfile
       - name: Run existing type check
-        run: python3 scripts/ci/run.py snapog npm run typecheck --prefix projects/snapog
+        run: python3 scripts/ci/run.py snapog pnpm --dir projects/snapog run typecheck
       - name: Save failure evidence
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

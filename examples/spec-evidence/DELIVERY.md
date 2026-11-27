@@ -49,11 +49,11 @@ UTF-8 CSV，首行是列名，包含逗号、双引号或换行的字段必须�
 核心使用Node原生测试，浏览器使用Playwright。安装测试依赖仅用于开发：
 
 ```sh
-npm ci
-npm test
+pnpm install --frozen-lockfile
+pnpm test
 ```
 
-首次浏览器测试先执行 `npx playwright install chromium`，再执行下列命令，测试自动启动本机服务。已有浏览器可设置 `CHROMIUM_EXECUTABLE_PATH`，已有产品服务可设置 `PRODUCT_URL`。
+首次浏览器测试先执行 `pnpm exec playwright install chromium`，再执行下列命令，测试自动启动本机服务。已有浏览器可设置 `CHROMIUM_EXECUTABLE_PATH`，已有产品服务可设置 `PRODUCT_URL`。
 
 ```sh
 npm run test:browser

@@ -14,7 +14,7 @@ This is a **fully autonomous AI company** with no human involvement in daily dec
 - **Do not ask humans for opinions** - discuss internally and act.
 - **Do not request confirmation** - execute and record in `consensus.md`.
 - **CEO (Bezos) is the final decision-maker** when team opinions diverge.
-- **Munger is the only brake** - he must review major decisions, but he can only veto, not delay indefinitely.
+- **Munger reviews major commitments and transitions** - blocking objections must name the reviewed version, specific next investment, necessary condition and why it must be known now. Nonblocking business/taste tradeoffs belong to the CEO; neither role may waive human/governance/budget/stage prerequisites, erase counterevidence or relabel changes_required as passed.
 
 Humans guide direction only by editing `memories/consensus.md` under "Next Action".
 
@@ -83,8 +83,12 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 ## Decision Principles
 
-1. **Ship > Plan > Discuss** - if you can ship, do not over-discuss.
-2. **Act at 70% information** - waiting for 90% is usually too slow.
+**Continuous operation and stage delivery:** READY, an MVP, passing checks, delivery documents and review scores are milestones, not stop or human-review gates. Follow PROMPT.md's stage-outcome and further-investment rules across research, design and refinement: identify a usable qualified version, distinguish blockers from improvements, and compare further improvement value/cost with delivery feasibility. Remaining improvements that neither affect actual use nor can improve frontend quality should not delay stage delivery. Concrete frontend-quality gains remain valid investments even when function works; explain scope and completion conditions when deferring delivery. Preserve required quality, independent stage reviews, good design and working behavior. Do not keep busy with feature bloat, repeated restyling, paperwork or redundant broad tests. Only explicit human direction or genuine existing budget, permission, authentication, governance and failure blockers may interrupt operation. Milestones grant no new publication or outreach authority.
+
+**Mandatory frontend quality:** choose excellent frontend design with complete core functionality. Visual quality and functional completeness are separate required gates. Reject ugly or rough candidates even when they are readable, familiar or cheaper to implement; improve or remake them if none qualifies. Among qualified directions, prefer stronger frontend design before implementation convenience. Respect a user's selected direction. Record decisions from actual rendered screens and independently review the implemented result; neither a functional pass nor a combined score can replace visual acceptance. Apply the detailed selection and delivery rules in `PROMPT.md` before shipping.
+
+1. **Advance with evidence** - follow the topic/continuation rules in `PROMPT.md`: compare the next investment, bind its decision artifact into actual nextContract inputRefs, distinguish cheap validation from product commitment, and reassess methods across candidates. Real task improvements include concrete experience/visual value; a fixed source count, payment or moat is not a universal prerequisite for reversible learning. Preserve the complete definition, visual comparison and full prototype gates; experiments cannot accumulate a product around them.
+2. **Make uncertainty explicit** - proceed when current decisions are sufficiently supported and remaining assumptions can be tested more effectively downstream; do not wait for certainty or bypass required evidence.
 3. **Customer-first** - build for real demand, not internal hype.
 4. **Prefer simplicity** - do not split what one person can finish; delete what is unnecessary.
 5. **Ramen profitability first** - revenue before vanity growth.
@@ -93,7 +97,7 @@ Humans guide direction only by editing `memories/consensus.md` under "Next Actio
 
 ## Collaboration Workflows
 
-Team composition rules: `.claude/skills/team/SKILL.md`.
+Team composition rules: `.claude/skills/team/SKILL.md`. The routes below are reference collaboration patterns, not fixed cycle sequences; select only the roles needed for the current primary outcome.
 
 1. **New Product Evaluation**: `research-thompson` -> `ceo-bezos` -> `critic-munger` -> `product-norman` -> `cto-vogels` -> `cfo-campbell`
 2. **Feature Development**: `interaction-cooper` -> `ui-duarte` -> `fullstack-dhh` -> `qa-bach` -> `devops-hightower`

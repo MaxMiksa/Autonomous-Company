@@ -86,7 +86,7 @@ Every submitted request retains its own configuration snapshot. Later template e
 
 ### Upgrading from v2.0 / 从 v2.0 升级
 
-Back up the center data directory while its own service is stopped, keeping the original run directories and identity ledgers. Update a clean framework checkout to `v2.2.0`, then start that center with the same data directory and execution-domain settings. The release includes built Dashboard assets; users do not need Node to serve them. Developers changing the UI use `npm ci --prefix dashboard/ui`, then its `check` and `build` scripts.
+Back up the center data directory while its own service is stopped, keeping the original run directories and identity ledgers. Update a clean framework checkout to `v2.2.0`, then start that center with the same data directory and execution-domain settings. The release includes built Dashboard assets; users do not need Node to serve them. Developers changing the UI use `pnpm --dir dashboard/ui install --frozen-lockfile`, then its `check` and `build` scripts.
 
 在中心服务停止时备份其数据目录，保留原运行目录及身份账本；把干净的框架副本更新到 `v2.2.0`，使用原数据目录和执行域设置启动。发布版自带前端资源，用户运行服务无需Node；开发者修改界面时在 `dashboard/ui` 安装锁定依赖后执行 `check`、`build`。
 

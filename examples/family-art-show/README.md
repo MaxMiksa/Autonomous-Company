@@ -46,4 +46,4 @@ npm start
 
 ## 开发检查
 
-运行 `npm ci` 后，`npm test` 执行真实 Chromium 流程、输入恢复与可访问布局检查。首次测试请运行 `npx playwright install chromium`。测试会自行启动本地页面。
+运行 `pnpm install --frozen-lockfile` 后，`pnpm test` 执行真实 Chromium 流程、输入恢复与可访问布局检查。首次测试请运行 `pnpm exec playwright install chromium`。测试会自行启动本地页面。

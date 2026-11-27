@@ -76,9 +76,9 @@ npm test
 浏览器检查使用 Playwright，仅为开发依赖：
 
 ```sh
-npm ci --cache .cache/npm
-PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright npx playwright install chromium
-npm run test:browser
+pnpm install --frozen-lockfile
+PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright pnpm exec playwright install chromium
+pnpm run test:browser
 ```
 
 检查脚本自动启动并关闭一个临时回环静态服务，将截图、下载文件和结果放在忽略的 `test-artifacts/` 中。`CUECHECK_TEST_TOOLS` 可指向已有工具目录，只读使用其 Playwright、浏览器和 Linux 共享库；临时输出及字体缓存始终留在本产品目录。

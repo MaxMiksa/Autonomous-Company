@@ -65,8 +65,8 @@ python3 -m http.server 8080 --bind 127.0.0.1
 生产运行没有JavaScript第三方依赖。开发检查使用Node20以上、锁定Playwright1.63.0：
 
 ```sh
-npm ci
-npx playwright install chromium
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 node --test tests/engine.test.js tests/browser.test.js
 ```
 

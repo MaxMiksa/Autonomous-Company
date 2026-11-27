@@ -40,11 +40,25 @@ RUNTIME_ENV_NAMES = {"CODEX_BIN", "CODEX_SANDBOX_MODE", "CLAUDE_BIN", "CLAUDE_PE
                      "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_ALLOW_INSECURE_HTTP", "OPENAI_COMPATIBLE_MODEL",
                      "LOOP_INTERVAL", "CYCLE_TIMEOUT_SECONDS", "CYCLE_TERM_GRACE_SECONDS", "CYCLE_KILL_WAIT_SECONDS",
                      "USAGE_BUDGET_PERIOD", "USAGE_WARNING_USD", "USAGE_HARD_LIMIT_USD", "USAGE_WARNING_TOKENS", "USAGE_HARD_LIMIT_TOKENS",
-                     "AUTONOMOUS_COMPANY_BWRAP", "AUTONOMOUS_COMPANY_BROWSER_RUNTIME", "AUTONOMOUS_COMPANY_LIBRARY_RUNTIME"}
+                     "AUTONOMOUS_COMPANY_BWRAP", "AUTONOMOUS_COMPANY_BROWSER_RUNTIME", "AUTONOMOUS_COMPANY_LIBRARY_RUNTIME",
+                     "COMPANY_HARNESS_ENABLED", "COMPANY_HARNESS_CORRECTIONS", "COMPANY_HARNESS_RECOVERY_ATTEMPTS",
+                     "COMPANY_HARNESS_RECOVERY_SECONDS", "COMPANY_HARNESS_CLOSE_SECONDS", "COMPANY_HARNESS_MAX_SAME_ERROR"}
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def harness_capability(root, engine):
+    if engine != 'codex':
+        return {'supported': False, 'enabled': False, 'reason': 'unsupported_adapter'}
+    if os.environ.get('CODEX_SANDBOX_MODE', 'danger-full-access') != 'danger-full-access':
+        return {'supported': False, 'enabled': False, 'reason': 'unsupported_inner_sandbox'}
+    supported = all((Path(root) / 'scripts/core' / name).is_file() for name in (
+        'company_harness.py', 'company_harness_bridge.py', 'company_harness_client.py',
+        'company_harness_contract.py', 'company_harness_handoff.py', 'company_harness_inputs.py',
+        'company_harness_loop.sh', 'company_harness_quality.py', 'company_harness_runner.py'))
+    return {'supported': supported, 'enabled': supported, 'reason': None if supported else 'unsupported_framework'}
 
 
 def recently_confirmed(request):
@@ -213,6 +227,11 @@ class CenterRuntime:
         self._mutex = threading.RLock()
         self._controls_mutex = threading.Lock()
         self._prepare_mutex = threading.Lock()
+        self._reconcile_lock = threading.Lock()
+        self._capability_lock = threading.Lock()
+        self._capability_cache = {}
+        self._capability_seq = {}
+        self._capability_epoch = 0
         self._session_id = uid("session")
         self._closing = threading.Event()
         self._thread = None
@@ -278,6 +297,57 @@ class CenterRuntime:
         if expected is not None and expected != self._environment_record(tx)["revision"]:
             raise CenterError("REVISION_CONFLICT", "Execution environment changed", 409)
 
+    def _invalidate_capability_cache(self, source_id=None):
+        with self._capability_lock:
+            if source_id is None:
+                self._capability_epoch += 1
+                self._capability_cache.clear()
+                for key in list(self._capability_seq):
+                    self._capability_seq[key] += 1
+            else:
+                self._capability_seq[source_id] = self._capability_seq.get(source_id, 0) + 1
+                for key in [item for item in self._capability_cache if item[0] == source_id]:
+                    self._capability_cache.pop(key, None)
+
+    @staticmethod
+    def _capability_stamp(root):
+        base = Path(root)
+        stamps = []
+        for rel in (MARKER, ".auto-loop-paused", ".auto-loop-budget-paused", ".auto-loop-stop-pending",
+                    "Human Overrides.md", "memories/consensus.md", ".autonomous-company.local",
+                    ".autonomous-company/product-state.json", "scripts/core/stop-loop.sh",
+                    "scripts/core/auto-loop.sh", "scripts/core/center_runner.py"):
+            try:
+                st = (base / rel).lstat()
+                stamps.append((rel, st.st_mtime_ns, st.st_size))
+            except OSError:
+                stamps.append((rel, None, None))
+        return tuple(stamps)
+
+    def _cached_capabilities(self, source_id, root, owned, loader):
+        key = (source_id, root, bool(owned), json.dumps(self.domain, sort_keys=True) if self.domain else "", self._capability_stamp(root))
+        now_mono = time.monotonic()
+        with self._capability_lock:
+            entry = self._capability_cache.get(key)
+            if entry and now_mono < entry[0]:
+                return dict(entry[1])
+            epoch = self._capability_epoch
+            seq = self._capability_seq.get(source_id, 0) + 1
+            self._capability_seq[source_id] = seq
+        value = loader()
+        cacheable = isinstance(value, dict) and bool(value) and value.get("_cacheable") is not False and value.get("pauseReason") != "interrupted_cycle"
+        result = {k: v for k, v in value.items() if k != "_cacheable"} if isinstance(value, dict) else value
+        now_mono = time.monotonic()
+        with self._capability_lock:
+            for existing_key in [k for k, v in self._capability_cache.items() if now_mono >= v[0]]:
+                self._capability_cache.pop(existing_key, None)
+            if self._capability_epoch == epoch and self._capability_seq.get(source_id) == seq:
+                for existing_key in [k for k in self._capability_cache if k[0] == source_id]:
+                    self._capability_cache.pop(existing_key, None)
+                if cacheable:
+                    self._capability_cache[key] = (now_mono + 5.0, dict(result))
+        return result
+
     def environment(self):
         with self._mutex, self.store.transaction() as tx:
             result = self._environment_record(tx)
@@ -290,37 +360,47 @@ class CenterRuntime:
         self._validate_domain(domain)
         if domain is None or (os.name == "nt" and domain["platform"] != "wsl"):
             raise CenterError("INVALID_DOMAIN", "Select an explicit execution environment")
-        # Serialize connection with creation and preparation. An environment
-        # check never migrates existing runtime identities or grants dispatch.
+        with self._mutex, self.store.transaction() as tx:
+            if action == "connect":
+                key, body_hash, previous = self._idempotent(tx, "environment/connect", body)
+                if previous:
+                    return previous
+            saved = self._environment_record(tx)
+            if self._revision_value(body, "expectedRevision") is None:
+                raise CenterError("INVALID_REQUEST", "Environment revision is required")
+            self._expected(body, saved)
+            if action == "connect" and (any(row["state"] in OPEN for row in tx.list("requests"))
+                    or any(row.get("state") in {"preparing", "running"} for row in tx.list("operations"))
+                    or domain != self.domain and tx.list("runtimes")):
+                raise CenterError("EXECUTION_DOMAIN_CONFLICT", "Resolve existing work before connecting an environment", 409)
+        adapter = PosixAdapter(self.framework_root, domain)
+        checks = center_environment.check(adapter)
+        result = {"domain": domain, "checks": checks, "ready": all(item["ok"] for item in checks),
+                  "revision": saved["revision"]}
+        if action == "check":
+            return result
+        if not result["ready"]:
+            raise CenterError("ENVIRONMENT_UNAVAILABLE", "Selected environment checks failed", 409, {"checks": checks})
+        # Acquire _mutex before _prepare_mutex (matching preparation_action lock order)
+        # only for the brief commit after slow WSL/POSIX checks complete.
         with self._mutex, self._prepare_mutex:
             with self.store.transaction() as tx:
-                if action == "connect":
-                    key, body_hash, previous = self._idempotent(tx, "environment/connect", body)
-                    if previous:
-                        return previous
-                saved = self._environment_record(tx)
-                if self._revision_value(body, "expectedRevision") is None:
-                    raise CenterError("INVALID_REQUEST", "Environment revision is required")
-                self._expected(body, saved)
-                if action == "connect" and (any(row["state"] in OPEN for row in tx.list("requests"))
+                key, body_hash, previous = self._idempotent(tx, "environment/connect", body)
+                if previous:
+                    return previous
+                current = self._environment_record(tx)
+                self._expected(body, current)
+                if (any(row["state"] in OPEN for row in tx.list("requests"))
                         or any(row.get("state") in {"preparing", "running"} for row in tx.list("operations"))
                         or domain != self.domain and tx.list("runtimes")):
                     raise CenterError("EXECUTION_DOMAIN_CONFLICT", "Resolve existing work before connecting an environment", 409)
-            adapter = PosixAdapter(self.framework_root, domain)
-            checks = center_environment.check(adapter)
-            result = {"domain": domain, "checks": checks, "ready": all(item["ok"] for item in checks),
-                      "revision": saved["revision"]}
-            if action == "check":
-                return result
-            if not result["ready"]:
-                raise CenterError("ENVIRONMENT_UNAVAILABLE", "Selected environment checks failed", 409, {"checks": checks})
-            with self.store.transaction() as tx:
                 self._pause(tx, "environment_connected")
-                result["revision"] += 1
+                result["revision"] = current["revision"] + 1
                 tx.put("controls", "execution_domain", {"domain": domain, "revision": result["revision"], "checks": checks})
                 self._remember(tx, key, body_hash, result)
             self.domain, self.adapter = domain, adapter
-            return result
+            self._invalidate_capability_cache()
+        return result
 
     def preflight(self, body=None):
         body = body or {}
@@ -367,7 +447,8 @@ class CenterRuntime:
         from center_paths import resolve_import_path
         with self._mutex, self.store.transaction() as tx:
             environment = self._environment_record(tx)
-            return resolve_import_path(root, self.domain, environment["revision"], self.adapter)
+            domain, adapter = self.domain, self.adapter
+        return resolve_import_path(root, domain, environment["revision"], adapter)
 
     def execution_query(self, source_id, query, **kwargs):
         if isinstance(source_id, dict):
@@ -788,28 +869,33 @@ class CenterRuntime:
         owned = executable
         observation = {}
         if source and self.adapter.available and owned:
-            try:
-                observation = self.execution_query(source["sourceId"], "capabilities")
-            except subprocess.CalledProcessError as exc:
-                if (exc.stderr or "").strip() == "Center admission/runtime refused: ownership_changed":
-                    observation = {"context": {"valid": False, "reason": "ownership_changed"}}
-                else:
-                    observation = {}
-            except (CenterError, OSError, ValueError, subprocess.SubprocessError):
-                observation = {}
+            def _load_owned():
+                try:
+                    return self.execution_query(source["sourceId"], "capabilities")
+                except subprocess.CalledProcessError as exc:
+                    if (exc.stderr or "").strip() == "Center admission/runtime refused: ownership_changed":
+                        return {"_cacheable": False, "context": {"valid": False, "reason": "ownership_changed"}}
+                    return {}
+                except (CenterError, OSError, ValueError, subprocess.SubprocessError):
+                    return {}
+            observation = self._cached_capabilities(source["sourceId"], source["root"], True, _load_owned)
         context = observation.get("context") or {"valid": False, "reason": "context_unavailable"}
         if source and source.get("productId") and context.get("valid") and context.get("productId") != source["productId"]:
             context = {"valid": False, "reason": "product_registration_invalid"}
         control_compatible = observation.get("compatible", False)
         execution_reason = context.get("reason") if not context.get("valid") else "runtime_incompatible" if not control_compatible else observation.get("protectiveReason") or observation.get("governanceReason")
         if source and not (runtime and runtime.get("managed")) and self.adapter.available:
-            try:
-                observation = self.adapter.query("query", root=source["root"], query="capabilities")
+            def _load_unmanaged():
+                try:
+                    return self.adapter.query("query", root=source["root"], query="capabilities")
+                except (CenterError, OSError, ValueError, subprocess.SubprocessError):
+                    return None
+            unmanaged = self._cached_capabilities(source["sourceId"], source["root"], False, _load_unmanaged)
+            if unmanaged is not None:
+                observation = unmanaged
                 context = observation.get("context") or {"valid": False, "reason": "context_unavailable"}
                 control_compatible = observation.get("compatible", False)
                 execution_reason = context.get("reason") if not context.get("valid") else "runtime_incompatible" if not control_compatible else observation.get("protectiveReason") or observation.get("governanceReason")
-            except (CenterError, OSError, ValueError, subprocess.SubprocessError):
-                pass
         executable = owned and execution_reason is None
         takeover = False
         if source and not (runtime and runtime.get("managed")) and self.adapter.available and entry.get("kind") in {"product", "exploration"} and entry.get("availability") == "available" and not entry.get("archived"):
@@ -973,12 +1059,38 @@ class CenterRuntime:
         tx.put("controls", request["dispatchId"], {"stop": True, "reason": reason, "requestId": request["requestId"], "dispatchId": request["dispatchId"]})
         return request
 
-    def request_action(self, request_id, action, body):
+    def _request_control(self, request_id, action, body):
         with self._mutex:
             with self.store.transaction() as tx:
                 key, body_hash, previous = self._idempotent(tx, request_id + "/" + action, body)
                 if previous:
-                    return tx.get("requests", request_id)
+                    return self._request_view(tx, tx.get("requests", request_id))
+                request = tx.get("requests", request_id)
+                if not request:
+                    raise CenterError("NOT_FOUND", "Request not found", 404)
+                self._expected(body, request)
+                if request["state"] != "running" or not recently_confirmed(request) or request.get("stopRequested"):
+                    raise CenterError("ACTIVE_OWNER_REQUIRED", "Only a confirmed running request can pause after its cycle", 409)
+                if body.get("expectedDispatchId") not in {None, request["dispatchId"]}:
+                    raise CenterError("DISPATCH_CONFLICT", "Dispatch identity changed", 409)
+            entry, source, runtime = self._source(request["entryId"], request["sourceId"])
+            result = self._source_control(entry, source, runtime, action, {**body, "expectedDispatchId": request["dispatchId"]}, (key, body_hash))
+            with self.store.transaction() as tx:
+                request = tx.get("requests", request_id)
+                request["pauseAfterCycle"] = result.get("pauseAfterCycle")
+                request["revision"] += 1
+                tx.put("requests", request_id, request)
+                self._event(tx, request, request["state"], "local_operator_intent", action, body)
+            return self.get_request(request_id)
+
+    def request_action(self, request_id, action, body):
+        if action in {"pause-after-cycle", "cancel-pause-after-cycle"}:
+            return self._request_control(request_id, action, body)
+        with self._mutex:
+            with self.store.transaction() as tx:
+                key, body_hash, previous = self._idempotent(tx, request_id + "/" + action, body)
+                if previous:
+                    return self._request_view(tx, tx.get("requests", request_id))
                 request = tx.get("requests", request_id)
                 if not request:
                     raise CenterError("NOT_FOUND", "Request not found", 404)
@@ -1058,16 +1170,19 @@ class CenterRuntime:
             self._write_controls()
             return queue
 
+    def _preferences_view(self, tx, preferences):
+        defaults, origin = profiles.defaults(tx, preferences)
+        return {**preferences, "defaults": defaults, "defaultsOrigin": origin,
+                "templates": tx.list("templates"), "executionDomain": self.domain, "executionAvailable": self.adapter.available}
+
     def preferences(self, body=None):
         with self.store.transaction() as tx:
             preferences = tx.get("preferences", "main")
             if body is None:
-                defaults, origin = profiles.defaults(tx, preferences)
-                return {**preferences, "defaults": defaults, "defaultsOrigin": origin,
-                        "templates": tx.list("templates"), "executionDomain": self.domain, "executionAvailable": self.adapter.available}
+                return self._preferences_view(tx, preferences)
             key, body_hash, previous = self._idempotent(tx, "preferences", body)
             if previous:
-                return previous
+                return self._preferences_view(tx, preferences)
             self._expected(body, preferences)
             updates = body.get("preferences", {key: value for key, value in body.items() if key in preferences and key != "revision"})
             if not isinstance(updates, dict) or set(updates) - {"language", "productLanguage", "engine", "model", "effort"}:
@@ -1084,7 +1199,7 @@ class CenterRuntime:
                 candidate["lastConfig"] = {key: candidate[key] for key in profiles.FIELDS}
             tx.put("preferences", "main", candidate)
             self._remember(tx, key, body_hash, candidate)
-            return candidate
+            return self._preferences_view(tx, candidate)
 
     def template_action(self, body):
         with self.store.transaction() as tx:
@@ -1369,7 +1484,9 @@ class CenterRuntime:
                     if actual != revision or not (prepared / "scripts/core/center_runner.py").is_file():
                         raise CenterError("RUNTIME_INCOMPATIBLE", "Prepared framework identity differs", 409)
                     configuration = operation["input"]["config"]
-                    (prepared / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=" + configuration["productLanguage"] + "\n", encoding="utf-8")
+                    harness = harness_capability(prepared, configuration['engine'])['supported']
+                    (prepared / ".autonomous-company.local").write_text("AUTONOMOUS_COMPANY_LANGUAGE=" + configuration["productLanguage"] +
+                        "\nCOMPANY_HARNESS_ENABLED=" + ('1' if harness else '0') + "\n", encoding="utf-8")
                     if operation["input"]["direction"]:
                         consensus = prepared / "memories/consensus.md"
                         if not consensus.exists():
@@ -1395,7 +1512,8 @@ class CenterRuntime:
                 source = {"sourceId": reserved["sourceId"], "entryId": reserved["entryId"], "runtimeId": reserved["runtimeId"], "root": str(target),
                           "project": None, "productId": None, "explorationId": None, "kind": "exploration", "availability": "available",
                           "sourceRevision": 1, "revision": 1, "fingerprint": None, "identityFingerprint": None,
-                          "capabilities": {"readJournal": True, "readMedia": True, "execute": True, "preview": False, "capture": False}}
+                          "capabilities": {"readJournal": True, "readMedia": True, "execute": True, "preview": False, "capture": False,
+                                           "harness": harness_capability(target, operation['input']['config']['engine'])}}
                 runtime = {"runtimeId": reserved["runtimeId"], "root": str(target), "entryId": reserved["entryId"], "sourceId": reserved["sourceId"],
                            "centerId": self.store.center_id, "protocolVersion": 2, "managed": True, "executionDomain": self.domain, "frameworkRevision": revision, **attempt_identity}
                 with self.store.transaction() as tx:
@@ -1528,6 +1646,7 @@ class CenterRuntime:
                     tx.put("bindings", operation_id, binding)
                     operation.update(state="succeeded", endedAt=now(), runtimeId=runtime_id)
                     tx.put("operations", operation_id, operation)
+                self._invalidate_capability_cache(source_id)
                 return operation
             except Exception:
                 with self.store.transaction() as tx:
@@ -1729,6 +1848,8 @@ class CenterRuntime:
             control_dir = self._control(request)
             configuration = request["config"]
             environment = {"ENGINE": configuration["engine"], "MODEL": configuration["model"], "AUTONOMOUS_COMPANY_LANGUAGE": configuration["productLanguage"]}
+            if configuration['engine'] != 'codex':
+                environment['COMPANY_HARNESS_ENABLED'] = '0'
             if configuration["engine"] == "codex":
                 environment["CODEX_REASONING_EFFORT"] = configuration["effort"]
             manifest = {key: request[key] for key in ("requestId", "dispatchId", "nonce", "runtimeId", "entryId", "sourceId")}
@@ -1784,6 +1905,8 @@ class CenterRuntime:
                 if reason in {"budget_pause", "governance_pause"}:
                     state, terminal = "ended", reason
                     self._pause_request(tx, current, reason)
+                elif reason == "pause_after_cycle" and receipt.get("launched"):
+                    state, terminal = "ended", "pause_after_cycle"
                 elif reason in {"user_stop", "center_shutdown"} or current.get("stopRequested"):
                     state, terminal = "ended", "user_stop"
                     if reason != "user_stop":
@@ -1845,8 +1968,12 @@ class CenterRuntime:
             self._write_controls()
             with self.store.transaction() as tx:
                 requests = [row for row in tx.list("requests") if row["state"] in ACTIVE and row.get("dispatchId")]
+        with self._reconcile_lock:
             for request in requests:
+                if self._closing.is_set():
+                    return
                 self._reconcile(request)
+        with self._mutex:
             if not self._closing.is_set() and self.adapter.available:
                 self._dispatch()
 
@@ -1871,6 +1998,9 @@ class CenterRuntime:
             try:
                 self._write_controls()
             except Exception:
-                with self.store.transaction() as tx:
-                    self._pause(tx, "center_error")
+                try:
+                    with self.store.transaction() as tx:
+                        self._pause(tx, "center_error")
+                except Exception:
+                    pass
             self._closing.wait(1)

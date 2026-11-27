@@ -80,9 +80,9 @@ npm test
 浏览器验收使用 Playwright，仅为开发工具。依赖和浏览器缓存可限定在产品目录内：
 
 ```sh
-npm ci --cache .cache/npm
-PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright npx playwright install chromium
-npm run test:browser
+pnpm install --frozen-lockfile
+PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright pnpm exec playwright install chromium
+pnpm run test:browser
 ```
 
 浏览器脚本自动启动并关闭临时回环静态服务；截图和下载报告保存在忽略的 `test-artifacts/`。测试默认使用 `.cache/ms-playwright`，也可通过 `PLAYWRIGHT_BROWSERS_PATH` 指定已有安装路径。

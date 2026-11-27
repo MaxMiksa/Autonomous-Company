@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_budget_args(check)
     check.add_argument("--date", default=date.today().isoformat())
     check.add_argument("--result-format", choices=("json", "state"), default="json")
+    check.add_argument("--preserve-resume", action="store_true", help="check before dispatch without consuming its one-use acknowledgement")
 
     begin = subparsers.add_parser("begin", help="persist a cycle identity before starting a provider")
     _add_common_paths(begin)
@@ -140,7 +141,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "check":
-            budget = check_budget(args.ledger, budget_config=_budget_config(args), pause_path=args.pause_file, target_date=args.date)
+            budget = check_budget(args.ledger, budget_config=_budget_config(args), pause_path=args.pause_file, target_date=args.date,
+                                  consume_resume=not args.preserve_resume)
             print(budget["state"] if args.result_format == "state" else json.dumps(budget, ensure_ascii=False, indent=2))
             return 0
 
