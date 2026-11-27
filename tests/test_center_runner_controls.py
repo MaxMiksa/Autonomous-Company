@@ -286,7 +286,9 @@ class RunnerControlsTests(unittest.TestCase):
         self.interrupt()
         review = self.action("review_recovery")
         self.assertTrue(review["recoveryComplete"])
-        self.assertEqual(review["nextContract"], {"workKind": "direction", "objective": "Bounded managed direction"})
+        self.assertEqual(review["nextContract"]["workKind"], "direction")
+        self.assertEqual(review["nextContract"]["objective"], "Bounded managed direction")
+        self.assertTrue(review["nextContract"].get("contractHash"))
         reconciled = tstore.snapshot()["cycles"][-1]
         self.assertEqual((reconciled["protocolState"], reconciled["outcome"]), ("closed", "interrupted"))
 
@@ -351,12 +353,14 @@ class RunnerControlsTests(unittest.TestCase):
         review = self.action("review_recovery")
         review_path = control_path(self.root, REVIEW_FILE)
         saved_review = json.loads(review_path.read_text(encoding="utf-8"))
-        saved_review["nextContract"] = {"workKind": "direction", "objective": "Different objective"}
+        saved_review["nextContract"]["scope"] = ["tampered-scope"]
         review_path.write_text(json.dumps(saved_review), encoding="utf-8")
         with self.assertRaises(ValueError) as err:
             self.action("confirm_recovery", reviewToken=review["reviewToken"],
                         productCodeReviewed=True, externalEffectsReviewed=True)
         self.assertIn("recovery_review_changed", str(err.exception))
+        # Approval must NOT be persisted in SQLite when expected nextContract mismatches.
+        self.assertFalse(tstore.snapshot()["cycles"][-1]["continuationDecision"]["allowed"])
 
 
 if __name__ == "__main__":

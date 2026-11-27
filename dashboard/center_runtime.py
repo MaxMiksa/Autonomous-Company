@@ -230,6 +230,8 @@ class CenterRuntime:
         self._reconcile_lock = threading.Lock()
         self._capability_lock = threading.Lock()
         self._capability_cache = {}
+        self._capability_seq = {}
+        self._capability_epoch = 0
         self._session_id = uid("session")
         self._closing = threading.Event()
         self._thread = None
@@ -298,8 +300,12 @@ class CenterRuntime:
     def _invalidate_capability_cache(self, source_id=None):
         with self._capability_lock:
             if source_id is None:
+                self._capability_epoch += 1
                 self._capability_cache.clear()
+                for key in list(self._capability_seq):
+                    self._capability_seq[key] += 1
             else:
+                self._capability_seq[source_id] = self._capability_seq.get(source_id, 0) + 1
                 for key in [item for item in self._capability_cache if item[0] == source_id]:
                     self._capability_cache.pop(key, None)
 
@@ -325,15 +331,21 @@ class CenterRuntime:
             entry = self._capability_cache.get(key)
             if entry and now_mono < entry[0]:
                 return dict(entry[1])
+            epoch = self._capability_epoch
+            seq = self._capability_seq.get(source_id, 0) + 1
+            self._capability_seq[source_id] = seq
         value = loader()
         cacheable = isinstance(value, dict) and bool(value) and value.get("_cacheable") is not False and value.get("pauseReason") != "interrupted_cycle"
         result = {k: v for k, v in value.items() if k != "_cacheable"} if isinstance(value, dict) else value
         now_mono = time.monotonic()
         with self._capability_lock:
-            for existing_key in [k for k, v in self._capability_cache.items() if k[0] == source_id or now_mono >= v[0]]:
+            for existing_key in [k for k, v in self._capability_cache.items() if now_mono >= v[0]]:
                 self._capability_cache.pop(existing_key, None)
-            if cacheable:
-                self._capability_cache[key] = (now_mono + 5.0, dict(result))
+            if self._capability_epoch == epoch and self._capability_seq.get(source_id) == seq:
+                for existing_key in [k for k in self._capability_cache if k[0] == source_id]:
+                    self._capability_cache.pop(existing_key, None)
+                if cacheable:
+                    self._capability_cache[key] = (now_mono + 5.0, dict(result))
         return result
 
     def environment(self):

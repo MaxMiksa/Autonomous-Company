@@ -157,7 +157,8 @@ class CenterCatalog:
             metadata = scoped.project()
             items.append({'itemId': identity, 'kind': row['kind'], 'productId': identity if row['kind'] == 'product' else None,
                           'explorationId': identity if row['kind'] == 'exploration' else row.get('explorationId'),
-                          'project': project, 'displayName': metadata['displayName'], 'description': metadata['description'],
+                          'project': project, 'projectDirPresent': bool(project and (root / project).is_dir()),
+                          'displayName': metadata['displayName'], 'description': metadata['description'],
                           'identityFingerprint': digest({'id': identity, 'kind': row['kind']}),
                           'cycleEvidence': {key: digest(value) for key, value in state['cycles'].items() if value['identityId'] == identity},
                           'linkedProductId': row.get('linkedProductId'), 'cycleCount': row['lastCycleNumber']})
@@ -285,7 +286,7 @@ class CenterCatalog:
             for item in candidate['items']:
                 if item['itemId'] not in selected:
                     continue
-                if item.get('project') and not (Path(candidate['root']) / item['project']).is_dir():
+                if item.get('projectDirPresent') and item.get('project') and not (Path(candidate['root']) / item['project']).is_dir():
                     raise CenterError('SOURCE_CHANGED', 'Directory is no longer available; probe again.', 409)
                 entries, sources = tx.list('entries'), tx.list('sources')
                 duplicate = next((row for row in sources if os.path.normcase(row['root']) == os.path.normcase(candidate['root'])
@@ -950,8 +951,13 @@ class CenterCatalog:
                         raise CenterError('IDEMPOTENCY_CONFLICT', 'This key has different input.', 409)
                     return prior['result']
             source = tx.get('sources', source_id)
-            if not source:
+            if not source or source.get('detached'):
                 raise CenterError('SOURCE_NOT_FOUND', 'Source is unavailable.', 404)
+            entry = tx.get('entries', source['entryId'])
+            if not entry or entry.get('detached'):
+                raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
+            if entry.get('deletionInProgress'):
+                raise CenterError('ACTION_IN_PROGRESS', 'This project is currently being permanently deleted.', 409)
             expected = body.get('expectedRevision')
             if expected is not None and (type(expected) is not int or not 0 <= expected <= 9007199254740991):
                 raise CenterError('INVALID_REQUEST', 'Expected revision must be an integer.')

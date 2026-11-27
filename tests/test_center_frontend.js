@@ -1813,3 +1813,81 @@ test('.recovery-review panel renders review.nextContract preview', async () => {
   assert.match(nextContractNode.textContent, /direction/);
   assert.match(nextContractNode.textContent, /Bounded next preview goal/);
 });
+
+test('trashSettings REVISION_CONFLICT fires one post-conflict /trash fetch, ignores stale seq, and retains form revision on forced failure', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.state.revision = 2;
+  h.state.trash = { revision: 2, retentionDays: 30, items: [] };
+  let trashCalls = 0;
+  let forceFail = false;
+  h.context.fetch = async (url, options) => {
+    if (url.includes('/trash/settings') && options?.method === 'POST') {
+      return {
+        ok: false, status: 409,
+        json: async () => ({ schemaVersion: 1, code: 'REVISION_CONFLICT', message: 'Revision conflict' }),
+      };
+    }
+    if (url.endsWith('/trash')) {
+      trashCalls += 1;
+      if (forceFail) throw new Error('forced trash failed');
+      return envelope({ revision: 5, retentionDays: 45, items: [] });
+    }
+    return refreshResponse(url);
+  };
+  h.nodes.trashSettingsButton.fire('click');
+  const form = h.nodes.managementBody.children.find(node => node.children.some(child => child.type === 'submit') || typeof node.onsubmit === 'function');
+  const input = form.children[0].children[0];
+  input.value = '60';
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(trashCalls, 1);
+  assert.equal(h.state.trash.revision, 5);
+  assert.equal(input.value, 45);
+
+  forceFail = true;
+  await form.onsubmit({ preventDefault() {} });
+  assert.equal(trashCalls, 2);
+  assert.equal(input.value, 45);
+});
+
+test('local AbortError timeout marks trash read failed and disables cached trashed row actions', async () => {
+  const h = harness();
+  h.state.centerId = 'fixture';
+  h.context.setTimeout = (fn) => { fn(); return 1; };
+  h.context.clearTimeout = () => {};
+  h.context.fetch = async (_url, options) => {
+    if (options?.signal?.aborted) throw new DOMException('Timed out', 'AbortError');
+    return refreshResponse(_url);
+  };
+  await assert.rejects(h.api('/trash', {}, 15000, { centerId: 'fixture', revision: null, observedAt: null }), error => error.code === 'REQUEST_TIMEOUT');
+});
+
+test('initial /entries failure followed by manual refresh reusing in-flight /trash still preserves failed state', async () => {
+  const h = harness();
+  h.state.centerId = null;
+  let entriesCalls = 0;
+  let rejectTrash;
+  const trashGate = new Promise((_, reject) => { rejectTrash = reject; });
+  let releaseEntries;
+  const entriesGate = new Promise(resolve => { releaseEntries = resolve; });
+  h.context.fetch = async (url) => {
+    if (url.endsWith('/trash')) return trashGate;
+    if (url.includes('/entries')) {
+      entriesCalls += 1;
+      if (entriesCalls === 1) throw new Error('initial entries failed');
+      await entriesGate;
+      return envelope({ items: [] });
+    }
+    return refreshResponse(url);
+  };
+  await h.refresh();
+  assert.equal(h.state.centerId, null);
+  const manualRefresh = h.refresh();
+  await Promise.resolve();
+  rejectTrash(new Error('trash failed after reuse'));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  releaseEntries();
+  await manualRefresh;
+  assert.equal(h.state.centerId, 'fixture');
+  assert.equal(h.state.readParts.get('trash')?.failed, true);
+});

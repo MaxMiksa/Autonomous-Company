@@ -1615,10 +1615,18 @@ def source_control(manifest_path):
                     "AUTONOMOUS_COMPANY_RECOVERY_CENTER_ID": marker["centerId"],
                     "AUTONOMOUS_COMPANY_RECOVERY_RUNTIME_ID": marker["runtimeId"],
                 }
-                approve_res = subprocess.run([sys.executable, str(root / "scripts/core/company_harness_runner.py"),
-                    "--root", str(root), "approve-recovery", "--review-token", review["reviewToken"],
-                    "--reason", "center_human_confirmed"],
-                    cwd=root, env=recovery_env, pass_fds=(slot_fd,), capture_output=True, text=True, timeout=30, check=True)
+                cmd = [sys.executable, str(root / "scripts/core/company_harness_runner.py"),
+                       "--root", str(root), "approve-recovery", "--review-token", review["reviewToken"],
+                       "--reason", "center_human_confirmed"]
+                if review.get("nextContract") is not None:
+                    cmd.extend(["--expected-next-contract", json.dumps(review["nextContract"], sort_keys=True, ensure_ascii=False)])
+                try:
+                    approve_res = subprocess.run(cmd, cwd=root, env=recovery_env, pass_fds=(slot_fd,),
+                                                 capture_output=True, text=True, timeout=30, check=True)
+                except subprocess.CalledProcessError as error:
+                    if "RECOVERY_CONTRACT_CHANGED" in (error.stderr or ""):
+                        raise ValueError("recovery_review_changed") from error
+                    raise
                 approve_data = json.loads(approve_res.stdout or "{}")
                 if "nextContract" in review and review.get("nextContract") is not None and approve_data.get("nextContract") != review.get("nextContract"):
                     raise ValueError("recovery_review_changed")

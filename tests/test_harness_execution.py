@@ -1252,6 +1252,22 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(cycle["attempts"][0]["actualResult"]["providerInvoked"], False)
         self.assertFalse(any(runner.host_path(self.root, "").glob("*.launch.json")))
 
+        # Failure while writing .prompt.json also rolls back activeAttemptId and cleans host files.
+        orig_write = runner.write_fact
+        def fail_prompt(path, value):
+            if str(path).endswith(".prompt.json"):
+                raise OSError("prompt write failed")
+            return orig_write(path, value)
+        self.store.begin_recovery(self.cycle_id, "rec-prompt-fail", budget_seconds=60, reason="retry")
+        with patch.dict(os.environ, env), patch.object(runner, "write_fact", side_effect=fail_prompt):
+            with self.assertRaisesRegex(OSError, "prompt write failed"):
+                runner.begin_attempt(self.store, self.root, self.cycle_id)
+        cycle2 = runner.row(self.store, self.cycle_id)
+        self.assertIsNone(cycle2["activeAttemptId"])
+        self.assertEqual(len(cycle2["attempts"]), 2)
+        self.assertEqual(cycle2["attempts"][1]["actualResult"]["outcome"], "not_started")
+        self.assertFalse(any(runner.host_path(self.root, "").glob("*.prompt.json")))
+
     def test_recover_stopped_cycles_closes_zero_attempt_unstarted_result(self):
         runner.write_fact(
             runner.host_path(self.root, self.cycle_id + ".result.json"),
@@ -1262,6 +1278,29 @@ class RunnerTests(unittest.TestCase):
         cycle = runner.row(self.store, self.cycle_id)
         self.assertEqual(cycle["protocolState"], "closed")
         self.assertEqual(cycle["outcome"], "failed")
+
+        # Also recovers a cycle that has a rolled-back not_started attempt + providerInvoked=False .result.json.
+        id_rb = reserve_cycle(self.root, "", "rolledback-cycle", 2)["cycleId"]
+        self.store.create_cycle({
+            "cycleId": id_rb, "explorationId": self.store.snapshot()["cycles"][0]["explorationId"],
+            "sequenceNumber": 2, "runCycleNumber": 2, "objective": "Rolled back cycle",
+            "workKind": "research", "artifactKind": "research", "scope": ["s"],
+            "inputRefs": [], "prerequisiteRefs": [], "completionOrHandoff": "note",
+        })
+        att_rb = self.store.begin_attempt(id_rb, "att-rb-1", {"dispatchId": "owned"})
+        self.store.finish_attempt(
+            att_rb["context"], {"outcome": "not_started", "exitCode": None, "providerInvoked": False},
+            writers_stopped=True, observation={"type": "prepare_rollback", "checkedAt": runner.now()},
+        )
+        runner.write_fact(
+            runner.host_path(self.root, id_rb + ".result.json"),
+            {"cycleId": id_rb, "outcome": "not_started", "providerInvoked": False,
+             "submissionId": None, "validSubmission": False, "evidenceRefs": []},
+        )
+        runner.recover_stopped_cycles(self.store, self.root)
+        closed_rb = runner.row(self.store, id_rb)
+        self.assertEqual(closed_rb["protocolState"], "closed")
+        self.assertEqual(closed_rb["outcome"], "failed")
 
     def test_approve_recovery_atomic_failure_and_next_contract_uses_bound_contract(self):
         with tempfile.TemporaryDirectory(prefix="harness-bound-rec-") as tmp:
@@ -1330,7 +1369,10 @@ class RunnerTests(unittest.TestCase):
                 **{k: att["context"][k] for k in ("cycleId", "attemptId", "generation")},
                 "collected": True, "docsRoot": str(docs), "versions": versions,
             })
-            with patch.object(hquality, "prepare_contract", side_effect=HarnessError("EVIDENCE_VERSION_MISMATCH", f"{att_id}: stale file")):
+            with patch.object(
+                hquality, "prepare_contract",
+                side_effect=HarnessError("EVIDENCE_VERSION_MISMATCH", f"evidence-{att_id}-" + (chr(ord("a") + idx - 1) * 64) + "-1234567890ab"),
+            ):
                 res = runner.finish_attempt(
                     self.store,
                     self.root,

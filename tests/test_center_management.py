@@ -535,6 +535,135 @@ class DeleteConcurrencyTests(ManagementTests):
             self.assertFalse(saved.get('detached'))
             self.assertEqual(saved['trashError']['code'], 'DELETE_FAILED')
 
+    def test_live_prelock_helper_receipt_preserves_deletion_in_progress_and_missing_dir_cleanup_recovers(self):
+        import zipfile
+        import center_directory_delete as cdd
+        entry, source = self.entry(managed=True)
+        root = Path(source['root'])
+        rid = source['runtimeId']
+        marker = {
+            'centerId': self.store.center_id, 'entryId': entry['entryId'], 'sourceId': source['sourceId'],
+            'runtimeId': rid, 'operationId': 'operation-abcdefgh', 'protocolVersion': 2,
+        }
+        (root / '.autonomous-company-center.json').write_text(json.dumps(marker), encoding='utf-8')
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        receipt_path = self.store.data_dir / 'deletion-receipts' / f'{rid}.json'
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.store.transaction() as tx:
+            row = tx.get('entries', entry['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'crashed-proc'}
+            tx.put('entries', entry['entryId'], row)
+
+        # 1. Pre-lock preparing receipt with live PID preserves deletionInProgress even if preflight returns quiescent.
+        receipt_path.write_text(json.dumps({
+            'marker': {k: marker[k] for k in ('centerId', 'runtimeId', 'entryId', 'sourceId', 'operationId')},
+            'state': 'preparing', 'stage': 'preflight', 'pid': os.getpid(), 'processStart': cdd._process_start(os.getpid()),
+        }), encoding='utf-8')
+        restarted = CenterManagement(self.store, self.catalog, self.runtime)
+        with patch.object(self.runtime.adapter, 'query', return_value={'quiescent': True}):
+            listing = restarted.trash()
+        self.assertIn('deletionInProgress', listing['items'][0])
+
+        # 2. Missing dir after cleanupStarted with dead helper recovers to DELETE_INTERRUPTED and retries cleanly.
+        evidence_path = self.store.data_dir / 'deletion-evidence' / f'{rid}.zip'
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(evidence_path, 'w') as zf:
+            zf.writestr('.autonomous-company-center.json', json.dumps(marker))
+        import shutil
+        shutil.rmtree(root)
+        receipt_path.write_text(json.dumps({
+            'marker': {k: marker[k] for k in ('centerId', 'runtimeId', 'entryId', 'sourceId', 'operationId')},
+            'fullMarker': marker, 'root': str(root), 'cleanupStarted': True, 'state': 'deleting',
+            'stage': 'remove_root', 'pid': 99999999, 'processStart': 'dead-start', 'evidence': str(evidence_path),
+        }), encoding='utf-8')
+        listing2 = restarted.trash()
+        self.assertNotIn('deletionInProgress', listing2['items'][0])
+        self.assertEqual(listing2['items'][0]['trashError']['code'], 'DELETE_INTERRUPTED')
+        with patch.object(self.management, '_delete_directory', return_value=str(evidence_path)):
+            with patch.object(restarted, '_delete_directory', return_value=str(evidence_path)):
+                result = restarted.entry_action(entry['entryId'], 'delete', {
+                    'confirmPermanent': True, 'expectedRevision': listing2['items'][0]['revision'],
+                })
+        self.assertTrue(result['detached'])
+
+    def test_registered_subdirectory_blocks_parent_deletion_with_shared_runtime(self):
+        entry, source = self.entry(managed=True)
+        parent_root = Path(source['root'])
+        sub_dir = parent_root / 'nested-registered'
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        with self.store.transaction() as tx:
+            tx.put('sources', 'source-child-sub', {
+                'sourceId': 'source-child-sub', 'entryId': 'entry-other-sub', 'root': str(sub_dir),
+                'revision': 1, 'sourceRevision': 1, 'availability': 'available', 'detached': False,
+            })
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        with self.assertRaises(CenterError) as err:
+            self.management.entry_action(entry['entryId'], 'delete', {'confirmPermanent': True, 'expectedRevision': trashed['revision']})
+        self.assertEqual(err.exception.code, 'SHARED_RUNTIME')
+        self.assertTrue(parent_root.is_dir())
+
+    def test_historical_removed_product_imports_and_reconnect_during_deletion_rejected(self):
+        import shutil
+        from product_identity import register_project
+
+        # Historical removed product dir absent at probe time still commits cleanly.
+        hist_ws = self.base / 'hist-ws'
+        (hist_ws / 'projects/removed-prod/.git').mkdir(parents=True)
+        (hist_ws / 'projects/removed-prod/README.md').write_text('# Old\n', encoding='utf-8')
+        register_project(hist_ws, 'projects/removed-prod')
+        shutil.rmtree(hist_ws / 'projects/removed-prod')
+        cand = self.catalog.probe({'root': str(hist_ws)})
+        self.assertEqual(cand['items'][0].get('projectDirPresent'), False)
+        committed = self.catalog.commit({'candidateId': cand['candidateId'], 'candidateHash': cand['candidateHash']})
+        self.assertEqual(len(committed['items']), 1)
+
+        # reconnect during deletionInProgress must be rejected with ACTION_IN_PROGRESS.
+        reloc_ws = self.base / 'reloc-ws'
+        (reloc_ws / 'projects/pm/.git').mkdir(parents=True)
+        (reloc_ws / 'projects/pm/README.md').write_text('# Reloc\n', encoding='utf-8')
+        register_project(reloc_ws, 'projects/pm')
+        rcand = self.catalog.probe({'root': str(reloc_ws)})
+        rcommit = self.catalog.commit({'candidateId': rcand['candidateId'], 'candidateHash': rcand['candidateHash']})['items'][0]
+        reloc_copy = self.base / 'reloc-copy'
+        shutil.copytree(reloc_ws, reloc_copy)
+        rcopy_cand = self.catalog.probe({'root': str(reloc_copy)})
+        with self.store.transaction() as tx:
+            row = tx.get('entries', rcommit['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'del-proc'}
+            tx.put('entries', rcommit['entryId'], row)
+        with self.assertRaises(CenterError) as rec_err:
+            self.catalog.reconnect(rcommit['sourceId'], {
+                'candidateId': rcopy_cand['candidateId'],
+                'candidateHash': rcopy_cand['candidateHash'],
+                'expectedRevision': 1,
+            })
+        self.assertEqual(rec_err.exception.code, 'ACTION_IN_PROGRESS')
+
+    def test_retry_delete_after_succeeded_receipt_is_idempotent(self):
+        import shutil
+        entry, source = self.entry(managed=True)
+        rid = source['runtimeId']
+        root = Path(source['root'])
+        trashed = self.management.entry_action(entry['entryId'], 'trash', {'confirm': True, 'expectedRevision': entry['revision']})
+        evidence_path = self.store.data_dir / 'deletion-evidence' / f'{rid}.zip'
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_bytes(b'PK\x05\x06' + b'\x00' * 18)
+        shutil.rmtree(root)
+        receipt_path = self.store.data_dir / 'deletion-receipts' / f'{rid}.json'
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps({
+            'state': 'succeeded', 'filesDeleted': True, 'evidence': str(evidence_path),
+        }), encoding='utf-8')
+        with self.store.transaction() as tx:
+            row = tx.get('entries', entry['entryId'])
+            row['deletionInProgress'] = {'startedAt': '2026-10-05T10:00:00+00:00', 'instanceId': 'crashed-proc'}
+            tx.put('entries', entry['entryId'], row)
+        restarted = CenterManagement(self.store, self.catalog, self.runtime)
+        retried = restarted.entry_action(entry['entryId'], 'delete', {
+            'confirmPermanent': True, 'expectedRevision': trashed['revision'],
+        })
+        self.assertTrue(retried['detached'])
+
 
 if __name__ == '__main__':
     unittest.main()

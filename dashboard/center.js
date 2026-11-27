@@ -21,7 +21,7 @@ window.DashboardNavigation.register('center', (view) => {
     autoRefresh: true,
     otherExpanded: false,
     sort: "activity", sortDirection: "desc", roundFilter: "all", previewMode: "screenshot",
-    readParts: new Map(), pendingParts: new Map(), stagedParts: new Map(),
+    readParts: new Map(), pendingParts: new Map(), stagedParts: new Map(), partSeq: new Map(),
   };
 
   const VIEW_STATE_KEY = "autonomous-company:center:view:v1";
@@ -112,7 +112,8 @@ window.DashboardNavigation.register('center', (view) => {
   async function api(path, options = {}, timeout = 30000, snapshot = null) {
     const controller = new AbortController();
     const request = view.request(controller, options);
-    const timer = setTimeout(() => controller.abort(), timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeout);
     try {
       const response = await fetch(`${API}${path}`, { cache: "no-store", ...options, signal: controller.signal });
       let payload;
@@ -133,6 +134,11 @@ window.DashboardNavigation.register('center', (view) => {
       // Partial refreshes cannot publish metadata for the data still on screen.
       if (!snapshot) { state.apiCenterId = target.centerId; state.apiRevision = target.revision; }
       return payload.data;
+    } catch (error) {
+      if (timedOut && error?.name === "AbortError") {
+        throw new APIError({ code: "REQUEST_TIMEOUT", messageKey: "requestFailed" }, 0);
+      }
+      throw error;
     } finally { clearTimeout(timer); request.done(); }
   }
 
@@ -909,12 +915,13 @@ window.DashboardNavigation.register('center', (view) => {
     }
     if (state.revision === null) state.stale = true;
   }
-  function installReadPart(kind, data, metadata, generation) {
+  function installReadPart(kind, data, metadata, generation, seq) {
     if (!view.active || generation !== state.writeGeneration) return;
+    if (seq !== undefined && state.partSeq.get(kind) !== seq) return;
     if (kind === 'entries') {
       if (state.centerId !== metadata.centerId) {
         const preservedFailed = state.centerId === null
-          ? [...state.readParts.entries()].filter(([, part]) => part?.failed && part.round === state.refreshToken)
+          ? [...state.readParts.entries()].filter(([, part]) => part?.failed && part.generation === generation)
           : [];
         state.centerId = metadata.centerId; state.readParts.clear();
         for (const [k, v] of preservedFailed) state.readParts.set(k, v);
@@ -922,10 +929,10 @@ window.DashboardNavigation.register('center', (view) => {
         state.revision = null; state.apiRevision = null; state.apiCenterId = metadata.centerId;
       }
     } else if (metadata.centerId !== state.centerId) {
-      state.stagedParts.set(kind, { data, metadata, generation }); return;
+      state.stagedParts.set(kind, { data, metadata, generation, seq }); return;
     }
     const previous = state.readParts.get(kind);
-    if (previous && metadata.revision < previous.revision) return;
+    if (previous && !previous.failed && metadata.revision !== null && previous.revision !== null && metadata.revision < previous.revision) return;
     state.readParts.set(kind, { ...metadata, receivedAt: Date.now(), failed: false });
     if (kind === 'entries') { state.entries = data.items; state.loading = false; }
     else if (kind === 'trash') state.trash = data;
@@ -938,7 +945,7 @@ window.DashboardNavigation.register('center', (view) => {
     if (kind === 'entries') {
       for (const [part, staged] of state.stagedParts) {
         state.stagedParts.delete(part);
-        if (staged.metadata.centerId === state.centerId) installReadPart(part, staged.data, staged.metadata, staged.generation);
+        if (staged.metadata.centerId === state.centerId) installReadPart(part, staged.data, staged.metadata, staged.generation, staged.seq);
       }
       if (state.restoreScroll !== null) { window.scrollTo(0, state.restoreScroll); state.restoreScroll = null; }
     }
@@ -946,20 +953,25 @@ window.DashboardNavigation.register('center', (view) => {
   function readPart(kind, path, force = false) {
     const generation = state.writeGeneration;
     const pending = state.pendingParts.get(kind);
-    if (!force && pending?.generation === generation) return pending.promise;
-    const metadata = { centerId: state.centerId, revision: null, observedAt: null, round: state.refreshToken };
+    if (!force && pending?.generation === generation) {
+      pending.metadata.round = state.refreshToken;
+      return pending.promise;
+    }
+    const seq = (state.partSeq.get(kind) || 0) + 1;
+    state.partSeq.set(kind, seq);
+    const metadata = { centerId: state.centerId, revision: null, observedAt: null, round: state.refreshToken, generation, seq };
     const promise = (async () => { try {
       const data = kind === 'entries' ? await allEntries(metadata) : await api(path, {}, 15000, metadata);
       if (kind !== 'summary' && kind !== 'preferences' && !Array.isArray(data?.items) || !data || !metadata.centerId) throw new APIError({ code: 'INVALID_RESPONSE' }, 200);
-      installReadPart(kind, data, metadata, generation);
+      installReadPart(kind, data, metadata, generation, seq);
     } catch (error) {
-      if (error.name !== 'AbortError' && view.active && generation === state.writeGeneration) {
-        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true, round: metadata.round });
+      if (error.name !== 'AbortError' && view.active && generation === state.writeGeneration && state.partSeq.get(kind) === seq) {
+        state.readParts.set(kind, { ...state.readParts.get(kind), failed: true, round: metadata.round, generation, seq });
         if (kind === 'entries') state.loading = false;
         updateReadHealth(); renderPage();
       }
     } finally { if (state.pendingParts.get(kind)?.promise === promise) state.pendingParts.delete(kind); } })();
-    state.pendingParts.set(kind, { promise, generation }); return promise;
+    state.pendingParts.set(kind, { promise, generation, metadata, seq }); return promise;
   }
   async function refresh() {
     if (!view.active) return;
@@ -1721,9 +1733,12 @@ window.DashboardNavigation.register('center', (view) => {
         } catch (error) {
           if (error?.code === "REVISION_CONFLICT") {
             state.writeGeneration += 1;
-            await Promise.allSettled([refresh(), readPart("trash", "/trash", true)]);
-            openedRevision = state.trash?.revision ?? openedRevision;
-            input.value = state.trash?.retentionDays ?? input.value;
+            const trashRead = readPart("trash", "/trash", true);
+            await Promise.allSettled([trashRead, refresh()]);
+            if (!state.readParts.get("trash")?.failed) {
+              openedRevision = state.trash?.revision ?? openedRevision;
+              input.value = state.trash?.retentionDays ?? input.value;
+            }
           }
           $("managementStatus").textContent = errorText(error);
         }

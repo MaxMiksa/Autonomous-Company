@@ -1313,6 +1313,46 @@ class GovernanceObservationTests(unittest.TestCase):
             self.assertEqual(result["seq"], index)
         self.assertEqual(len(fixture.runtime._capability_cache), 1)
 
+    def test_late_older_capability_loader_does_not_evict_newer_fingerprint_entry(self):
+        import threading
+        fixture = QueueTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        root = Path(fixture.a["root"])
+        (root / ".autonomous-company").mkdir(exist_ok=True)
+        (root / ".autonomous-company/product-state.json").write_text('{"v": 1}', encoding="utf-8")
+
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def slow_loader():
+            calls.append("old")
+            started.set()
+            release.wait(timeout=5)
+            return {"execute": True, "stop": False, "seq": 1}
+
+        results = {}
+        worker = threading.Thread(target=lambda: results.setdefault("old", fixture.runtime._cached_capabilities(
+            fixture.a["sourceId"], root, True, slow_loader
+        )))
+        worker.start()
+        self.assertTrue(started.wait(timeout=5))
+
+        (root / ".autonomous-company/product-state.json").write_text('{"v": 2, "pad": "longer"}', encoding="utf-8")
+        new_val = fixture.runtime._cached_capabilities(
+            fixture.a["sourceId"], root, True, lambda: (calls.append("new"), {"execute": True, "stop": False, "seq": 2})[1]
+        )
+        self.assertEqual(new_val["seq"], 2)
+        release.set()
+        worker.join(timeout=5)
+        self.assertEqual(results["old"]["seq"], 1)
+
+        cached = fixture.runtime._cached_capabilities(
+            fixture.a["sourceId"], root, True, lambda: (calls.append("unexpected"), {"execute": True, "stop": False, "seq": 3})[1]
+        )
+        self.assertEqual(cached["seq"], 2)
+        self.assertEqual(calls, ["old", "new"])
+
 
 class ExecutionContextTests(unittest.TestCase):
     def setUp(self):

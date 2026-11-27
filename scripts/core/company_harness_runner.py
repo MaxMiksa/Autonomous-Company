@@ -305,8 +305,64 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
             engine="codex", model=os.environ.get("MODEL_LABEL", os.environ.get("MODEL", "config-default")), metadata_raw="{}")
         record.update(record_role="harness_attempt", logical_cycle_id=cycle_id, attempt_id=attempt_id)
         begin_cycle(ledger, record)
+        prompt = "\n\n## Company Harness active contract\n" + json.dumps(cycle["contract"], ensure_ascii=False)
+        prompt += "\nThis contract is one primary deliverable. Stay inside its scope. Use python3 /workspace/scripts/core/company_harness_client.py. "
+        prompt += "For every action, --payload is a PATH to a UTF-8 JSON FILE, never an inline JSON string. "
+        prompt += "Publish progress with --id and --payload FILE (reportRevision,title,summary,reportedPhase,blocker). "
+        prompt += "reportedPhase must be one of " + ", ".join(PHASES) + "; it is distinct from workKind. "
+        prompt += 'Progress blocker is a string: use "" unless reportedPhase is blocked. '
+        prompt += "Before exit, submit --id STABLE_ID --result completed|partial|blocked|failed --evidence RELATIVE_PATH (repeatable). "
+        prompt += "Use --handoff RELATIVE_JSON_PATH for a file containing {nextContract:{objective,workKind,timeClass,scope,inputRefs,completionOrHandoff,prerequisiteRefs,reviewRequirement}}. "
+        prompt += "Evidence is versioned by actual SHA256 bytes. Read receipts; fix rejected requests within the same deadline. "
+        prompt += "Choose a single primary result using --primary PATH_OR_EVIDENCE_ID when providing multiple non-handoff materials; the client selects a unique non-handoff result automatically. "
+        prompt += "For a review cycle, --payload JSON must include review:{targetRefs:EXACT_REVIEW_TARGET_REFS,verdict:passed|changes_required|unverifiable,issues:[],qualityApplicability:[WORK_KINDS]}; use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs if unset) and the host binds actual independent reviewer identity. "
+        prompt += "qualityApplicability names the DOWNSTREAM workKinds this reviewed version is sufficient to enter, not the reviewed artifact kind. For example, a passed direction review enabling definition uses [\"definition\"], not [\"direction\"]. Name only the downstream scopes actually assessed; this does not approve their future outputs or waive other prerequisites. "
+        prompt += "After accepted submit, stop ALL business writes and exit immediately; do not wait for closed. Lost ACK: reuse the same submission ID/content or query status. "
+        prompt += "Do not invoke cycle_reports.py or create another deliverable/cycle. All teammate/tool work shares this deadline."
+        prompt += "\nRegular work targets 3–5 minutes (180–300 seconds); development uses an engineering target of 600 seconds. "
+        prompt += "Finish earlier when ready. If unfinished at the target, request_extension with reason and remainingSeconds; the fixed 480/720-second hard deadline never resets. "
+        prompt += "Every company_harness_client.py receipt reports remainingSeconds and timePhase (plus a stderr warning at <=120s); query status when unsure and stop feature work immediately at <=120s to generate handoff and submit."
+        prompt += "\nUse the READ-ONLY immutable input versions listed in /run/autonomous-company/harness-inputs/index.json. "
+        prompt += "Each entry maps evidenceId/SHA256/mediaType/sourceOutcome/isCompletedHead to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
+        handoff_path = protocol_handoff_path(attempt_id) if recovery else "docs/harness/" + attempt_id + "-handoff.json"
+        prompt += "\nCLI Quick Reference (do not inspect company_harness_client.py source or run --help; use these exact commands):"
+        prompt += "\n- Status: python3 /workspace/scripts/core/company_harness_client.py status"
+        prompt += "\n- Progress: python3 /workspace/scripts/core/company_harness_client.py publish_progress --id prog-1 --payload logs/prog.json"
+        prompt += "\n- Compile handoff: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md"
+        prompt += "\n- Submit: python3 /workspace/scripts/core/company_harness_client.py submit --id sub-1 --result completed --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + " --payload logs/submit.json"
+        prompt += "\nPrefer the deterministic handoff helper instead of hand-copying hashes. Write logs/next-plan.json with "
+        prompt += '{"contract":{"objective":"YOUR NEXT OUTCOME","workKind":"research","timeClass":"regular","scope":["AUTHORIZED SCOPE"],"completionOrHandoff":"USABLE RESULT","reviewRequirement":null},"inputs":[],"prerequisites":[]}. '
+        prompt += 'Choose the actual workKind/scope (for review with read-only background inputs, optionally list only reviewed items in "reviewTargets":[...]). Select historical refs as {"input":"EXACT file FROM index.json"}, listed local attachments as {"evidence":"docs/result-data.json"}, or the current primary as {"primary":true}. '
+        prompt += "The primary is automatically the first input. For a current independent review needed by the next stage, explicitly put {\"primary\":true} in prerequisites; host closure still decides applicability. "
+        prompt += "Run: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md (add --evidence PATH for attachments). "
+        prompt += "Use your actual primary path. The helper returns handoffPath=" + handoff_path + "; submit separately with --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + ". "
+        prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs) exactly; verdict/issues/applicability require actual independent assessment. "
+        prompt += "Serialize generation and submission. After accepted, never rerun the helper; query status or replay the original submit ID/content. The original handwritten handoff remains supported."
+        from company_harness_quality import ARTIFACTS, REQUIRED, artifact_state, progression_state
+        prompt += "\nAllowed workKind values: " + ", ".join([*ARTIFACTS, "revision"]) + ". revision also requires revisesKind naming its artifact kind. "
+        prompt += "Typed prerequisites (each requires current version inputRefs plus independent-review prerequisiteRefs): " + json.dumps(REQUIRED) + ". "
+        prompt += "Review/research/revision can recur; these are admission conditions, not a fixed cycle sequence."
+        scope = {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")}
+        heads_summary = artifact_state(store, scope)
+        prog_summary = progression_state(store, scope)
+        prompt += "\nCurrent artifact head status (partial cycles NEVER create a completed head; if a required artifactKind has no completed head, propose its original production workKind to finish the gap and submit completed—never propose review or revision): " + json.dumps(heads_summary, ensure_ascii=False)
+        prompt += "\nCurrent progression & anti-spin state: " + json.dumps(prog_summary, ensure_ascii=False)
+        if prog_summary.get("advisory"):
+            prompt += "\nANTI-SPIN ADVISORY: " + prog_summary["advisory"]
+        previous_result = host_path(root, cycle_id + ".result.json")
+        if previous_result.exists():
+            prompt += "\nPrior attempt's deterministic feedback (correct within this SAME deliverable): " + json.dumps(read_fact(previous_result), ensure_ascii=False)
+        if recovery:
+            prompt += "\nRECOVERY ONLY: products/docs/memories are kernel-mounted READ-ONLY. Inner mode is inherited, not automatically changed. "
+            prompt += "Reconcile existing work; never continue product development. Submit partial/blocked/failed, never completed. "
+            prompt += "For partial, cite an existing business artifact as primary and write ONLY the nextContract envelope to /workspace/" + protocol_handoff_path(attempt_id)
+            prompt += ". This attempt-only handoff.json is limited to 16 KiB and cannot be primary business evidence. Use --handoff for it; put transient client --payload JSON in logs if needed."
+        else:
+            prompt += "\nNORMAL EXECUTION: put transient --payload JSON in logs/ and the --handoff nextContract JSON in docs/ (for example docs/harness/next-contract.json). "
+            prompt += "Do not use .company-harness-protocol/ during normal execution; that collection route is reserved for recovery."
+        write_fact(host_path(root, attempt_id + ".prompt.json"), {"prompt": prompt})
     except BaseException:
-        for suffix in (".json", ".launch.json"):
+        for suffix in (".json", ".launch.json", ".prompt.json"):
             try:
                 host_path(root, attempt_id + suffix).unlink(missing_ok=True)
             except OSError:
@@ -318,62 +374,6 @@ def begin_prepared_attempt(store, root, cycle_id, cycle, limits, directory):
             observation={"type": "prepare_rollback", "checkedAt": now()},
         )
         raise
-    prompt = "\n\n## Company Harness active contract\n" + json.dumps(cycle["contract"], ensure_ascii=False)
-    prompt += "\nThis contract is one primary deliverable. Stay inside its scope. Use python3 /workspace/scripts/core/company_harness_client.py. "
-    prompt += "For every action, --payload is a PATH to a UTF-8 JSON FILE, never an inline JSON string. "
-    prompt += "Publish progress with --id and --payload FILE (reportRevision,title,summary,reportedPhase,blocker). "
-    prompt += "reportedPhase must be one of " + ", ".join(PHASES) + "; it is distinct from workKind. "
-    prompt += 'Progress blocker is a string: use "" unless reportedPhase is blocked. '
-    prompt += "Before exit, submit --id STABLE_ID --result completed|partial|blocked|failed --evidence RELATIVE_PATH (repeatable). "
-    prompt += "Use --handoff RELATIVE_JSON_PATH for a file containing {nextContract:{objective,workKind,timeClass,scope,inputRefs,completionOrHandoff,prerequisiteRefs,reviewRequirement}}. "
-    prompt += "Evidence is versioned by actual SHA256 bytes. Read receipts; fix rejected requests within the same deadline. "
-    prompt += "Choose a single primary result using --primary PATH_OR_EVIDENCE_ID when providing multiple non-handoff materials; the client selects a unique non-handoff result automatically. "
-    prompt += "For a review cycle, --payload JSON must include review:{targetRefs:EXACT_REVIEW_TARGET_REFS,verdict:passed|changes_required|unverifiable,issues:[],qualityApplicability:[WORK_KINDS]}; use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs if unset) and the host binds actual independent reviewer identity. "
-    prompt += "qualityApplicability names the DOWNSTREAM workKinds this reviewed version is sufficient to enter, not the reviewed artifact kind. For example, a passed direction review enabling definition uses [\"definition\"], not [\"direction\"]. Name only the downstream scopes actually assessed; this does not approve their future outputs or waive other prerequisites. "
-    prompt += "After accepted submit, stop ALL business writes and exit immediately; do not wait for closed. Lost ACK: reuse the same submission ID/content or query status. "
-    prompt += "Do not invoke cycle_reports.py or create another deliverable/cycle. All teammate/tool work shares this deadline."
-    prompt += "\nRegular work targets 3–5 minutes (180–300 seconds); development uses an engineering target of 600 seconds. "
-    prompt += "Finish earlier when ready. If unfinished at the target, request_extension with reason and remainingSeconds; the fixed 480/720-second hard deadline never resets. "
-    prompt += "Every company_harness_client.py receipt reports remainingSeconds and timePhase (plus a stderr warning at <=120s); query status when unsure and stop feature work immediately at <=120s to generate handoff and submit."
-    prompt += "\nUse the READ-ONLY immutable input versions listed in /run/autonomous-company/harness-inputs/index.json. "
-    prompt += "Each entry maps evidenceId/SHA256/mediaType/sourceOutcome/isCompletedHead to a readable file in that directory (including binary screenshots). Do not review a different mutable docs version."
-    handoff_path = protocol_handoff_path(attempt_id) if recovery else "docs/harness/" + attempt_id + "-handoff.json"
-    prompt += "\nCLI Quick Reference (do not inspect company_harness_client.py source or run --help; use these exact commands):"
-    prompt += "\n- Status: python3 /workspace/scripts/core/company_harness_client.py status"
-    prompt += "\n- Progress: python3 /workspace/scripts/core/company_harness_client.py publish_progress --id prog-1 --payload logs/prog.json"
-    prompt += "\n- Compile handoff: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md"
-    prompt += "\n- Submit: python3 /workspace/scripts/core/company_harness_client.py submit --id sub-1 --result completed --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + " --payload logs/submit.json"
-    prompt += "\nPrefer the deterministic handoff helper instead of hand-copying hashes. Write logs/next-plan.json with "
-    prompt += '{"contract":{"objective":"YOUR NEXT OUTCOME","workKind":"research","timeClass":"regular","scope":["AUTHORIZED SCOPE"],"completionOrHandoff":"USABLE RESULT","reviewRequirement":null},"inputs":[],"prerequisites":[]}. '
-    prompt += 'Choose the actual workKind/scope (for review with read-only background inputs, optionally list only reviewed items in "reviewTargets":[...]). Select historical refs as {"input":"EXACT file FROM index.json"}, listed local attachments as {"evidence":"docs/result-data.json"}, or the current primary as {"primary":true}. '
-    prompt += "The primary is automatically the first input. For a current independent review needed by the next stage, explicitly put {\"primary\":true} in prerequisites; host closure still decides applicability. "
-    prompt += "Run: python3 /workspace/scripts/core/company_harness_handoff.py --plan logs/next-plan.json --primary docs/result.md (add --evidence PATH for attachments). "
-    prompt += "Use your actual primary path. The helper returns handoffPath=" + handoff_path + "; submit separately with --primary docs/result.md --evidence docs/result.md --handoff " + handoff_path + ". "
-    prompt += "Also submit listed attachments. No document needs its own hash. For review payload targetRefs, use status.cycle.contract.reviewRequirement.targetRefs (or status.cycle.contract.inputRefs) exactly; verdict/issues/applicability require actual independent assessment. "
-    prompt += "Serialize generation and submission. After accepted, never rerun the helper; query status or replay the original submit ID/content. The original handwritten handoff remains supported."
-    from company_harness_quality import ARTIFACTS, REQUIRED, artifact_state, progression_state
-    prompt += "\nAllowed workKind values: " + ", ".join([*ARTIFACTS, "revision"]) + ". revision also requires revisesKind naming its artifact kind. "
-    prompt += "Typed prerequisites (each requires current version inputRefs plus independent-review prerequisiteRefs): " + json.dumps(REQUIRED) + ". "
-    prompt += "Review/research/revision can recur; these are admission conditions, not a fixed cycle sequence."
-    scope = {"productId": cycle.get("productId"), "explorationId": cycle.get("explorationId")}
-    heads_summary = artifact_state(store, scope)
-    prog_summary = progression_state(store, scope)
-    prompt += "\nCurrent artifact head status (partial cycles NEVER create a completed head; if a required artifactKind has no completed head, propose its original production workKind to finish the gap and submit completed—never propose review or revision): " + json.dumps(heads_summary, ensure_ascii=False)
-    prompt += "\nCurrent progression & anti-spin state: " + json.dumps(prog_summary, ensure_ascii=False)
-    if prog_summary.get("advisory"):
-        prompt += "\nANTI-SPIN ADVISORY: " + prog_summary["advisory"]
-    previous_result = host_path(root, cycle_id + ".result.json")
-    if previous_result.exists():
-        prompt += "\nPrior attempt's deterministic feedback (correct within this SAME deliverable): " + json.dumps(read_fact(previous_result), ensure_ascii=False)
-    if recovery:
-        prompt += "\nRECOVERY ONLY: products/docs/memories are kernel-mounted READ-ONLY. Inner mode is inherited, not automatically changed. "
-        prompt += "Reconcile existing work; never continue product development. Submit partial/blocked/failed, never completed. "
-        prompt += "For partial, cite an existing business artifact as primary and write ONLY the nextContract envelope to /workspace/" + protocol_handoff_path(attempt_id)
-        prompt += ". This attempt-only handoff.json is limited to 16 KiB and cannot be primary business evidence. Use --handoff for it; put transient client --payload JSON in logs if needed."
-    else:
-        prompt += "\nNORMAL EXECUTION: put transient --payload JSON in logs/ and the --handoff nextContract JSON in docs/ (for example docs/harness/next-contract.json). "
-        prompt += "Do not use .company-harness-protocol/ during normal execution; that collection route is reserved for recovery."
-    write_fact(host_path(root, attempt_id + ".prompt.json"), {"prompt": prompt})
     return manifest
 
 
@@ -771,6 +771,8 @@ def finish_attempt(store, root, attempt_id, metadata, proof):
     if result["action"] == "retry" and error:
         def _sig(text):
             normalized = re.sub(r"attempt-[0-9a-f]{8,}", "attempt-*", str(text or ""))
+            normalized = re.sub(r"(?<=attempt-\*-)[0-9a-f]{64}(?=-[0-9a-f]{12}\b)", "<sha256>", normalized)
+            normalized = re.sub(r"\b[0-9a-f]{64}\b", "<sha256>", normalized)
             parts = normalized.split(": ", 2)
             return ": ".join(parts[:2]) if len(parts) >= 2 else parts[0]
         cur_sig = _sig(error)
@@ -934,7 +936,28 @@ def abort_unstarted_cycle(store, root, cycle_id, reason="governance_admission_bl
     return result
 
 
-def approve_recovery(store, root, review_token, reason="human_recovery_approved"):
+def _contract_preview(planned):
+    canonical = {
+        "workKind": planned.get("workKind"),
+        "objective": planned.get("objective"),
+        "scope": planned.get("scope", []),
+        "inputRefs": planned.get("inputRefs", []),
+        "prerequisiteRefs": planned.get("prerequisiteRefs", []),
+        "completionOrHandoff": planned.get("completionOrHandoff", ""),
+        "project": planned.get("project", ""),
+    }
+    contract_hash = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "workKind": canonical["workKind"],
+        "objective": canonical["objective"],
+        "scope": canonical["scope"],
+        "inputRefs": canonical["inputRefs"],
+        "prerequisiteRefs": canonical["prerequisiteRefs"],
+        "contractHash": contract_hash,
+    }
+
+
+def approve_recovery(store, root, review_token, reason="human_recovery_approved", expected_next_contract=None):
     """Record operator confirmation after reconcile-crash so an interrupted identity can plan a new contract."""
     recovery_admission(root)
     if not review_token or not isinstance(review_token, str):
@@ -950,7 +973,14 @@ def approve_recovery(store, root, review_token, reason="human_recovery_approved"
             if any(not a.get("writersStopped") for a in latest["attempts"]):
                 raise HarnessError("WRITERS_UNCONFIRMED")
             planned = _plan_recovery_contract(store, root, latest)
-            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
+            next_summary = _contract_preview(planned)
+            if expected_next_contract is not None:
+                if (
+                    not isinstance(expected_next_contract, dict)
+                    or any(next_summary.get(k) != v for k, v in expected_next_contract.items())
+                    or ("contractHash" in expected_next_contract and expected_next_contract.get("contractHash") != next_summary.get("contractHash"))
+                ):
+                    raise HarnessError("RECOVERY_CONTRACT_CHANGED", "nextContract")
             basis = {
                 "operatorConfirmed": True,
                 "reviewToken": review_token,
@@ -973,7 +1003,13 @@ def recover_stopped_cycles(store, root):
     for cycle in store.snapshot()["cycles"]:
         if cycle["protocolState"] == "closed":
             continue
-        if not cycle["attempts"]:
+        all_unstarted = (not cycle["activeAttemptId"]) and all(
+            a.get("writersStopped")
+            and (a.get("actualResult") or {}).get("outcome") == "not_started"
+            and (a.get("actualResult") or {}).get("providerInvoked") is False
+            for a in cycle["attempts"]
+        )
+        if all_unstarted:
             result_path = host_path(root, cycle["cycleId"] + ".result.json")
             if result_path.exists():
                 saved = read_fact(result_path)
@@ -1070,7 +1106,7 @@ def reconcile_crash(store, root, reason="operator_crash_reconcile"):
     if cycles and cycles[-1]["outcome"] == "interrupted":
         try:
             planned = _plan_recovery_contract(store, root, cycles[-1])
-            next_summary = {"workKind": planned["workKind"], "objective": planned["objective"]}
+            next_summary = _contract_preview(planned)
         except (HarnessError, ValueError):
             next_summary = None
     return {"reconciledCycles": reconciled, "reason": reason, "nextContract": next_summary}
@@ -1090,6 +1126,7 @@ def main():
     parser.add_argument("--product", default="")
     parser.add_argument("--reason", default="operator_crash_reconcile")
     parser.add_argument("--review-token", default="")
+    parser.add_argument("--expected-next-contract")
     args = parser.parse_args()
     root = args.root.resolve()
     if args.action in {"startup", "next", "prepare", "attempt"} and os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access") != "danger-full-access":
@@ -1101,7 +1138,8 @@ def main():
         print(json.dumps(reconcile_crash(store, root, args.reason), ensure_ascii=False))
         return 0
     if args.action == "approve-recovery":
-        print(json.dumps(approve_recovery(store, root, args.review_token, args.reason), ensure_ascii=False))
+        expected_contract = json.loads(args.expected_next_contract) if args.expected_next_contract else None
+        print(json.dumps(approve_recovery(store, root, args.review_token, args.reason, expected_next_contract=expected_contract), ensure_ascii=False))
         return 0
     if args.action == "abort-unstarted":
         print(json.dumps(abort_unstarted_cycle(store, root, args.cycle, args.reason), ensure_ascii=False))

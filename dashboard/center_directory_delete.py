@@ -25,6 +25,15 @@ def no_links(path, recursive=True):
                     raise ValueError('unsafe_delete_path')
 
 
+def _process_start(pid):
+    if os.name != 'posix':
+        return None
+    try:
+        return Path(f'/proc/{int(pid)}/stat').read_text(encoding='utf-8').rsplit(')', 1)[1].split()[19]
+    except (OSError, IndexError, ValueError):
+        return None
+
+
 def atomic_json(path, value):
     """Private random temporary inode; never opens a predictable .tmp target."""
     path = Path(path)
@@ -102,17 +111,19 @@ def delete_runtime(manifest):
             original = archive.getinfo(MARKER)
             if original.file_size > 65536 or json.loads(archive.read(original)) != marker:
                 raise ValueError('delete_evidence_mismatch')
-    if not moved and not recovering:
-        checked = disposal_preflight(root, expected['centerId'], framework_revision)
-        if not checked.get('quiescent'):
-            raise ValueError(checked.get('reason') or 'delete_not_quiescent')
     state = {'marker': expected, 'fullMarker': marker, 'root': str(root), 'cleanupPath': str(cleanup), 'rootMoved': moved,
              'expectedFrameworkRevision': framework_revision,
              'cleanupStarted': bool(previous.get('cleanupStarted')), 'state': 'preparing', 'evidence': str(evidence),
-             'stage': 'ownership'}
+             'stage': 'preflight', 'pid': os.getpid(), 'processStart': _process_start(os.getpid())}
     atomic_json(receipt, state)
     descriptor = None
     try:
+        if not moved and not recovering:
+            checked = disposal_preflight(root, expected['centerId'], framework_revision)
+            if not checked.get('quiescent'):
+                raise ValueError(checked.get('reason') or 'delete_not_quiescent')
+        state['stage'] = 'ownership'
+        atomic_json(receipt, state)
         with execution_lock(marker):
             descriptor = lock_file(current / '.auto-loop.pid')
             owner_path = owner_dir(marker) / 'owner.json'
@@ -128,7 +139,7 @@ def delete_runtime(manifest):
                 if checked.get('frameworkRevision') != framework_revision or checked.get('marker') != marker:
                     raise ValueError('delete_framework_provenance_changed')
             if not moved and not state['cleanupStarted']:
-                state.update(state='deleting', stage='preserve_evidence', pid=os.getpid())
+                state.update(state='deleting', stage='preserve_evidence', pid=os.getpid(), processStart=_process_start(os.getpid()))
                 atomic_json(receipt, state)
                 no_links(evidence, recursive=False)
                 evidence_descriptor, name = tempfile.mkstemp(prefix='.evidence-', suffix='.tmp', dir=evidence.parent)

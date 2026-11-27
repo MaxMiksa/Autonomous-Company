@@ -88,8 +88,66 @@ class CenterManagement:
         self._event(tx, entry_id, event_action, errorCode=code, deletionReceipts=receipts)
         tx.put('entries', entry_id, entry)
 
+    @staticmethod
+    def _paths_overlap(a, b):
+        if not a or not b:
+            return False
+        try:
+            pa, pb = Path(a).resolve(), Path(b).resolve()
+        except OSError:
+            return os.path.normcase(str(a)) == os.path.normcase(str(b))
+        return pa == pb or pa.is_relative_to(pb) or pb.is_relative_to(pa)
+
+    def _receipt_helper_alive(self, receipt):
+        if not isinstance(receipt, dict) or receipt.get('state') not in {'preparing', 'deleting'}:
+            return False
+        pid = receipt.get('pid')
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return False
+        expected_start = receipt.get('processStart')
+        if os.name == 'posix' and Path('/proc').is_dir():
+            try:
+                rest = Path(f'/proc/{pid}/stat').read_text(encoding='utf-8').rsplit(')', 1)[1].split()
+                if rest[0] == 'Z':
+                    return False
+                if expected_start is not None:
+                    return rest[19] == expected_start
+                return True
+            except (OSError, IndexError):
+                return False
+        adapter = self.runtime.adapter
+        if getattr(adapter, 'domain', None) and adapter.domain.get('platform') == 'wsl':
+            if not adapter.available:
+                return True
+            probe = (
+                "import pathlib,sys;"
+                "pid=int(sys.argv[1]);exp=sys.argv[2] if len(sys.argv)>2 and sys.argv[2] else None;"
+                "p=pathlib.Path(f'/proc/{pid}/stat');"
+                "r=p.read_text().rsplit(')',1)[1].split() if p.exists() else None;"
+                "alive=bool(r and r[0]!='Z' and (exp is None or r[19]==exp));"
+                "sys.exit(0 if alive else 1)"
+            )
+            try:
+                res = adapter._execute(adapter._wsl() + ['--exec', 'python3', '-c', probe, str(pid), str(expected_start or '')], timeout=10)
+                return res.returncode == 0
+            except Exception:
+                return True
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
     def _owned_sources_quiescent(self, sources):
         for source in sources:
+            rid = source.get('runtimeId')
+            receipt = self._delete_receipt(rid) if rid else {}
+            if self._receipt_helper_alive(receipt):
+                return False
+            if rid and not Path(source['root']).exists() and not (self.store.data_dir / 'trash-files' / rid).exists():
+                if receipt.get('cleanupStarted') or receipt.get('rootMoved') or receipt.get('filesDeleted'):
+                    continue
+                return False
             if not self.runtime.adapter.available:
                 return False
             try:
@@ -125,7 +183,7 @@ class CenterManagement:
                     sources, owned = self._stale_owned_sources(tx, row)
                     stale.append((row['entryId'], owned))
         if not stale:
-            return
+            return set()
         quiescent_map = {}
         for target_id, owned in stale:
             if not owned:
@@ -137,12 +195,16 @@ class CenterManagement:
                 for _s, rid, expected in owned
             )
             quiescent_map[target_id] = True if all_done else self._owned_sources_quiescent([s for s, _r, _e in owned])
+        reconciled_detached = set()
         with self.store.transaction() as tx:
             for target_id, _owned in stale:
                 row = tx.get('entries', target_id)
                 if row and not row.get('detached') and row.get('deletionInProgress') and not self._is_live_deletion(row):
-                    self._reconcile_stale_deletion(tx, row, bump_revision=bump_revision,
-                                                   quiescent_confirmed=quiescent_map.get(target_id, False))
+                    res = self._reconcile_stale_deletion(tx, row, bump_revision=bump_revision,
+                                                         quiescent_confirmed=quiescent_map.get(target_id, False))
+                    if res is True:
+                        reconciled_detached.add(target_id)
+        return reconciled_detached
 
     def _reconcile_stale_deletion(self, tx, entry, *, bump_revision=True, quiescent_confirmed=False):
         if not entry.get('deletionInProgress') or self._is_live_deletion(entry):
@@ -442,16 +504,19 @@ class CenterManagement:
     def _verify_idle_io(self, entry, checks, fs_provenance):
         by_source = {item['source']['sourceId']: item.get('frameworkRevision') for item in fs_provenance}
         for source, _runtime in checks:
+            rid = source['runtimeId']
+            receipt = self._delete_receipt(rid)
+            recovery = ((not Path(source['root']).exists() or receipt.get('cleanupStarted'))
+                        and all(receipt.get('marker', {}).get(key) == value for key, value in {
+                            'centerId': self.store.center_id, 'runtimeId': rid,
+                            'entryId': entry['entryId'], 'sourceId': source['sourceId']}.items()))
+            if not Path(source['root']).exists() and not (self.store.data_dir / 'trash-files' / rid).exists() and recovery:
+                continue
             revision = by_source.get(source['sourceId'])
             check = (self.runtime.adapter.query('disposal-preflight', root=source['root'], center_id=self.store.center_id,
                                                 expected_framework_revision=revision)
                      if revision else self.runtime.adapter.query('preflight', root=source['root'], center_id=self.store.center_id,
                                                                 allow_protected='1', require_context='0'))
-            receipt = self._delete_receipt(source['runtimeId'])
-            recovery = ((not Path(source['root']).exists() or receipt.get('cleanupStarted'))
-                        and all(receipt.get('marker', {}).get(key) == value for key, value in {
-                            'centerId': self.store.center_id, 'runtimeId': source['runtimeId'],
-                            'entryId': entry['entryId'], 'sourceId': source['sourceId']}.items()))
             if not check.get('quiescent') and not entry.get('partialDeletion') and not recovery:
                 raise CenterError('ENTRY_BUSY', 'Source ownership or active processes require attention.', 409,
                                   {'reason': check.get('reason')})
@@ -470,7 +535,7 @@ class CenterManagement:
         expected = expected_raw.resolve()
         expected.relative_to(self.store.data_dir)
         if any(row.get('sourceId') != source['sourceId'] and not row.get('detached')
-               and (row.get('runtimeId') == runtime_id or Path(row.get('root', '')).resolve() == expected) for row in tx.list('sources')):
+               and (row.get('runtimeId') == runtime_id or self._paths_overlap(row.get('root', ''), expected)) for row in tx.list('sources')):
             raise CenterError('SHARED_RUNTIME', 'Other registered projects still use this directory.', 409)
         revision = runtime.get('frameworkRevision')
         if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
@@ -537,9 +602,11 @@ class CenterManagement:
         external_managed = False
         reserved = False
         entry_snapshot = None
-        self._reconcile_stale_entries(entry_id, bump_revision=False)
+        settled = self._reconcile_stale_entries(entry_id, bump_revision=False)
         with self.catalog._source_refresh_lock, self.store.transaction() as tx:
             entry = tx.get('entries', entry_id)
+            if entry_id in settled and entry and entry.get('detached'):
+                return dict(entry)
             if not entry or entry.get('detached'):
                 raise CenterError('ENTRY_NOT_FOUND', 'Entry is unavailable.', 404)
             if entry.get('deletionInProgress'):
