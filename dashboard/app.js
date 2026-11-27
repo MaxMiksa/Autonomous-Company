@@ -1640,10 +1640,11 @@ window.DashboardNavigation.register('journal', (view) => {
       if (data.projectionVersion === 2) {
         const reset = projection.core(data);
         if (reset) {
+          const hadData = Boolean(state.data);
           state.historyCursor = data.nextBefore || null; state.historyError = false; state.historyReload = false;
-          state.mediaCache = null; state.scopedUsage = null; state.selectedLog = ''; ++state.logRequest; ++state.usageToken;
+          state.mediaCache = null; state.scopedUsage = null; if (hadData) state.selectedLog = ''; ++state.logRequest; ++state.usageToken;
           state.mediaPending = null; state.logPending = null; state.logLoadedKey = ''; state.logText = '';
-          state.detailLoads.clear(); state.detailErrors?.clear(); state.expanded.clear(); cycleNodes.clear();
+          state.detailLoads.clear(); state.detailErrors?.clear(); if (hadData) state.expanded.clear(); cycleNodes.clear();
           state.detailReadAt.clear();
           if (state.centerSummary?._centerId !== data.centerId) { state.centerSummary = null; state.controlFailed = true; }
         }
@@ -1651,6 +1652,8 @@ window.DashboardNavigation.register('journal', (view) => {
         if (!reset) {
           retainHistoricalCycles(data, state.data);
         }
+        const nowStamp = performance.now();
+        for (const cycle of data.cycles) if (cycle.detailStatus === 'recorded' && !state.detailReadAt.has(cycle.id)) state.detailReadAt.set(cycle.id, nowStamp);
         if (state.mediaCache) { data.artifacts = state.mediaCache.artifacts; data.productMedia = state.mediaCache.productMedia; data.partitions.media = state.mediaCache.metadata; }
       } else if (state.data && Number.isFinite(Date.parse(data.generatedAt)) && Date.parse(data.generatedAt) < Date.parse(state.data.generatedAt)) throw new Error('Out-of-order journal snapshot');
       const signature = JSON.stringify({ ...data, displayDay: window.DashboardDate.day(), generatedAt: undefined, status: data.status ? { ...data.status, timestamp: undefined, elapsedMs: undefined } : undefined });

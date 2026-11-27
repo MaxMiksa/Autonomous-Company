@@ -1411,8 +1411,11 @@ for (const emptyCase of ['search', 'filter']) {
   test(`empty catalog ${emptyCase} action resets the view through real event wiring`, async ({ page, center }) => {
     const entry = { entryId: 'empty-action-fixture', kind: emptyCase === 'explorations' ? 'exploration' : 'product',
       displayName: 'Visible fixture', availability: 'available', executionSummary: { state: 'ended' } };
-    await page.route('**/api/center/v1/entries?*', route => route.fulfill({ json: { schemaVersion: 1,
-      data: { items: [entry], total: 1, nextCursor: null } } }));
+    await page.route('**/api/center/v1/entries?*', async route => {
+      const payload = await (await route.fetch()).json();
+      payload.data = { items: [entry], total: 1, nextCursor: null };
+      await route.fulfill({ json: payload });
+    });
     await openCenter(page, center);
     if (emptyCase === 'search') await page.locator('#productSearch').fill('no matching product');
     if (emptyCase === 'filter') await page.locator('[data-filter="archived"]').click();
