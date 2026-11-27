@@ -220,6 +220,8 @@ docs/*/*
 !docs/product-center.md
 !docs/project-isolation.md
 !docs/rename-migration.md
+!docs/mechanism-versions.md
+!docs/curated-products.md
 .autonomous-company-center.json
 # Ignore all memories (keep folder marker only)
 memories/*
