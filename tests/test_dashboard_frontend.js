@@ -503,22 +503,40 @@ for (const change of ['new request', 'selection']) {
 }
 
 function logSourceHarness() {
-  const fields = new Map(['logText', 'rawLogText', 'copyLogButton', 'refreshLogButton', 'logStatus', 'newLogButton', 'followLog'].map((id) => [id, {}]));
-  const reads = [];
+  const fields = new Map(['logText', 'rawLogText', 'copyLogButton', 'downloadLogButton', 'downloadFullLogButton', 'logSearch', 'previousLogMatch', 'nextLogMatch', 'logMatchStatus', 'refreshLogButton', 'logStatus', 'newLogButton', 'followLog'].map((id) => [id, {}]));
+  fields.get('logSearch').value = '';
+  fields.get('logText').replaceChildren = function(fragment) {
+    this.textContent = (fragment?.children || []).map((child) => child.textContent).join('');
+    this.marks = (fragment?.children || []).filter((child) => child.tag === 'mark');
+  };
+  fields.get('logText').querySelector = function(selector) {
+    return selector === '.log-current-match' ? (this.marks || []).find((mark) => mark.className === 'log-current-match') || null : null;
+  };
+  const reads = [], centerReads = [], downloads = [];
   const context = vm.createContext({ window: {}, location: { pathname: '/products/entry-a' },
-    document: { getElementById(id) { assert.ok(fields.has(id), id); return fields.get(id); } },
+    document: {
+      getElementById(id) { assert.ok(fields.has(id), id); return fields.get(id); },
+      createDocumentFragment: () => ({ children: [], append(node) { this.children.push(node); } }),
+      createTextNode: (textContent) => ({ textContent }),
+    },
     read: (url) => new Promise((resolve, reject) => reads.push({ url, resolve, reject })),
+    centerRead: (path) => centerReads.shift()(path),
+    downloads,
+    atob: (value) => Buffer.from(value, 'base64').toString('binary'),
+    Uint8Array, Buffer,
   });
   registerJournal(context);
+  context.window.DashboardUI ||= {};
+  context.window.DashboardUI.element = (tag, className, textContent = '') => ({ tag, className, textContent, scrollIntoView() {} });
   vm.runInContext(i18n, context);
   vm.runInContext(fs.readFileSync(path.join(dashboard, "date-time.js"), "utf8"), context);
   const binding = app.indexOf("\n  document.querySelectorAll('[data-tab]').forEach");
-  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = globalThis.read; globalThis.journal = {state, loadLog};\n});', context);
+  vm.runInContext(app.slice(0, binding) + '\n fetchScopedText = globalThis.read; fetchCenter = globalThis.centerRead; saveLogDownload = (parts, name) => globalThis.downloads.push({ parts, name }); globalThis.journal = {state, loadLog, renderLogSearch, downloadFullLog};\n});', context);
   const snapshot = (source, revision = 1, resource = 'log-same-cycle') => ({ entryId: 'entry-a', sourceId: source, sourceRevision: revision,
     cycles: [{ id: 'same-cycle', logUrl: `/api/center/v1/entries/entry-a/resources/${resource}?sourceId=${source}` }] });
   context.journal.state.data = snapshot('source-a');
   context.journal.state.selectedLog = 'same-cycle';
-  return { ...context.journal, fields, reads, snapshot };
+  return { ...context.journal, fields, reads, centerReads, downloads, snapshot };
 }
 
 for (const outcome of ['success', 'failure']) {
@@ -627,4 +645,36 @@ test('file changes and collaboration remain readable while raw events retain the
   assert.match(value, /src\/report.js/);
   assert.match(value, /spawn_agent/);
   assert.doesNotMatch(value, /item.completed/);
+});
+
+test('log search highlights matches, navigates cycling index and full log download verifies revision continuity', async () => {
+  const h = logSourceHarness();
+  h.state.language = 'en';
+  const load = h.loadLog();
+  h.reads[0].resolve('alpha beta alpha gamma alpha');
+  await load;
+  assert.equal(h.fields.get('downloadLogButton').disabled, false);
+  assert.equal(h.fields.get('downloadFullLogButton').disabled, false);
+  h.fields.get('logSearch').value = 'ALPHA';
+  h.renderLogSearch();
+  assert.equal(h.fields.get('logText').marks.length, 3);
+  assert.equal(h.fields.get('logText').marks[0].className, 'log-current-match');
+  assert.equal(h.fields.get('logMatchStatus').textContent, '1 / 3 matches');
+  h.renderLogSearch(-1);
+  assert.equal(h.fields.get('logMatchStatus').textContent, '3 / 3 matches');
+  assert.equal(h.fields.get('logText').marks[2].className, 'log-current-match');
+
+  h.centerReads.push(async (path) => {
+    assert.match(path, /\/entries\/entry-a\/logs\/same-cycle\?sourceId=source-a&offset=0&limit=131072$/);
+    return { ok: true, offset: 0, nextOffset: 5, totalBytes: 8, eof: false, revision: '8:100', bytesBase64: Buffer.from('hello').toString('base64') };
+  });
+  h.centerReads.push(async (path) => {
+    assert.match(path, /&offset=5&limit=131072&revision=8%3A100$/);
+    return { ok: true, offset: 5, nextOffset: 8, totalBytes: 8, eof: true, revision: '8:100', bytesBase64: Buffer.from('bye').toString('base64') };
+  });
+  await h.downloadFullLog();
+  assert.equal(h.downloads.length, 1);
+  assert.equal(h.downloads[0].name, 'same-cycle-full-raw.log');
+  assert.equal(Buffer.concat(h.downloads[0].parts.map(Buffer.from)).toString('utf8'), 'hellobye');
+  assert.match(h.fields.get('logStatus').textContent, /Full raw log downloaded/);
 });

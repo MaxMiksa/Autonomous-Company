@@ -865,6 +865,73 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(released["state"], "succeeded")
         self.assertTrue(any(action == "preflight" and options.get("require_context") == "0" for action, options in calls))
 
+    def test_stage1_preferences_schema_replay_nonce_cache_and_pause_after_cycle(self):
+        # 1. Preferences schema consistency across GET, POST write and POST replay
+        initial = self.runtime.preferences()
+        payload = {"expectedRevision": initial["revision"], "preferences": {"language": "en", "engine": "codex", "model": "gpt-6.1-sol", "effort": "high", "productLanguage": "en"}, "idempotencyKey": "pref-stage1"}
+        written = self.runtime.preferences(payload)
+        replayed = self.runtime.preferences(payload)
+        self.assertEqual(written, replayed)
+        self.assertIn("defaults", written)
+        self.assertEqual(written["executionDomain"], {"platform": "posix"})
+
+        # 2. request_action idempotent replay strips internal nonce & F10 pause-after-cycle flow
+        self.enable()
+        req = self.create(key="pause-after-req")
+        self.runtime.tick()
+        self.adapter.acknowledge("running")
+        self.runtime.tick()
+        live = self.runtime.get_request(req["requestId"])
+        calls = []
+        original_query = self.adapter.query
+        def control_query(action, **kwargs):
+            calls.append((action, kwargs))
+            if action == "control":
+                manifest = json.loads(Path(kwargs["manifest"]).read_text())
+                return {"ok": True, "pauseAfterCycle": {"state": "requested" if manifest["action"] == "pause_after_cycle" else "canceled", "dispatchId": live["dispatchId"]}}
+            return original_query(action, **kwargs)
+        self.adapter.query = control_query
+        sched_body = {"expectedRevision": live["revision"], "expectedDispatchId": live["dispatchId"], "idempotencyKey": "pause-sched-1"}
+        paused_view = self.runtime.request_action(req["requestId"], "pause-after-cycle", sched_body)
+        replay_view = self.runtime.request_action(req["requestId"], "pause-after-cycle", sched_body)
+        self.assertNotIn("nonce", replay_view)
+        self.assertEqual(paused_view["pauseAfterCycle"]["state"], "requested")
+        cancel_body = {"expectedRevision": paused_view["revision"], "expectedDispatchId": live["dispatchId"], "idempotencyKey": "pause-cancel-1"}
+        canceled_view = self.runtime.request_action(req["requestId"], "cancel-pause-after-cycle", cancel_body)
+        self.assertEqual(canceled_view["pauseAfterCycle"]["state"], "canceled")
+        cancel_replay = self.runtime.request_action(req["requestId"], "cancel-pause-after-cycle", cancel_body)
+        self.assertNotIn("nonce", cancel_replay)
+
+        # _reconcile with pause_after_cycle ends cleanly without pausing the queue
+        self.adapter.acknowledge("terminal", reason="pause_after_cycle", launched=True, cleanupConfirmed=True)
+        self.adapter.slot_free = True
+        self.adapter.owner_alive = False
+        self.runtime.tick()
+        ended = self.runtime.get_request(req["requestId"])
+        self.assertEqual((ended["state"], ended["terminalReason"]), ("ended", "pause_after_cycle"))
+        self.assertTrue(self.runtime.summary()["dispatchEnabled"])
+
+        # 3. _heartbeat fallback exception handling and capability cache invalidation
+        def fail_controls():
+            self.runtime._closing.set()
+            raise OSError("control write failed")
+        with patch.object(self.runtime, "_write_controls", side_effect=fail_controls), \
+             patch.object(self.runtime, "_pause", side_effect=OSError("disk full")):
+            try:
+                self.runtime._heartbeat()
+            finally:
+                self.runtime._closing.clear()
+
+        hits = []
+        self.adapter.query = lambda action, **kwargs: hits.append(action) or {"context": {"valid": True, "productId": None}, "compatible": True}
+        view = {**self.a, "availability": "available"}
+        self.runtime.decorate_entry(view)
+        self.runtime.decorate_entry(view)
+        self.assertEqual(hits.count("query"), 1)
+        self.runtime._invalidate_capability_cache(self.a["sourceId"])
+        self.runtime.decorate_entry(view)
+        self.assertEqual(hits.count("query"), 2)
+
 
 class PreparationTests(unittest.TestCase):
     def setUp(self):
@@ -1604,6 +1671,35 @@ if [ "$count" -ge "${STOP_AFTER:-2}" ]; then touch "$AUTONOMOUS_COMPANY_ROOT/.au
         released = subprocess.run([sys.executable, str(self.runner), "bind", "--manifest", str(binding)], env=self.env, capture_output=True, text=True, timeout=10)
         self.assertEqual(released.returncode, 0, released.stderr)
         self.assertFalse(marker_path.exists())
+
+    def test_boundary_pause_blocks_open_cycle_and_completes_at_sealed_boundary(self):
+        sys.path.insert(0, str(ROOT / "scripts/core"))
+        import center_runner as runner
+        marker = json.loads((self.root / ".autonomous-company-center.json").read_text())
+        atomic_json(self.manifest_path, self.manifest)
+        req_file = self.root / runner.PAUSE_REQUEST
+        atomic_json(req_file, {"state": "requested", "dispatchId": self.manifest["dispatchId"],
+                               **{k: marker[k] for k in ("centerId", "runtimeId", "entryId", "sourceId")}})
+        (self.root / "memories").mkdir(exist_ok=True)
+        (self.root / "memories/.consensus-cycle-pending").write_text("pending")
+        self.heartbeat()
+        with patch.dict(os.environ, {"XDG_STATE_HOME": self.env["XDG_STATE_HOME"]}), runner.execution_lock(marker) as (descriptor, gate):
+            atomic_json(runner.owner_dir(marker) / "owner.json", {
+                **{k: self.manifest[k] for k in ("centerId", "runtimeId", "entryId", "sourceId", "requestId", "dispatchId", "nonce")},
+                "runner": runner.identity(os.getpid()), "state": "running", "cleanupConfirmed": False,
+            })
+            env = {**self.env, "AUTONOMOUS_COMPANY_CENTER_MANIFEST": str(self.manifest_path),
+                   "AUTONOMOUS_COMPANY_CENTER_SLOT_FD": str(descriptor)}
+            pass_fds = tuple(fd for fd in (descriptor, gate) if fd is not None)
+            unsealed = subprocess.run([sys.executable, str(self.runner), "boundary-pause", "--root", str(self.root)],
+                                      env=env, pass_fds=pass_fds, capture_output=True, text=True, timeout=10)
+            self.assertEqual(unsealed.returncode, 78)
+            self.assertIn("cycle_boundary_unsealed", unsealed.stderr)
+            (self.root / "memories/.consensus-cycle-pending").unlink()
+            sealed = subprocess.run([sys.executable, str(self.runner), "boundary-pause", "--root", str(self.root)],
+                                    env=env, pass_fds=pass_fds, capture_output=True, text=True, timeout=10)
+            self.assertEqual(sealed.returncode, 0, sealed.stderr)
+        self.assertEqual(json.loads(req_file.read_text())["state"], "completed")
 
 
 @unittest.skipUnless(os.name == "nt" and os.environ.get("AUTONOMOUS_COMPANY_TEST_CENTER_WSL") == "1", "Explicit Windows/WSL bridge fixture")

@@ -55,6 +55,7 @@
               <button type="button" class="filter-button" data-filter="queued" aria-pressed="false"><span data-i18n="filterQueued">已排队</span></button>
               <button type="button" class="filter-button" data-filter="attention" aria-pressed="false"><span data-i18n="filterAttention">需要处理</span></button>
               <button type="button" class="filter-button" data-filter="archived" aria-pressed="false"><span data-i18n="filterArchived">归档</span></button>
+              <button type="button" class="filter-button" data-filter="trash" aria-pressed="false"><span data-i18n="filterTrash">回收站</span></button>
             </div>
 
           </div>
@@ -64,6 +65,7 @@
             <p id="newWorkUnavailable" class="disabled-reason" role="status" hidden></p>
             <button id="newWorkButton" class="button primary" type="button"><span data-icon="plus" aria-hidden="true"></span> <span data-i18n="newWork">新建工作</span></button>
             <button id="importButton" class="button secondary" type="button" data-i18n="importAction">导入</button>
+            <button id="trashSettingsButton" class="button secondary" type="button" data-i18n="trashSettings">回收设置</button>
           </div>
         </div>
       </div>
@@ -249,6 +251,15 @@
         <p class="form-status" role="status" aria-live="polite"></p>
         <footer class="dialog-actions"><button class="button secondary dialog-close" type="button" data-i18n="back">返回</button><button id="confirmActionButton" class="button primary" type="submit" data-i18n="confirm">确认</button></footer>
       </form>
+    </dialog>
+
+    <dialog id="managementDialog" aria-labelledby="managementTitle">
+      <div class="dialog-form">
+        <header class="dialog-header"><h2 id="managementTitle"></h2><button class="icon-button dialog-close" type="button" aria-label="关闭" data-i18n-aria="close"><span data-icon="x" aria-hidden="true"></span></button></header>
+        <div id="managementBody" class="dialog-body"></div>
+        <p id="managementStatus" class="form-status" role="status" aria-live="polite"></p>
+        <footer class="dialog-actions"><button class="button secondary dialog-close" type="button" data-i18n="close">关闭</button></footer>
+      </div>
     </dialog>
 
     </div>

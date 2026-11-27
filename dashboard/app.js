@@ -1391,12 +1391,67 @@ window.DashboardNavigation.register('journal', (view) => {
     select.value = state.selectedLog;
     select.disabled = false;
     $('refreshLogButton').disabled = !state.selectedLog || Boolean(state.logPending);
+    $('downloadLogButton').disabled = !state.logText;
+    $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime' || Boolean(state.logPending) || Boolean(state.logDownloading);
   }
   function logContextKey() {
     const id = state.selectedLog;
     const cycle = logCycles().find((item) => item.id === id);
     return JSON.stringify([state.data?.projectionVersion === 2 ? window.DashboardProjection.scopeKey(state.data) : [state.data?.entryId, state.data?.sourceId, state.data?.sourceRevision], state.data?.projectionEpoch, id,
       id === 'runtime' ? state.data?.runtimeLogUrl : cycle?.logUrl]);
+  }
+  function renderLogSearch(direction = 0) {
+    const search = $('logSearch'), node = $('logText');
+    if (!search || !node) return;
+    const query = search.value.toLocaleLowerCase(state.language);
+    const text = state.logText || '', matches = [];
+    if (query) {
+      const lowered = text.toLocaleLowerCase(state.language);
+      for (let index = lowered.indexOf(query); index !== -1; index = lowered.indexOf(query, index + query.length)) matches.push(index);
+    }
+    state.logMatchIndex = matches.length ? ((state.logMatchIndex || 0) + direction + matches.length) % matches.length : 0;
+    const fragment = document.createDocumentFragment(); let start = 0;
+    matches.forEach((index, number) => {
+      fragment.append(document.createTextNode(text.slice(start, index)));
+      fragment.append(element('mark', number === state.logMatchIndex ? 'log-current-match' : '', text.slice(index, index + query.length)));
+      start = index + query.length;
+    });
+    fragment.append(document.createTextNode(text.slice(start)));
+    node.replaceChildren(fragment);
+    $('previousLogMatch').disabled = $('nextLogMatch').disabled = !matches.length;
+    $('logMatchStatus').textContent = query ? message('logMatchCount', { current: matches.length ? state.logMatchIndex + 1 : 0, total: matches.length }) : '';
+    if (direction) node.querySelector('.log-current-match')?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+  function saveLogDownload(parts, name) {
+    const url = URL.createObjectURL(new Blob(parts, { type: 'text/plain;charset=utf-8' }));
+    const link = element('a'); link.href = url; link.download = name; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function downloadFullLog() {
+    if (state.logDownloading || !state.selectedLog || state.selectedLog === 'runtime' || !state.data?.sourceId) return;
+    const key = logContextKey(), identity = state.selectedLog, v2 = state.data?.projectionVersion === 2;
+    state.logDownloading = true; $('downloadFullLogButton').disabled = true;
+    $('logStatus').textContent = message('logDownloading');
+    try {
+      const parts = []; let offset = 0, total = null, revision = null;
+      do {
+        const revisionQuery = revision !== null ? `&revision=${encodeURIComponent(revision)}` : '';
+        const versionQuery = v2 ? '&projectionVersion=2' : '';
+        const path = `${scopedJournalPath(`/logs/${encodeURIComponent(identity)}`)}?sourceId=${encodeURIComponent(state.data.sourceId)}${versionQuery}&offset=${offset}&limit=131072${revisionQuery}`;
+        const chunk = await fetchCenter(path, {}, 15000);
+        if (key !== logContextKey() || !view.active) throw new Error('Log source changed');
+        if (chunk.offset !== offset || !Number.isSafeInteger(chunk.totalBytes) || !Number.isSafeInteger(chunk.nextOffset) || chunk.nextOffset < offset || chunk.nextOffset > chunk.totalBytes || chunk.totalBytes > 256 * 1024 * 1024 || (total !== null && chunk.totalBytes !== total) || typeof chunk.bytesBase64 !== 'string' || typeof chunk.eof !== 'boolean' || (revision !== null && chunk.revision !== revision)) throw new Error('Incomplete or changed log');
+        total = chunk.totalBytes;
+        revision = chunk.revision ?? null;
+        const bytes = Uint8Array.from(atob(chunk.bytesBase64), character => character.charCodeAt(0));
+        if (bytes.length !== chunk.nextOffset - offset || (!chunk.eof && chunk.nextOffset === offset)) throw new Error('Invalid log chunk');
+        parts.push(bytes); offset = chunk.nextOffset;
+        if (chunk.eof) { if (offset !== total) throw new Error('Incomplete log'); break; }
+      } while (offset < total);
+      saveLogDownload(parts, `${identity}-full-raw.log`);
+      $('logStatus').textContent = message('logDownloadComplete', { count: total });
+    } catch (_) { if (view.active) $('logStatus').textContent = message('logDownloadFailed'); }
+    finally { state.logDownloading = false; if (view.active) $('downloadFullLogButton').disabled = state.selectedLog === 'runtime' || !state.selectedLog; }
   }
   function readableLog(value, cycle = null) {
     const lines = cycle && (knownNumber(cycle.sequenceNumber) || knownNumber(cycle.number)) ? [`${message('cycle')} #${paddedCycleNumber(cycle)} · ${fullTime(cycle.startedAt || cycle.reservedAt)}`, ''] : [];
@@ -1449,13 +1504,15 @@ window.DashboardNavigation.register('journal', (view) => {
     const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight <= 4;
     state.logText = value; state.logLoadedKey = key;
     state.logLoadedAt = new Date().toISOString(); state.logRange = range;
-    if (node.textContent !== value) node.textContent = value;
+    renderLogSearch();
     const following = same && $('followLog').checked && atBottom;
     node.scrollTop = following ? node.scrollHeight : top;
     node.scrollLeft = left;
     if (!same || !value || following) $('newLogButton').hidden = true;
     else if (value !== previous) $('newLogButton').hidden = false;
     $('copyLogButton').disabled = !value;
+    $('downloadLogButton').disabled = !value;
+    $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime';
     $('logStatus').textContent = `${value ? range : message('logEmpty')} · ${message('logReadAt', { time: fullTime(state.logLoadedAt) })}`;
   }
   async function loadLog() {
@@ -1465,7 +1522,7 @@ window.DashboardNavigation.register('journal', (view) => {
     if (state.logPending) {
       if (state.logPending.key !== key) {
         ++state.logRequest;
-        if (state.logLoadedKey !== key) { state.logText = ''; $('logText').textContent = ''; $('rawLogText').textContent = ''; $('copyLogButton').disabled = true; }
+        if (state.logLoadedKey !== key) { state.logText = ''; $('logText').textContent = ''; $('rawLogText').textContent = ''; $('copyLogButton').disabled = true; $('downloadLogButton').disabled = true; $('downloadFullLogButton').disabled = true; renderLogSearch(); }
         await state.logPending.promise;
         return loadLog();
       }
@@ -1476,14 +1533,16 @@ window.DashboardNavigation.register('journal', (view) => {
     if (!id) {
       state.logText = ''; state.logLoadedKey = key; state.logLoadedAt = null;
       $('logText').textContent = ''; $('rawLogText').textContent = '';
-      $('copyLogButton').disabled = true; $('refreshLogButton').disabled = true;
-      $('newLogButton').hidden = true; $('logStatus').textContent = message('logEmpty');
+      $('copyLogButton').disabled = true; $('downloadLogButton').disabled = true; $('downloadFullLogButton').disabled = true; $('refreshLogButton').disabled = true;
+      $('newLogButton').hidden = true; $('logStatus').textContent = message('logEmpty'); renderLogSearch();
       return;
     }
     const previous = state.logLoadedKey === key ? state.logText : '';
     if (state.logLoadedKey !== key) { $('logText').textContent = ''; $('rawLogText').textContent = ''; }
-    if (state.logLoadedKey !== key) { state.logText = ''; state.logLoadedAt = null; $('newLogButton').hidden = true; }
+    if (state.logLoadedKey !== key) { state.logText = ''; state.logLoadedAt = null; $('newLogButton').hidden = true; renderLogSearch(); }
     $('copyLogButton').disabled = !previous;
+    $('downloadLogButton').disabled = !previous;
+    $('downloadFullLogButton').disabled = id === 'runtime';
     $('copyLogButton').textContent = message('copy');
     $('refreshLogButton').disabled = true;
     $('logStatus').textContent = message('loadingLog');
@@ -1497,8 +1556,10 @@ window.DashboardNavigation.register('journal', (view) => {
       if (request !== state.logRequest || key !== logContextKey()) return;
       state.logText = previous;
       $('copyLogButton').disabled = !previous;
+      $('downloadLogButton').disabled = !previous;
+      renderLogSearch();
       $('logStatus').textContent = `${message('logFailed')}${state.logLoadedAt ? ` ${message('logReadAt', { time: fullTime(state.logLoadedAt) })} · ${state.logRange || ''}` : ''}`;
-    } finally { if (state.logPending?.request === request) { state.logPending = null; if (view.active) $('refreshLogButton').disabled = false; } } })();
+    } finally { if (state.logPending?.request === request) { state.logPending = null; if (view.active) { $('refreshLogButton').disabled = false; $('downloadFullLogButton').disabled = !state.selectedLog || state.selectedLog === 'runtime' || Boolean(state.logDownloading); } } } })();
     state.logPending = { key, request, promise };
     return promise;
   }
@@ -1658,6 +1719,12 @@ window.DashboardNavigation.register('journal', (view) => {
   $('usageDate').addEventListener('change', () => { renderUsage(); refreshScopedUsage(); });
   $('logSelect').addEventListener('change', () => { state.selectedLog = $('logSelect').value; loadLog(); });
   $('refreshLogButton').addEventListener('click', loadLog);
+  $('logSearch').addEventListener('input', () => { state.logMatchIndex = 0; renderLogSearch(); });
+  $('previousLogMatch').addEventListener('click', () => renderLogSearch(-1));
+  $('nextLogMatch').addEventListener('click', () => renderLogSearch(1));
+  $('logSearch').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); renderLogSearch(event.shiftKey ? -1 : 1); } });
+  $('downloadLogButton').addEventListener('click', () => { if (state.logText) saveLogDownload([state.logText], `${state.selectedLog}-loaded-readable.log`); });
+  $('downloadFullLogButton').addEventListener('click', downloadFullLog);
   $('logText').addEventListener('scroll', () => {
     const node = $('logText');
     if (node.scrollHeight - node.scrollTop - node.clientHeight > 4) $('followLog').checked = false;

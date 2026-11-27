@@ -1505,3 +1505,61 @@ test('source selection clears an earlier source error and its error styling', as
   sourceChoice(h, 'source-b').fire('change');
   assert.equal(h.nodes.sourceManagerStatus.textContent, ''); assert.equal(errorStyle, false);
 });
+
+test('trash filter, completedCyclePause state and queue pause-after-cycle controls behave consistently', async () => {
+  const { state, requestDisplayState, entryState, normalizeCounts, filteredEntries, renderQueue, context } = helpers();
+  const elements = {};
+  const nodeFactory = (tag = 'div', className = '', textContent = '') => {
+    const node = {
+      tag, className, textContent, children: [], dataset: {}, style: {},
+      append(...items) { this.children.push(...items.filter(Boolean)); },
+      replaceChildren(...items) { this.textContent = ''; this.children = []; this.append(...items); },
+      setAttribute() {}, addEventListener() {}, querySelectorAll: () => [],
+    };
+    return node;
+  };
+  context.document.getElementById = id => elements[id] ||= nodeFactory();
+  elements.capacityForm = { ...nodeFactory('form'), elements: { unlimited: {}, capacity: {} }, dataset: {} };
+  context.document.querySelectorAll = () => [];
+  context.window.DashboardUI.element = nodeFactory;
+  context.window.DashboardUI.reconcile = () => {};
+  context.window.DashboardUI.positions = () => new Map();
+  context.window.DashboardUI.layout = () => {};
+  context.window.DashboardIcons.status = () => nodeFactory('span');
+  context.window.DashboardIcons.icon = () => nodeFactory('span');
+  context.window.DashboardIcons.hydrate = () => {};
+  context.window.DashboardStatus = { visual: value => value };
+
+  const recent = new Date().toISOString();
+  const pauseRequest = { requestId: 'req-run', displayName: 'Run', kind: 'continue', state: 'running', dispatchId: 'dsp-1', liveConfirmedAt: recent, config: {} };
+  const canceledWaitRequest = { ...pauseRequest, requestId: 'req-sched', pauseAfterCycle: { state: 'requested' } };
+  const stoppingRequest = { ...pauseRequest, requestId: 'req-stopping', stopRequested: true };
+  state.requests = [pauseRequest, canceledWaitRequest, stoppingRequest];
+  state.entries = [
+    { entryId: 'e1', kind: 'product', archived: false, executionSummary: { state: 'ended', terminalReason: 'pause_after_cycle' } },
+  ];
+  state.trash = { retentionDays: 30, revision: 1, items: [{ entryId: 'e2', kind: 'product', trashed: true, archived: true, displayName: 'Removed' }] };
+
+  assert.equal(entryState(state.entries[0]), 'paused');
+  assert.equal(requestDisplayState({ state: 'ended', terminalReason: 'pause_after_cycle' }), 'paused');
+  assert.equal(normalizeCounts().trash, 1);
+  state.filter = 'trash';
+  assert.deepEqual(filteredEntries().map(row => row.entryId), ['e2']);
+
+  renderQueue();
+  const findButtons = (root, out = []) => {
+    if (!root) return out;
+    if (root.tag === 'button') out.push(root);
+    for (const child of root.children || []) findButtons(child, out);
+    return out;
+  };
+  const buttons = findButtons(elements.queueContent);
+  const schedPause = buttons.find(b => b.dataset.focusKey === 'request:req-run:pause');
+  const cancelPause = buttons.find(b => b.dataset.focusKey === 'request:req-sched:pause');
+  const blockedPause = buttons.find(b => b.dataset.focusKey === 'request:req-stopping:pause');
+  assert.equal(schedPause.textContent, 'Pause after this cycle');
+  assert.equal(schedPause.disabled, false);
+  assert.equal(cancelPause.textContent, 'Cancel scheduled pause');
+  assert.equal(cancelPause.disabled, false);
+  assert.equal(blockedPause.disabled, true);
+});
