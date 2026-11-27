@@ -26,7 +26,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.0",
+    "tailwindcss": "^4.3.5",
     "typescript": "^5.9.0"
   },
   "packageManager": "pnpm@12.16.1",
