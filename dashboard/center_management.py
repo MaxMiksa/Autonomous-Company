@@ -125,11 +125,11 @@ class CenterManagement:
                 "p=pathlib.Path(f'/proc/{pid}/stat');"
                 "r=p.read_text().rsplit(')',1)[1].split() if p.exists() else None;"
                 "alive=bool(r and r[0]!='Z' and (exp is None or r[19]==exp));"
-                "sys.exit(0 if alive else 1)"
+                "print('1' if alive else '0')"
             )
             try:
                 res = adapter._execute(adapter._wsl() + ['--exec', 'python3', '-c', probe, str(pid), str(expected_start or '')], timeout=10)
-                return res.returncode == 0
+                return (getattr(res, 'stdout', '') or '').strip() == '1'
             except Exception:
                 return True
         try:

@@ -97,8 +97,9 @@ def delete_runtime(manifest):
         raise ValueError('ambiguous_cleanup_path')
     moved = not root.exists() and cleanup.exists()
     current = cleanup if moved else root
-    no_links(current)
+    no_links(current, recursive=False)
     marker_path = current / MARKER
+    no_links(marker_path, recursive=False)
     recovering = (previous.get('marker') == expected and previous.get('root') == str(root)
                   and (previous.get('rootMoved') or previous.get('cleanupStarted')) and evidence.is_file())
     marker = read_json(marker_path) if marker_path.exists() else previous.get('fullMarker', {}) if recovering else {}
@@ -118,6 +119,7 @@ def delete_runtime(manifest):
     atomic_json(receipt, state)
     descriptor = None
     try:
+        no_links(current)
         if not moved and not recovering:
             checked = disposal_preflight(root, expected['centerId'], framework_revision)
             if not checked.get('quiescent'):

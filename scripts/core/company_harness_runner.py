@@ -945,6 +945,9 @@ def _contract_preview(planned):
         "prerequisiteRefs": planned.get("prerequisiteRefs", []),
         "completionOrHandoff": planned.get("completionOrHandoff", ""),
         "project": planned.get("project", ""),
+        "artifactKind": planned.get("artifactKind", ""),
+        "reviewRequirement": planned.get("reviewRequirement"),
+        "revisesKind": planned.get("revisesKind"),
     }
     contract_hash = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     return {
@@ -953,6 +956,7 @@ def _contract_preview(planned):
         "scope": canonical["scope"],
         "inputRefs": canonical["inputRefs"],
         "prerequisiteRefs": canonical["prerequisiteRefs"],
+        "reviewRequirement": canonical["reviewRequirement"],
         "contractHash": contract_hash,
     }
 
@@ -977,8 +981,7 @@ def approve_recovery(store, root, review_token, reason="human_recovery_approved"
             if expected_next_contract is not None:
                 if (
                     not isinstance(expected_next_contract, dict)
-                    or any(next_summary.get(k) != v for k, v in expected_next_contract.items())
-                    or ("contractHash" in expected_next_contract and expected_next_contract.get("contractHash") != next_summary.get("contractHash"))
+                    or expected_next_contract != next_summary
                 ):
                     raise HarnessError("RECOVERY_CONTRACT_CHANGED", "nextContract")
             basis = {
@@ -1014,7 +1017,7 @@ def recover_stopped_cycles(store, root):
             a.get("writersStopped")
             and (a.get("actualResult") or {}).get("outcome") == "not_started"
             and (a.get("actualResult") or {}).get("providerInvoked") is False
-            and (a.get("writerObservation") or {}).get("type") == "prepare_rollback"
+            and (a.get("writerObservation") or {}).get("type") in {"prepare_rollback", "live_pre_dispatch_cancel"}
             for a in cycle["attempts"]
         )
         if all_unstarted:
