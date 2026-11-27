@@ -695,9 +695,10 @@ window.DashboardNavigation.register('journal', (view) => {
     const signature = JSON.stringify([cycle, current, state.language, state.detailErrors?.has(cycle.id)]);
     const cached = cycleNodes.get(cycle.id);
     if (cached?.signature === signature) return cached.row;
-    if (cached && cached.current === current && cached.language === state.language && cached.status === cycle.status && cached.row.isConnected && cached.content) {
+    if (cached && cached.current === current && cached.language === state.language && cached.status === cycle.status && cached.row.isConnected && cached.content?.isConnected) {
       const nextTitle = cycleTitle(cycle);
-      cached.titleText.textContent = nextTitle; cached.titleText.title = nextTitle;
+      const liveTitle = cached.row.querySelector('.history-title-text');
+      if (liveTitle) { liveTitle.textContent = nextTitle; liveTitle.title = nextTitle; }
       const bodyNodes = [metadata(cycle), reportSurface(cycle, current)];
       if (state.detailErrors?.has(cycle.id)) {
         const error = element('p', 'status-failed', message('detailReadFailed'));
