@@ -1003,10 +1003,18 @@ def recover_stopped_cycles(store, root):
     for cycle in store.snapshot()["cycles"]:
         if cycle["protocolState"] == "closed":
             continue
+        if cycle["attempts"]:
+            last = cycle["attempts"][-1]
+            attempt_id = last["attemptId"]
+            launch_path = host_path(root, attempt_id + '.launch.json')
+            if launch_path.exists() and read_fact(launch_path).get('phase') == 'cancelled':
+                complete_unstarted(store, root, read_fact(launch_path))
+                raise HarnessError('UNFINISHED_HARNESS', detail='Known unstarted settlement replayed; restart never infers permission to dispatch')
         all_unstarted = (not cycle["activeAttemptId"]) and all(
             a.get("writersStopped")
             and (a.get("actualResult") or {}).get("outcome") == "not_started"
             and (a.get("actualResult") or {}).get("providerInvoked") is False
+            and (a.get("writerObservation") or {}).get("type") == "prepare_rollback"
             for a in cycle["attempts"]
         )
         if all_unstarted:
@@ -1020,10 +1028,6 @@ def recover_stopped_cycles(store, root):
         close_deadline = time.monotonic() + policy()["CLOSE_SECONDS"]
         last = cycle["attempts"][-1]
         attempt_id = last["attemptId"]
-        launch_path = host_path(root, attempt_id + '.launch.json')
-        if launch_path.exists() and read_fact(launch_path).get('phase') == 'cancelled':
-            complete_unstarted(store, root, read_fact(launch_path))
-            raise HarnessError('UNFINISHED_HARNESS', detail='Known unstarted settlement replayed; restart never infers permission to dispatch')
         required = {suffix: host_path(root, attempt_id + suffix) for suffix in (".json", ".proof.json", ".usage.json", ".collect.json")}
         metadata_path = safe_path(root, "logs/" + attempt_id + ".json")
         if not metadata_path.exists() or any(not path.exists() for path in required.values()):
