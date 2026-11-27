@@ -16,13 +16,11 @@ NODE_TESTS = {
     "dual-flavor-table": ("tests/engine.test.js",),
     "family-memory": ("tests/core.test.js", "tests/recovery.test.js"),
     "participation-recovery": ("tests/core.test.js", "tests/recovery.test.js"),
-    "payment-recovery-audit": ("test/audit.test.js",),
     "rest-rhythm": ("tests/core.test.js",),
     "reversible-room": ("tests/core.test.js",),
     "scopefence": ("tests/scopefence-core.test.mjs",),
     "spec-evidence": ("tests/core.test.js",),
     "tabledelta": ("tests/core.test.js",),
-    "text-meter": ("tests/counts.test.js",),
     "tujiandan": ("tests/core.test.js", "tests/i18n.test.js"),
 }
 PYTHON_TESTS = {
@@ -36,7 +34,7 @@ PYTHON_TESTS = {
 # These products have no separate core suite. Their real entrypoints are covered
 # by tests/browser/showcase.spec.js; retain this explicit inventory for new apps.
 BROWSER_ONLY = {"family-art-show", "tactile-preflight"}
-SYNTAX = {"scope-sheet": ("app.js",)}
+SYNTAX = {}
 # These suites also have required product jobs. Defer only when routing selected
 # those jobs; an ordinary change to another example still checks every suite.
 PRODUCT_JOBS = {"tabledelta", "cuecheck"}

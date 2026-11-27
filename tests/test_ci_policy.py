@@ -47,7 +47,7 @@ class RoutePolicyTests(unittest.TestCase):
             with self.subTest(product=product):
                 self.assertEqual(self.selected(f"examples/{product}/src/main.js"), {product, "browser"})
                 self.assertEqual(self.selected(f"examples/{product}/README.md"), {product, "browser"})
-        for path in ("examples/README.md", "examples/rest-rhythm/styles.css", "examples/scopefence/app.js", "examples/payment-recovery-audit/bin/audit.js"):
+        for path in ("examples/README.md", "examples/rest-rhythm/styles.css", "examples/scopefence/app.js", "examples/tujiandan/index.html"):
             with self.subTest(path=path):
                 self.assertEqual(self.selected(path), {"browser"})
 
@@ -156,8 +156,7 @@ class ExampleInventoryTests(unittest.TestCase):
             self.fixture(root)
             EXAMPLES.validate_inventory(root)
             for name, filename in (("chart-proof", "tests/core.test.cjs"),
-                                   ("field-return-audit", "tests/test_server.py"),
-                                   ("scope-sheet", "app.js")):
+                                   ("field-return-audit", "tests/test_server.py")):
                 path = root / "examples" / name / filename
                 path.unlink()
                 with self.subTest(filename=filename), self.assertRaisesRegex(ValueError, name):

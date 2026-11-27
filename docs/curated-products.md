@@ -1,8 +1,8 @@
 # 高完成度产品筛选与分级清单 / Curated Product Inventory
 
-本清单按“只保留高完成度成品用于主推展示、同时无损保护既有资产与 CI 注册表”原则，对仓库内 **22 个 `examples/`**、**`projects/snapog`** 以及 **6 个暂停中的 `oil-ui` 产品**进行实测分级。
+本清单按“只保留高完成度成品用于主推展示、同时无损保护既有资产”原则，对仓库内 **19 个保留 `examples/`**、**`projects/snapog`**、**6 个暂停中的 `oil-ui` 产品**以及 **3 个已按用户确认移除的 Tier 3 轻量示例**记录如下。
 
-> **保留边界**：当前未物理删除任何目录，以保持 `scripts/ci/examples.py` 全量清单一比一兼容与历史溯源完整；下方标注的 Tier 3 轻量项可在您后续明确确认后再做物理移出或归档。
+> **状态说明**：经用户明确批准，原 22 个 `examples/` 中的 3 个 Tier 3 轻量/CLI 项（`payment-recovery-audit`、`scope-sheet`、`text-meter`）已从工作树 `examples/` 移除，并同步更新 `scripts/ci/examples.py`、`tests/test_ci_policy.py`、`tests/browser/showcase.spec.js`、`examples/README.md`、`README.md` 与 `README-ZH.md`（历史快照仍可在标签 `mechanism/harness-v2.2-c` @ `e3cd209` 完整回溯）；当前共保留 19 个公开产品（15 Tier 1 + 4 Tier 2）。
 
 ## Tier 1：高完成度独立 Web 产品（15 个，推荐保留与主推）
 
@@ -37,12 +37,12 @@
 | `projects/snapog` | 人类本地修改保留资产（原库 `Autonomous-Company/projects/snapog` 与开发工作树同步保护） | 独立子项目 | 永久受保护资产，不动 |
 | 6 个 `oil-ui` 暂停产品 | `场序`、`折间`、`执行单`、`时间航道`、`尺价`、`声巷`（2026-10-22 用户要求暂停） | `runs/oil-ui-*` 与运行态 | 保留原状与身份记录；仅随用户明确指令恢复 |
 
-## Tier 3：轻量 / 非 WebUI 候选项（3 个，建议不入主推展示；可按确认移出）
+## Tier 3：轻量 / 非 WebUI 项（3 个，已按批准移除；可从历史标签回溯）
 
-| 产品目录 | 实测情况 | 规模 | 降级原因 / 后续可选操作 |
+| 产品目录 | 移除前实测情况 | 规模 | 移除原因与回溯入口 |
 |---|---|---|---|
-| `examples/payment-recovery-audit` | Node `5/5` PASS | 12 / 50.6 KB | 仅 CLI/fixture 审计脚本，无 `index.html` 可视界面 |
-| `examples/scope-sheet` | `node --check app.js` PASS | 8 / 24.7 KB | 仅单文件静态表单，无自动化单测覆盖（`tests=0`） |
-| `examples/text-meter` | Node `5/5` PASS | 10 / 12.6 KB | 极简字数/行数统计器，产品体量与复杂度偏小 |
+| `examples/payment-recovery-audit` | Node `5/5` PASS | 12 / 50.6 KB | 仅 CLI/fixture 审计脚本，无 `index.html` 可视界面；可从 `mechanism/harness-v2.2-c` 回溯 |
+| `examples/scope-sheet` | `node --check app.js` PASS | 8 / 24.7 KB | 仅单文件静态表单，无自动化单测覆盖（`tests=0`）；可从 `mechanism/harness-v2.2-c` 回溯 |
+| `examples/text-meter` | Node `5/5` PASS | 10 / 12.6 KB | 极简字数/行数统计器，产品体量与复杂度偏小；可从 `mechanism/harness-v2.2-c` 回溯 |
 
-若需在主分支中物理移除上述 3 个 Tier 3 示例，需同步更新 `scripts/ci/examples.py`、`examples/README.md` 及 `examples/SOURCES.md`；在用户明确确认前全部原样保留。
+上述 3 项的 CI 注册、浏览器目录用例及 README 条目均已同步更新，当前 `scripts/ci/examples.py` 与 `tests/browser/showcase.spec.js` 保持 19 项一比一对齐。

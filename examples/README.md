@@ -1,8 +1,8 @@
 # 公开示例 / Public examples
 
-这里保存 22 个经人工授权公开的产品快照：14 个后续产品、4 个选出的历史产品与4个既有公开示例。它们展示实际可运行的软件与各自边界；没有把构造演示、软件测试或周期完成写成真实采用、成交或盈利。
+这里保存 19 个经人工授权公开的产品快照：14 个后续产品与 5 个筛选保留的历史及既有公开示例。它们展示实际可运行的软件与各自边界；没有把构造演示、软件测试或周期完成写成真实采用、成交或盈利。
 
-These 22 human-authorized source snapshots comprise 14 continuation products, four selected historical products and four previously published examples. Synthetic demonstrations, software checks and completed cycles do not establish customer adoption, revenue or real-world effectiveness.
+These 19 human-authorized source snapshots comprise 14 continuation products and five selected historical and previously published examples. Synthetic demonstrations, software checks and completed cycles do not establish customer adoption, revenue or real-world effectiveness.
 
 ## 打开方式 / Local use
 
@@ -14,9 +14,9 @@ Enter the example's directory first. **Static PORT** means serve that directory 
 python -m http.server 8080 --bind 127.0.0.1
 ```
 
-**npm start** 的运行依赖与端口见各项目 README；这些原生前端无需构建。三个 Python 后端使用各自的服务入口。支付审计是 CLI，没有网页。开发测试需要的 Playwright 不属于产品运行依赖。
+**npm start** 的运行依赖与端口见各项目 README；这些原生前端无需构建。三个 Python 后端使用各自的服务入口。开发测试需要的 Playwright 不属于产品运行依赖。
 
-For **npm start**, see the linked README for runtime requirements and port; these native frontends need no build. The three Python backends have their own server entrypoints. Payment Recovery Audit is a CLI. Playwright is a development-test dependency.
+For **npm start**, see the linked README for runtime requirements and port; these native frontends need no build. The three Python backends have their own server entrypoints. Playwright is a development-test dependency.
 
 ## 任务与边界 / Tasks and limits
 
@@ -39,17 +39,14 @@ For **npm start**, see the linked README for runtime requirements and port; thes
 | [ScopeFence](scopefence/) | 分享范围变更与费用、工期决定 / Share a scope-change decision | Static 8000 | 链接可改写，不是认证批准 / Editable link, no authenticated approval | [来源 / Source](scopefence/SOURCE.md) |
 | [图检单 / Image Batch Check](tujiandan/) | 核对图片尺寸、体积、格式与命名 / Check image delivery batches | `npm start` · 8000 | 不修改原图；示例规则非行业标准 / No image edits or industry-standard claim | [来源 / Source](tujiandan/SOURCE.md) |
 | [保单跟进台 / COI Chase Desk](coi-chase-desk/) | 记录资料请求、已做联系与收件出处 / Track insurance-document requests | Static 8000 | 仅本次会话，不发消息、不认证保险 / Session-only, no sending or insurance validation | [来源 / Source](coi-chase-desk/SOURCE.md) |
-| [Payment Recovery Audit](payment-recovery-audit/) | 审计失败账单机会与观测净付款 / Audit failed-invoice opportunities | `npm run demo:audit` · Node ≥18 | 只读构造文件，不连接 Stripe、不移动资金 / Fixture-only, no Stripe calls or fund movement | [来源 / Source](payment-recovery-audit/SOURCE.md) |
 | [行间 / TableDelta](tabledelta/) | 按唯一键比较两份 CSV，下载变化原值 / Compare CSVs by a unique key | Static 8765 | 键须唯一；不是数据库迁移或自动修复 / Unique keys required, no migration or repair | [既有公开来源 / Published source](tabledelta/README.md#项目来源) |
 | [幕检 / CueCheck](cuecheck/) | 检查、逐条编辑并导出 SRT / Review and edit SRT subtitles | Static 8766 | 阅读负担为复核提示；不保证播放体验 / Reading-load prompts, no playback guarantee | [既有公开来源 / Published source](cuecheck/README.md#项目来源) |
-| [Text Meter](text-meter/) | 统计 Unicode 字符、空白分词与行数 / Count Unicode text and lines | Static 8000 | 字符为码点，词按空白切分 / Code points, whitespace-separated words | [来源 / Source](text-meter/SOURCE.md) |
-| [范围确认单 / Scope Sheet](scope-sheet/) | 填写范围与报价，导出中文确认单 / Prepare a Chinese scope note | Static 8000 | 确认单草稿，不提供法律批准 / Draft note, no legal approval | [来源 / Source](scope-sheet/SOURCE.md) |
 
 ## 来源与保存 / Provenance and preservation
 
-14 个后续产品的原运行标识见 [SOURCES.md](SOURCES.md)，选出的历史产品有各自来源说明。原始运行记录保持不变；本次公开副本中的设计、可运行性、翻译与缺陷修复是后续人工授权工作，不增加历史自主轮次。四个旧公开示例从原 `projects/` 展示目录迁入，SnapOG 历史资产仍留在 [projects/snapog](../projects/snapog/)。
+14 个后续产品的原运行标识见 [SOURCES.md](SOURCES.md)，其余选出的历史产品与既有公开示例有各自来源说明。原始运行记录保持不变；本次公开副本中的设计、可运行性、翻译与缺陷修复是后续人工授权工作，不增加历史自主轮次。既往保留的公开示例从原 `projects/` 展示目录迁入，SnapOG 历史资产仍留在 [projects/snapog](../projects/snapog/)。
 
-The 14 continuation sources are listed in [SOURCES.md](SOURCES.md); selected historical products have individual source notes. Original run records remain unchanged. Publication refinements are later human-authorized work, not extra historical autonomous cycles. Four earlier public examples moved here from `projects/`; the preserved SnapOG asset remains in [projects/snapog](../projects/snapog/).
+The 14 continuation sources are listed in [SOURCES.md](SOURCES.md); selected historical and previously published examples have individual source notes. Original run records remain unchanged. Publication refinements are later human-authorized work, not extra historical autonomous cycles. Earlier public examples preserved here moved from `projects/`; the preserved SnapOG asset remains in [projects/snapog](../projects/snapog/).
 
 公开快照不包含嵌套 Git、凭据、模型记录、本机身份/治理状态、运行日志或私有发布历史。新自主产品仍在 [projects/](../projects/)，属于独立本机仓库；它们不会自动加入本目录或框架 GitHub 仓库。
 
