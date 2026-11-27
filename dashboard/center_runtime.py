@@ -325,7 +325,10 @@ class CenterRuntime:
                 return dict(entry[1])
         value = loader()
         with self._capability_lock:
-            self._capability_cache[key] = (time.monotonic() + 5.0, dict(value))
+            if isinstance(value, dict) and value and value.get("pauseReason") != "interrupted_cycle":
+                self._capability_cache[key] = (time.monotonic() + 5.0, dict(value))
+            else:
+                self._capability_cache.pop(key, None)
         return value
 
     def environment(self):

@@ -923,7 +923,11 @@ class QueueTests(unittest.TestCase):
                 self.runtime._closing.clear()
 
         hits = []
-        self.adapter.query = lambda action, **kwargs: hits.append(action) or {"context": {"valid": True, "productId": None}, "compatible": True}
+        marker_a = json.loads((Path(self.a["root"]) / ".autonomous-company-center.json").read_text())
+        self.adapter.query = lambda action, **kwargs: hits.append(action) or {
+            "ok": True, "marker": marker_a,
+            "context": {"valid": True, "productId": None}, "compatible": True,
+        }
         view = {**self.a, "availability": "available"}
         self.runtime.decorate_entry(view)
         self.runtime.decorate_entry(view)
