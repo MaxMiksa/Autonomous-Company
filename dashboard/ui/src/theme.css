@@ -49,6 +49,8 @@
 }
 /* Business layout only. All control surfaces and states come from components. */
 [data-slot=native-select-wrapper] { min-width: 0; width: 100%; }
+[data-slot=native-select] { appearance: none; -webkit-appearance: none; white-space: nowrap; }
+[data-slot=native-select]::picker-icon { display: none; }
 [data-slot=table-container] { min-width: 0; }
 [data-slot=popover-content], [data-slot=tooltip-content], [data-slot=dropdown-menu-content] { z-index: 130; max-width: min(320px, calc(100vw - 32px)); }
 [data-slot=dropdown-menu-content] { max-height: var(--radix-dropdown-menu-content-available-height); }
@@ -69,7 +71,9 @@
 .product-table :is(thead,tbody) { display: block; }
 .product-table :is(th,td) { min-width: 0; white-space: normal; padding: 0; }
 .product-table .column-heading [data-slot=button] { max-width: 100%; }
-.product-table .column-heading :is(button, select) { font-size: var(--text-caption); }
+.product-table .column-heading :is(button, select) { font-size: var(--text-caption); white-space: nowrap; }
+.product-table .column-heading [data-slot=native-select] { padding-inline: 10px 28px; overflow: hidden; text-overflow: ellipsis; }
+.product-table .column-heading [data-slot=native-select-icon] { right: 8px; }
 .product-group-title, .queue-sidebar h2, .product-name, .sidebar-block h2, .history-title, .cycle-title { font-size: var(--text-title); line-height: 1.45; }
 .history-number, .cycle-number { font-size: var(--text-page); }
 .runtime-details :is(dt, dd) { font-size: var(--text-body); line-height: var(--line-body); }
@@ -268,7 +272,7 @@ html[data-ui=shadcn] #settingsForm { padding: 0; gap: 0; display: flex; flex-dir
 .filters .filter-button[data-state=on] { background: transparent; color: var(--ui-primary-foreground); }
 .filters .filter-button:hover:not([data-state=on]) { background: light-dark(#e4eaf3, var(--ui-surface)); }
 .filters .filter-count { display: inline-flex; margin: 0; vertical-align: middle; }
-.product-head, .product-row { grid-template-columns: 94px minmax(0, 1.35fr) minmax(106px, .8fr) minmax(124px, .95fr) minmax(0, 1.7fr) 116px; }
+.product-head, .product-row { grid-template-columns: 94px minmax(0, 1.35fr) minmax(116px, .85fr) minmax(124px, .95fr) minmax(0, 1.7fr) 116px; }
 .column-heading[data-column=round] { display: flex; justify-content: center; }
 .product-row > .latest-round { justify-content: center; gap: 6px 8px; text-align: center; }
 .latest-round .round-number { flex: 0 0 auto; margin: 0; }
