@@ -10,8 +10,8 @@
     "pnpm": "12.16.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.0",
-    "playwright": "1.64.0"
+    "@playwright/test": "1.65.1",
+    "playwright": "1.65.1"
   },
   "packageManager": "pnpm@12.16.1"
 }

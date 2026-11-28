@@ -12,19 +12,37 @@ updates:
     directory: /dashboard/ui
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    groups:
+      dashboard-ui:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /scripts/media
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    groups:
+      media-playwright:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /tests/browser
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    groups:
+      browser-playwright:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /projects/snapog
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: wrangler
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+    groups:
+      snapog-deps:
+        patterns: ['*']
+        update-types: ['minor', 'patch']

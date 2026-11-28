@@ -608,6 +608,7 @@ test("all cycle headings share full-row interaction and retain height when toggl
 });
 
 test("unnamed projects use a preset title in the workspace tab", async ({ page, journal }) => {
+  await setLanguage(page, journal, "zh");
   const data = (await (await page.request.get(journal.apiUrl)).json()).data;
   data.project = { ...data.project, displayName: '', name: '' };
   data.entry = null;
